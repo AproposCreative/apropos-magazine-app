@@ -7,4 +7,8 @@ struct Article: Identifiable, Codable {
     let content: String
     let imageURL: String
     let rating: Int
+    let options: String?
+    let stjerner: String?
+    let stars_1_5: String?
+    let date: String?
 }

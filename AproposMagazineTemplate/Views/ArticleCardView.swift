@@ -4,6 +4,12 @@ struct ArticleCardView: View {
     let article: Article
     @EnvironmentObject var viewModel: ArticleViewModel
 
+    // Helper til at vise stjerner
+    func starString(from stjerner: String?) -> String {
+        guard let stjerner = stjerner, let count = Int(stjerner) else { return "Stjerner felt: mangler" }
+        return String(repeating: "★", count: count)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             ZStack(alignment: .topTrailing) {
@@ -42,7 +48,7 @@ struct ArticleCardView: View {
                 .padding(.bottom, 2)
 
             HStack {
-                Text("★ \(article.rating)")
+                Text(starString(from: article.stjerner))
                     .font(.caption)
                     .foregroundColor(Color("Accent"))
                 Spacer()

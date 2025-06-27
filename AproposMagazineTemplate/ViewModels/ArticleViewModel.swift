@@ -76,4 +76,12 @@ class ArticleViewModel: ObservableObject {
             UserDefaults.standard.set(data, forKey: favoritesKey)
         }
     }
+    
+    // Computed properties for HomeView-sektioner
+    var continueWatching: [Article] {
+        Array(articles.dropFirst(5).prefix(10))
+    }
+    var popular: [Article] {
+        Array(articles.shuffled().prefix(10))
+    }
 }

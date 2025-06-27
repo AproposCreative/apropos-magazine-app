@@ -6,7 +6,7 @@ struct ArticleListView: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var logoName: String {
-        colorScheme == .dark ? "aproposLogoWhite" : "aproposLogoBlack"
+        colorScheme == .dark ? "AproposLogoWhite" : "AproposLogoBlack"
     }
 
     var body: some View {
@@ -53,7 +53,7 @@ struct ArticleListView: View {
                     ScrollView {
                         LazyVStack(spacing: 24) {
                             ForEach(showFavorites ? viewModel.favorites : viewModel.articles) { article in
-                                NavigationLink(destination: Text(article.title)) {
+                                NavigationLink(destination: ArticleDetailView(article: article)) {
                                     ArticleCardView(article: article)
                                         .environmentObject(viewModel)
                                 }
