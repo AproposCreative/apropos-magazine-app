@@ -25,3 +25,34 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots
 AproposMagazinev2/
+
+# Security & Sensitive Files
+# Apple Push Notification certificates and keys
+*.p8
+*.p12
+*.cer
+*.mobileprovision
+*.certSigningRequest
+
+# Firebase Admin SDK keys
+serviceAccountKey.json
+*firebase-adminsdk*.json
+Firebase Admin SDK/
+
+# CSR Keychain Certificates
+CSR Keychain Certificate/
+
+# API Keys and Secrets
+*.key
+*.secret
+config.json
+secrets.json
+
+# Environment files
+.env
+.env.local
+.env.production
+
+# Backup files
+backup.log
+*.backup
