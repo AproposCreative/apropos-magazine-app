@@ -1,0 +1,67 @@
+name: 🚀 Automatisk Backup
+
+on:
+  schedule:
+    # Kør hver dag kl. 02:00 UTC (03:00 dansk tid om vinteren, 04:00 om sommeren)
+    - cron: '0 2 * * *'
+  workflow_dispatch: # Tillad manuel kørsel
+  push:
+    branches: [ main ]
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout kode
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0
+
+    - name: 🔧 Konfigurer Git
+      run: |
+        git config --global user.name "Apropos Magazine Bot"
+        git config --global user.email "bot@aproposmagazine.com"
+
+    - name: 📊 Tjek for ændringer
+      id: check-changes
+      run: |
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "changes=true" >> $GITHUB_OUTPUT
+          echo "📝 Ændringer fundet - starter backup"
+        else
+          echo "changes=false" >> $GITHUB_OUTPUT
+          echo "✅ Ingen ændringer at backe op"
+        fi
+
+    - name: 💾 Opret backup commit
+      if: steps.check-changes.outputs.changes == 'true'
+      run: |
+        TIMESTAMP=$(date "+%Y-%m-%d %H:%M:%S")
+        git add .
+        git commit -m "🤖 Automatisk backup - $TIMESTAMP
+
+        - Backup oprettet af GitHub Actions
+        - Dato: $(date)
+        - Workflow: ${{ github.workflow }}
+        - Run ID: ${{ github.run_id }}"
+
+    - name: 🚀 Push til GitHub
+      if: steps.check-changes.outputs.changes == 'true'
+      run: |
+        git push origin main
+
+    - name: 📧 Notifikation ved succes
+      if: steps.check-changes.outputs.changes == 'true'
+      run: |
+        echo "✅ Backup fuldført succesfuldt!"
+        echo "📅 Dato: $(date)"
+        echo "🔗 Repository: ${{ github.repository }}"
+        echo "📝 Commit: ${{ github.sha }}"
+
+    - name: 📧 Notifikation ved ingen ændringer
+      if: steps.check-changes.outputs.changes == 'false'
+      run: |
+        echo "ℹ️ Ingen ændringer at backe op"
+        echo "📅 Dato: $(date)"
