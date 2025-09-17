@@ -223,7 +223,7 @@ struct SearchView_Enhanced: View {
                 showNavTitle = value < -40
             }
         }
-        .scrollableModernTopBar(
+        .ios26ScrollableTopBar(
             title: "Artikler",
             showNavTitle: $showNavTitle,
             showSearchButton: true,

@@ -239,7 +239,7 @@ struct FavoritesView: View {
                         showNavTitle = offset < -8
                     }
                 }
-                .scrollableModernTopBar(
+                .ios26ScrollableTopBar(
                     title: "Gemt",
                     showNavTitle: $showNavTitle,
                     showSearchButton: true,
