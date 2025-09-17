@@ -56,3 +56,7 @@ secrets.json
 # Backup files
 backup.log
 *.backup
+
+# Swift Package Manager
+SourcePackages/
+Package.resolved
