@@ -24,7 +24,6 @@ Carthage/Build/
 fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots
-AproposMagazinev2/
 
 # Security & Sensitive Files
 # Apple Push Notification certificates and keys
@@ -38,6 +37,7 @@ AproposMagazinev2/
 serviceAccountKey.json
 *firebase-adminsdk*.json
 Firebase Admin SDK/
+AproposMagazinev2/GoogleService-Info.plist
 
 # CSR Keychain Certificates
 CSR Keychain Certificate/
@@ -60,3 +60,4 @@ backup.log
 # Swift Package Manager
 SourcePackages/
 Package.resolved
+AproposMagazinev2/SourcePackages/
