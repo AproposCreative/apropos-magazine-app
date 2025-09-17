@@ -239,30 +239,34 @@ struct FavoritesView: View {
                         showNavTitle = offset < -8
                     }
                 }
-                .ios26ScrollableTopBar(
-                    title: "Gemt",
-                    showNavTitle: $showNavTitle,
-                    showSearchButton: true,
-                    showMenuButton: true,
-                    showNotificationButton: true,
-                    showUserMenuButton: true,
-                    onSearch: {
-                        // Navigate to search
-                        navigationCoordinator.navigateToTab(.search)
-                    },
-                    onMenu: {
-                        // Show favorites menu
-                        print("Favorites menu tapped")
-                    },
-                    onNotification: {
-                        // Handle notifications
-                        print("Notifications tapped")
-                    },
-                    onUserMenu: {
-                        // Handle user menu
-                        print("User menu tapped")
+                .navigationBarTitleDisplayMode(.inline)
+                .navigationTitle(showNavTitle ? "Gemt" : "")
+                
+            }
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text(showNavTitle ? "Gemt" : "")
+                        .font(.headline)
+                        .opacity(showNavTitle ? 1 : 0)
+                }
+                
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    HStack(spacing: 16) {
+                        Button {
+                            // Navigate to search
+                            navigationCoordinator.navigateToTab(.search)
+                        } label: {
+                            Image(systemName: "magnifyingglass")
+                        }
+                        Button {
+                            // Show favorites menu
+                            print("Favorites menu tapped")
+                        } label: {
+                            Image(systemName: "line.3.horizontal")
+                        }
                     }
-                )
+                }
+            }
         }
     }
 }
@@ -350,6 +354,5 @@ struct VisualEffectBlur: UIViewRepresentable {
     func updateUIView(_ uiView: UIVisualEffectView, context: Context) {
         uiView.effect = UIBlurEffect(style: blurStyle)
     }
-}
 }
 
