@@ -27,13 +27,7 @@ struct CategoryDetailView: View {
                     Button(action: {
                         navigationCoordinator.navigateToArticle(article, in: .categories)
                     }) {
-                        ArticleCardView_Enhanced(
-                            article: article,
-                            isFavorite: viewModel.favorites.contains(article)
-                        ) { article in
-                            viewModel.toggleFavorite(for: article)
-                        }
-                        .padding(.horizontal, 16)
+                        ArticleRowCompact(article: article)
                     }
                     .buttonStyle(PlainButtonStyle())
                 }

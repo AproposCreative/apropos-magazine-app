@@ -51,29 +51,7 @@ struct CategoriesView: View {
                 .listStyle(.plain)
             }
         }
-                .ios26TopBar(
-                    title: "Kategorier",
-                    showSearchButton: true,
-                    showMenuButton: true,
-                    showNotificationButton: true,
-                    showUserMenuButton: true,
-                    onSearch: {
-                        // Navigate to search/articles
-                        navigationCoordinator.navigateToTab(.search)
-                    },
-                    onMenu: {
-                        // Handle menu action
-                        print("Menu tapped")
-                    },
-                    onNotification: {
-                        // Handle notifications
-                        print("Notifications tapped")
-                    },
-                    onUserMenu: {
-                        // Handle user menu
-                        print("User menu tapped")
-                    }
-                )
+        // .modernTopBar() - temporarily disabled
     }
     
     private var shimmerPlaceholder: some View {
