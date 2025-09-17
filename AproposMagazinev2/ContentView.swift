@@ -48,6 +48,7 @@ struct ContentView: View {
             // Categories Tab
             NavigationStack(path: navigationCoordinator.path(for: .categories)) {
                 CategoriesView()
+                    .environmentObject(navigationCoordinator)
                     .navigationDestination(for: Article.self) { article in
                         ArticleDetailView(article: article)
                             .environmentObject(viewModel)
@@ -126,6 +127,7 @@ struct ContentView: View {
             SearchView_Enhanced()
         case .categories:
             CategoriesView()
+                .environmentObject(navigationCoordinator)
         case .favorites:
             FavoritesView()
         case .profile:
