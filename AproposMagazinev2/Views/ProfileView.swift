@@ -50,7 +50,7 @@ struct ProfileView: View {
             }
         }
         .background(Color(.systemGroupedBackground))
-        .modernTopBar(
+        .ios26TopBar(
             title: "Profil",
             showSearchButton: true,
             showMenuButton: true,
