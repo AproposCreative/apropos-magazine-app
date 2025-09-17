@@ -602,10 +602,10 @@ struct HeroCardView: View {
                                 }
                             } label: {
                                 Image(systemName: viewModel.isFavorite(article) ? "checkmark" : "plus")
-                                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                                    .foregroundColor(colorScheme == .dark ? .black : .black)
                                     .font(.title2)
                                     .frame(width: 24, height: 24) // 🔧 Fixed frame to prevent size changes
-                                    .padding()
+                                    .padding(12)
                                     .background(Color.white.opacity(0.9))
                                     .clipShape(RoundedRectangle(cornerRadius: .infinity))
 
