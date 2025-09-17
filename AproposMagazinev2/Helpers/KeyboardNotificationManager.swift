@@ -30,10 +30,8 @@ class KeyboardNotificationManager: ObservableObject {
     }
     
     deinit {
-        Task { @MainActor in
-            removeKeyboardObservers()
-            webViewDetectionTimer?.invalidate()
-        }
+        removeKeyboardObservers()
+        webViewDetectionTimer?.invalidate()
     }
     
     private func setupKeyboardObservers() {
@@ -42,7 +40,9 @@ class KeyboardNotificationManager: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            self?.handleKeyboardNotification(notification, type: .willShow)
+            Task { @MainActor in
+                self?.handleKeyboardNotification(notification, type: .willShow)
+            }
         }
         
         keyboardWillHideObserver = NotificationCenter.default.addObserver(
@@ -50,7 +50,9 @@ class KeyboardNotificationManager: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            self?.handleKeyboardNotification(notification, type: .willHide)
+            Task { @MainActor in
+                self?.handleKeyboardNotification(notification, type: .willHide)
+            }
         }
         
         keyboardWillChangeFrameObserver = NotificationCenter.default.addObserver(
@@ -58,7 +60,9 @@ class KeyboardNotificationManager: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            self?.handleKeyboardNotification(notification, type: .willChangeFrame)
+            Task { @MainActor in
+                self?.handleKeyboardNotification(notification, type: .willChangeFrame)
+            }
         }
         
         keyboardDidShowObserver = NotificationCenter.default.addObserver(
@@ -66,7 +70,9 @@ class KeyboardNotificationManager: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            self?.handleKeyboardNotification(notification, type: .didShow)
+            Task { @MainActor in
+                self?.handleKeyboardNotification(notification, type: .didShow)
+            }
         }
         
         keyboardDidHideObserver = NotificationCenter.default.addObserver(
@@ -74,7 +80,9 @@ class KeyboardNotificationManager: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            self?.handleKeyboardNotification(notification, type: .didHide)
+            Task { @MainActor in
+                self?.handleKeyboardNotification(notification, type: .didHide)
+            }
         }
         
         keyboardDidChangeFrameObserver = NotificationCenter.default.addObserver(
@@ -82,7 +90,9 @@ class KeyboardNotificationManager: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            self?.handleKeyboardNotification(notification, type: .didChangeFrame)
+            Task { @MainActor in
+                self?.handleKeyboardNotification(notification, type: .didChangeFrame)
+            }
         }
     }
     
@@ -98,7 +108,9 @@ class KeyboardNotificationManager: ObservableObject {
     private func startWebViewDetection() {
         // Check for web views every 2 seconds
         webViewDetectionTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
-            self?.checkForWebViews()
+            Task { @MainActor in
+                self?.checkForWebViews()
+            }
         }
     }
     
