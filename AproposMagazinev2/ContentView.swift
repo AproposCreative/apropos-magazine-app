@@ -42,7 +42,7 @@ struct ContentView: View {
                         destinationView(for: route)
                     }
             }
-            .tabItem { Label("Søg", systemImage: "magnifyingglass") }
+            .tabItem { Label("Artikler", systemImage: "doc.text") }
             .tag(Tab.search)
             
             // Categories Tab
