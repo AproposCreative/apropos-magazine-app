@@ -35,7 +35,7 @@ struct SafeFavoriteButton: View {
                 // Icon with consistent sizing
                 Image(systemName: isArticleFavorite ? "checkmark" : "plus")
                     .font(.system(size: 16, weight: .medium)) // Consistent font size
-                    .foregroundColor(colorScheme == .dark ? .black : .white)
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
                     .frame(width: 16, height: 16) // Fixed icon frame size
             }
         }
