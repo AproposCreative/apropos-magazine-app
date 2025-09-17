@@ -517,3 +517,63 @@ struct MenuRow: View {
     }
     .background(Color(.systemGroupedBackground))
 }
+
+// MARK: - View Extensions
+
+extension View {
+    func modernTopBar(
+        title: String,
+        showSearchButton: Bool = true,
+        showMenuButton: Bool = true,
+        showNotificationButton: Bool = false,
+        showUserMenuButton: Bool = false,
+        onSearch: @escaping () -> Void = {},
+        onMenu: @escaping () -> Void = {},
+        onNotification: @escaping () -> Void = {},
+        onUserMenu: @escaping () -> Void = {}
+    ) -> some View {
+        self.overlay(
+            ModernTopBar(
+                title: title,
+                showSearchButton: showSearchButton,
+                showMenuButton: showMenuButton,
+                showNotificationButton: showNotificationButton,
+                showUserMenuButton: showUserMenuButton,
+                onSearch: onSearch,
+                onMenu: onMenu,
+                onNotification: onNotification,
+                onUserMenu: onUserMenu
+            ),
+            alignment: .top
+        )
+    }
+    
+    func scrollableModernTopBar(
+        title: String,
+        showNavTitle: Binding<Bool>,
+        showSearchButton: Bool = true,
+        showMenuButton: Bool = true,
+        showNotificationButton: Bool = false,
+        showUserMenuButton: Bool = false,
+        onSearch: @escaping () -> Void = {},
+        onMenu: @escaping () -> Void = {},
+        onNotification: @escaping () -> Void = {},
+        onUserMenu: @escaping () -> Void = {}
+    ) -> some View {
+        self.overlay(
+            ScrollableModernTopBar(
+                title: title,
+                showSearchButton: showSearchButton,
+                showMenuButton: showMenuButton,
+                showNotificationButton: showNotificationButton,
+                showUserMenuButton: showUserMenuButton,
+                onSearch: onSearch,
+                onMenu: onMenu,
+                onNotification: onNotification,
+                onUserMenu: onUserMenu,
+                showNavTitle: showNavTitle
+            ),
+            alignment: .top
+        )
+    }
+}
