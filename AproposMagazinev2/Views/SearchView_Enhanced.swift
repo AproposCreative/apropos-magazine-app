@@ -223,8 +223,30 @@ struct SearchView_Enhanced: View {
                 showNavTitle = value < -40
             }
         }
-        .navigationTitle(showNavTitle ? "Artikler" : "")
-        .navigationBarTitleDisplayMode(.inline)
+        .scrollableModernTopBar(
+            title: "Artikler",
+            showNavTitle: $showNavTitle,
+            showSearchButton: true,
+            showMenuButton: false,
+            showNotificationButton: true,
+            showUserMenuButton: true,
+            onSearch: {
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    showSearchBar.toggle()
+                }
+            },
+            onMenu: {
+                // No menu action needed
+            },
+            onNotification: {
+                // Handle notifications
+                print("Notifications tapped")
+            },
+            onUserMenu: {
+                // Handle user menu
+                print("User menu tapped")
+            }
+        )
         .onAppear {
             showNavTitle = false
         }

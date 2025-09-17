@@ -50,10 +50,12 @@ struct ProfileView: View {
             }
         }
         .background(Color(.systemGroupedBackground))
-        .uniformTopBar(
+        .modernTopBar(
             title: "Profil",
             showSearchButton: true,
             showMenuButton: true,
+            showNotificationButton: true,
+            showUserMenuButton: true,
             onSearch: {
                 // Navigate to search
                 navigationCoordinator.navigateToTab(.search)
@@ -61,6 +63,14 @@ struct ProfileView: View {
             onMenu: {
                 // Show settings menu
                 print("Settings menu tapped")
+            },
+            onNotification: {
+                // Handle notifications
+                print("Notifications tapped")
+            },
+            onUserMenu: {
+                // Handle user menu
+                print("User menu tapped")
             }
         )
             .onAppear {
