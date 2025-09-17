@@ -8,31 +8,35 @@ class KeyboardNotificationManager: ObservableObject {
     @Published var keyboardHeight: CGFloat = 0
     @Published var isKeyboardVisible = false
     
-    nonisolated private var keyboardWillShowObserver: NSObjectProtocol?
-    nonisolated private var keyboardWillHideObserver: NSObjectProtocol?
-    nonisolated private var keyboardWillChangeFrameObserver: NSObjectProtocol?
-    nonisolated private var keyboardDidShowObserver: NSObjectProtocol?
-    nonisolated private var keyboardDidHideObserver: NSObjectProtocol?
-    nonisolated private var keyboardDidChangeFrameObserver: NSObjectProtocol?
+    private var keyboardWillShowObserver: NSObjectProtocol?
+    private var keyboardWillHideObserver: NSObjectProtocol?
+    private var keyboardWillChangeFrameObserver: NSObjectProtocol?
+    private var keyboardDidShowObserver: NSObjectProtocol?
+    private var keyboardDidHideObserver: NSObjectProtocol?
+    private var keyboardDidChangeFrameObserver: NSObjectProtocol?
     
     private var lastNotificationTime: Date = Date()
     private let notificationCooldown: TimeInterval = 0.3
     
     @Published var isWebViewPresent = false
-    nonisolated private var webViewDetectionTimer: Timer?
+    private var webViewDetectionTimer: Timer?
     private var isSignInActive = false
     
     private init() {
-        setupKeyboardObservers()
-        startWebViewDetection()
+        Task { @MainActor in
+            setupKeyboardObservers()
+            startWebViewDetection()
+        }
     }
     
     deinit {
-        removeKeyboardObservers()
-        webViewDetectionTimer?.invalidate()
+        Task { @MainActor in
+            removeKeyboardObservers()
+            webViewDetectionTimer?.invalidate()
+        }
     }
     
-    nonisolated private func setupKeyboardObservers() {
+    private func setupKeyboardObservers() {
         keyboardWillShowObserver = NotificationCenter.default.addObserver(
             forName: UIResponder.keyboardWillShowNotification,
             object: nil,
@@ -82,7 +86,7 @@ class KeyboardNotificationManager: ObservableObject {
         }
     }
     
-    nonisolated private func removeKeyboardObservers() {
+    private func removeKeyboardObservers() {
         if let observer = keyboardWillShowObserver { NotificationCenter.default.removeObserver(observer); keyboardWillShowObserver = nil }
         if let observer = keyboardWillHideObserver { NotificationCenter.default.removeObserver(observer); keyboardWillHideObserver = nil }
         if let observer = keyboardWillChangeFrameObserver { NotificationCenter.default.removeObserver(observer); keyboardWillChangeFrameObserver = nil }
@@ -91,7 +95,7 @@ class KeyboardNotificationManager: ObservableObject {
         if let observer = keyboardDidChangeFrameObserver { NotificationCenter.default.removeObserver(observer); keyboardDidChangeFrameObserver = nil }
     }
     
-    nonisolated private func startWebViewDetection() {
+    private func startWebViewDetection() {
         // Check for web views every 2 seconds
         webViewDetectionTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             self?.checkForWebViews()
