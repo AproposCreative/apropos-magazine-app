@@ -15,7 +15,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "B68382192E056B2F005C4E85"
-               BuildableName = "Apropos Magazine.app"
+               BuildableName = "AproposMagazinev2.app"
                BlueprintName = "AproposMagazinev2"
                ReferencedContainer = "container:AproposMagazinev2.xcodeproj">
             </BuildableReference>
@@ -70,7 +70,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "B68382192E056B2F005C4E85"
-            BuildableName = "Apropos Magazine.app"
+            BuildableName = "AproposMagazinev2.app"
             BlueprintName = "AproposMagazinev2"
             ReferencedContainer = "container:AproposMagazinev2.xcodeproj">
          </BuildableReference>
@@ -87,7 +87,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "B68382192E056B2F005C4E85"
-            BuildableName = "Apropos Magazine.app"
+            BuildableName = "AproposMagazinev2.app"
             BlueprintName = "AproposMagazinev2"
             ReferencedContainer = "container:AproposMagazinev2.xcodeproj">
          </BuildableReference>
