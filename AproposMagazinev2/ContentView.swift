@@ -136,6 +136,7 @@ struct ContentView: View {
         case .categoryDetail(let categoryName):
             CategoryDetailView(categoryName: categoryName)
                 .environmentObject(viewModel)
+                .environment(\.navigationCoordinator, navigationCoordinator)
         }
     }
 }
