@@ -39,6 +39,7 @@ struct CategoryDetailView: View {
     }
 }
 
+
 struct CategoryDetailView_Previews: PreviewProvider {
     static var previews: some View {
         NavigationStack {
