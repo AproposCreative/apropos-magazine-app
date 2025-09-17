@@ -355,6 +355,7 @@ struct HeroSwipeBar: View {
     let heroHeight: CGFloat
     let onFavorite: (Article) -> Void
     @EnvironmentObject var viewModel: ArticleViewModel
+    @Environment(\.colorScheme) var colorScheme
     
     var body: some View {
         ZStack(alignment: .top) {
@@ -396,7 +397,7 @@ struct HeroSwipeBar: View {
                             .resizable()
                             .aspectRatio(contentMode: .fit)
                             .frame(width: isSelected ? 25 : 8, height: 8)
-                            .background(isSelected ? Color.clear : Color.black.opacity(1.0))
+                            .background(isSelected ? Color.clear : (colorScheme == .dark ? Color.black.opacity(1.0) : Color.white.opacity(0.8)))
                             .clipShape(
                                 RoundedRectangle(cornerRadius: isSelected ? 0 : 4)
                             )
