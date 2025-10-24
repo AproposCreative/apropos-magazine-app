@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 struct ArticleShareView: View {
-    let article: Article
+    var article: Article
     @Environment(\.dismiss) private var dismiss
     @State private var selectedPlatform: SharePlatform = .general
     @State private var customMessage: String = ""
@@ -97,13 +97,15 @@ struct ArticleShareView: View {
 // MARK: - Article Share Preview
 
 struct ArticleSharePreview: View {
-    let article: Article
+    var article: Article
     let platform: SharePlatform
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             // Thumbnail
-            if let url = URL(string: article.thumbnailURL) {
+            var mutableArticle = article
+            let thumbnailURL = mutableArticle.thumbnailURL
+            if let url = URL(string: thumbnailURL) {
                 OptimizedImageView(url: url, cornerRadius: 12)
                     .frame(height: 200)
             }
@@ -299,7 +301,7 @@ enum SharePlatform: CaseIterable {
 // MARK: - Share Sheet
 
 struct ShareSheet: UIViewControllerRepresentable {
-    let article: Article
+    var article: Article
     let platform: SharePlatform
     let customMessage: String
     
@@ -314,7 +316,9 @@ struct ShareSheet: UIViewControllerRepresentable {
         }
         
         // Add image if available
-        if let imageURL = URL(string: article.thumbnailURL) {
+        var mutableArticle = article
+        let thumbnailURL = mutableArticle.thumbnailURL
+        if let imageURL = URL(string: thumbnailURL) {
             // This would be enhanced to actually load and share the image
             activityItems.append(imageURL)
         }

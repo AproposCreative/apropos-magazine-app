@@ -128,7 +128,8 @@ struct HomeView: View {
         // Only pre-load the first 2 hero articles to prevent overload
         let heroArticles = Array(viewModel.articles.prefix(2))
         for article in heroArticles {
-            if article.author == nil {
+            // Prevent duplicate loading and memory overload
+            if article.author == nil && !viewModel.loadingArticles.contains(article.id) && viewModel.fullArticle?.id != article.id {
                 print("🔄 Preloading article: \(article.name ?? "No name")")
                 viewModel.loadFullArticle(with: article.id)
             }
@@ -247,6 +248,21 @@ struct HomeView: View {
 
     private var contentBody: some View {
         VStack(alignment: .leading) {
+            
+            // Debug info
+            if viewModel.articles.isEmpty {
+                VStack {
+                    Text("Debug: No articles loaded")
+                        .foregroundColor(.red)
+                    Text("Articles count: \(viewModel.articles.count)")
+                    Text("Is loading: \(viewModel.isLoading ? "Yes" : "No")")
+                    if let error = viewModel.fetchError {
+                        Text("Error: \(error.localizedDescription)")
+                            .foregroundColor(.red)
+                    }
+                }
+                .padding()
+            }
             
             if !viewModel.articles.isEmpty {
                 HeroSwipeBar(
@@ -416,7 +432,8 @@ struct HeroSwipeBar: View {
             // Only pre-load the first 2 hero articles to prevent overload
             let articlesToPreload = Array(articles.prefix(2))
             for article in articlesToPreload {
-                if article.author == nil {
+                // Prevent duplicate loading and memory overload
+                if article.author == nil && !viewModel.loadingArticles.contains(article.id) && viewModel.fullArticle?.id != article.id {
                     viewModel.loadFullArticle(with: article.id)
                 }
             }
@@ -432,7 +449,8 @@ struct HeroSwipeBar: View {
         for index in indicesToLoad {
             guard index >= 0 && index < articles.count else { continue }
             let article = articles[index]
-            if article.author == nil {
+            // Prevent duplicate loading and memory overload
+            if article.author == nil && !viewModel.loadingArticles.contains(article.id) && viewModel.fullArticle?.id != article.id {
                 viewModel.loadFullArticle(with: article.id)
             }
         }
@@ -490,7 +508,8 @@ struct HeroCardView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            WebImage(url: URL(string: article.thumbnailURL), options: [.retryFailed, .refreshCached])
+            var mutableArticle = article
+            WebImage(url: URL(string: mutableArticle.thumbnailURL), options: [.retryFailed, .refreshCached])
                 .onSuccess { _, _, _ in
                    
                 }
@@ -633,12 +652,11 @@ struct HeroCardView: View {
         .ignoresSafeArea(.container, edges: .top)
         .contentShape(Rectangle())
         .onFirstAppear {
-               
-                      if article.author == nil {
-                          viewModel.loadFullArticle(with: article.id)
-                      }
-                   
-              }
+            // Prevent duplicate loading and memory overload
+            if article.author == nil && !viewModel.loadingArticles.contains(article.id) && viewModel.fullArticle?.id != article.id {
+                viewModel.loadFullArticle(with: article.id)
+            }
+        }
     }
 }
 
@@ -731,8 +749,8 @@ import SwiftUI
                         }
                         .buttonStyle(PlainButtonStyle())
                         .onAppear {
-                            // Pre-load article data when card appears
-                            if article.author == nil {
+                            // Prevent duplicate loading and memory overload
+                            if article.author == nil && !viewModel.loadingArticles.contains(article.id) && viewModel.fullArticle?.id != article.id {
                                 viewModel.loadFullArticle(with: article.id)
                             }
                         }
@@ -891,7 +909,8 @@ struct ArticleStaticCell: View {
             VStack(spacing: 0) {
                 HStack(alignment: .top, spacing: 16) {
                     // Thumbnail
-                    AsyncImage(url: URL(string: article.thumbnailURL)) { image in
+                    var mutableArticle = article
+                    AsyncImage(url: URL(string: mutableArticle.thumbnailURL)) { image in
                         image
                             .resizable()
                             .scaledToFill()
@@ -994,3 +1013,4 @@ private struct OnFirstAppearModifier: ViewModifier {
 
 
 // MARK: - Simple Category View (Same layout as CategoryArticlesView)
+

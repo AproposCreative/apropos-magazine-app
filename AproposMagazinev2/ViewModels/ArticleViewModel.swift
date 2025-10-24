@@ -2,8 +2,6 @@ import Foundation
 import Combine
 import FirebaseFirestore
 
-private let webflowAPIToken = "81734a0b8bd3e2352d9325258ad958eea1626c447113661c97d13b5d3b12efa1"
-
 @MainActor
 class ArticleViewModel: ObservableObject {
     @Published var articles: [Article] = []
@@ -27,13 +25,14 @@ class ArticleViewModel: ObservableObject {
     private let favoritesKey = "favoriteArticlesJSON"
     
     // Track which articles are currently being loaded to prevent duplicate calls
-    private var loadingArticles: Set<String> = []
+    var loadingArticles: Set<String> = []
     
     // Limit concurrent article loading to prevent system overload
-    private let maxConcurrentLoads = 2  // Reduced to prevent memory issues
+    private let maxConcurrentLoads = 1  // Reduced to 1 to prevent memory issues
     private var currentLoadCount = 0
     private var pendingLoads: [String] = []
     
+    private var notificationObserverTokens: [NSObjectProtocol] = []
     
     init() {
         // FirestoreService.shared and UserManager.shared are always available, so no need to check
@@ -66,30 +65,34 @@ class ArticleViewModel: ObservableObject {
         print("🔄 ArticleViewModel: Initialization completed")
         
         // Listen for notification navigation
-        NotificationCenter.default.addObserver(
+        let openArticleToken = NotificationCenter.default.addObserver(
             forName: NSNotification.Name("OpenArticleFromNotification"),
             object: nil,
             queue: .main
         ) { [weak self] notification in
+            guard let self = self else { return }
             if let articleId = notification.userInfo?["articleId"] as? String {
                 Task { @MainActor in
-                    self?.navigateToArticleFromNotification(articleId: articleId)
+                    self.navigateToArticleFromNotification(articleId: articleId)
                 }
             }
         }
+        notificationObserverTokens.append(openArticleToken)
         
         // Listen for article fetch requests
-        NotificationCenter.default.addObserver(
+        let fetchArticleToken = NotificationCenter.default.addObserver(
             forName: NSNotification.Name("FetchArticleForNavigation"),
             object: nil,
             queue: .main
         ) { [weak self] notification in
+            guard let self = self else { return }
             if let articleId = notification.userInfo?["articleId"] as? String {
                 Task { @MainActor in
-                    self?.fetchAndNavigateToArticle(articleId: articleId)
+                    self.fetchAndNavigateToArticle(articleId: articleId)
                 }
             }
         }
+        notificationObserverTokens.append(fetchArticleToken)
         
         // Overvåg UserManager ændringer og synkroniser favoritter
         UserManager.shared.$currentUser
@@ -116,19 +119,30 @@ class ArticleViewModel: ObservableObject {
             
         // Realtime favorites updates
         favoritesListener = FirestoreService.shared.listenFavorites { [weak self] articles in
+            guard let self = self else { return }
             // Safety check: ensure we have valid articles
             guard !articles.isEmpty else {
                 print("ℹ️ No favorites received from Firestore")
                 return
             }
             
-            self?.favorites = articles
-            self?.saveFavorites()
+            self.favorites = articles
+            self.saveFavorites()
         }
     }
     
     deinit {
-        favoritesListener?.remove()
+        if let favoritesListener = favoritesListener {
+            favoritesListener.remove()
+            self.favoritesListener = nil
+        }
+        
+        for token in notificationObserverTokens {
+            NotificationCenter.default.removeObserver(token)
+        }
+        notificationObserverTokens.removeAll()
+        
+        print("[ArticleViewModel] deinit: cleaned up observers and listeners")
     }
     
     func fetchArticles() {
@@ -149,26 +163,28 @@ class ArticleViewModel: ObservableObject {
         
         // Try cache first for fast startup
         if let cached = CacheManager.shared.getCachedArticles(), !cached.isEmpty {
+            print("[DEBUG] fetchArticles: Found \(cached.count) cached articles")
             // Sort cached articles by date (newest first)
             let sortedCached = cached.sorted { article1, article2 in
-                let date1 = article1.publishedDate ?? article1.createdDate ?? Date.distantPast
-                let date2 = article2.publishedDate ?? article2.createdDate ?? Date.distantPast
+                var mutableArticle1 = article1
+                var mutableArticle2 = article2
+                let date1 = mutableArticle1.publishedDate ?? mutableArticle1.createdDate ?? Date.distantPast
+                let date2 = mutableArticle2.publishedDate ?? mutableArticle2.createdDate ?? Date.distantPast
                 return date1 > date2
             }
-            DispatchQueue.main.async {
-                self.articles = sortedCached
-            }
+            print("[DEBUG] fetchArticles: Setting cached articles to \(sortedCached.count) articles")
+            self.articles = sortedCached
             
             // Load favorites after articles are available
-            Task { await self.syncFavoritesWithFirestore() }
+            Task { [weak self] in await self?.syncFavoritesWithFirestore() }
             
             // Ensure minimum loading time for shimmer effect
             let elapsed = Date().timeIntervalSince(startTime)
             let minLoadingTime: TimeInterval = 1.0
             let remainingTime = max(0, minLoadingTime - elapsed)
             
-            DispatchQueue.main.asyncAfter(deadline: .now() + remainingTime) {
-                self.isLoading = false
+            DispatchQueue.main.asyncAfter(deadline: .now() + remainingTime) { [weak self] in
+                self?.isLoading = false
             }
         } else {
             // No cached articles, fetch from Webflow
@@ -178,23 +194,26 @@ class ArticleViewModel: ObservableObject {
                 let minLoadingTime: TimeInterval = 1.0
                 let remainingTime = max(0, minLoadingTime - elapsed)
                 
-                DispatchQueue.main.asyncAfter(deadline: .now() + remainingTime) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + remainingTime) { [weak self] in
                     self?.isLoading = false
                     switch result {
                     case .success(let articles):
-                        // print("[DEBUG] fetchArticles: Fik \(articles.count) artikler")
+                        print("[DEBUG] fetchArticles: Fik \(articles.count) artikler")
                         // Sort articles by date (newest first)
                         let sortedArticles = articles.sorted { article1, article2 in
-                            let date1 = article1.publishedDate ?? article1.createdDate ?? Date.distantPast
-                            let date2 = article2.publishedDate ?? article2.createdDate ?? Date.distantPast
+                            var mutableArticle1 = article1
+                            var mutableArticle2 = article2
+                            let date1 = mutableArticle1.publishedDate ?? mutableArticle1.createdDate ?? Date.distantPast
+                            let date2 = mutableArticle2.publishedDate ?? mutableArticle2.createdDate ?? Date.distantPast
                             return date1 > date2
                         }
+                        print("[DEBUG] fetchArticles: Setting articles to \(sortedArticles.count) articles")
                         self?.articles = sortedArticles
                         CacheManager.shared.cacheArticles(sortedArticles)
                         // Load favorites after articles are available
-                        Task { await self?.syncFavoritesWithFirestore() }
+                        Task { [weak self] in await self?.syncFavoritesWithFirestore() }
                         if articles.isEmpty {
-                            // print("[DEBUG] fetchArticles: Ingen artikler fundet!")
+                            print("[DEBUG] fetchArticles: Ingen artikler fundet!")
                             self?.fetchError = NSError(domain: "ViewModel", code: -1, userInfo: [NSLocalizedDescriptionKey: "Ingen artikler fundet."])
                         }
                     case .failure(let error):
@@ -216,8 +235,8 @@ class ArticleViewModel: ObservableObject {
         
         isLoadingAI = true
         // AI recommendations logic here
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-            self.isLoadingAI = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            self?.isLoadingAI = false
         }
     }
     
@@ -231,7 +250,7 @@ class ArticleViewModel: ObservableObject {
             let minLoadingTime: TimeInterval = 0.8
             let remainingTime = max(0, minLoadingTime - elapsed)
             
-            DispatchQueue.main.asyncAfter(deadline: .now() + remainingTime) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + remainingTime) { [weak self] in
                 switch result {
                 case .success(let topics):
                     self?.topics = topics
@@ -253,7 +272,7 @@ class ArticleViewModel: ObservableObject {
             let minLoadingTime: TimeInterval = 0.8
             let remainingTime = max(0, minLoadingTime - elapsed)
             
-            DispatchQueue.main.asyncAfter(deadline: .now() + remainingTime) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + remainingTime) { [weak self] in
                 switch result {
                 case .success(let sections):
                     self?.sections = sections
@@ -277,7 +296,7 @@ class ArticleViewModel: ObservableObject {
             let minLoadingTime: TimeInterval = 0.8
             let remainingTime = max(0, minLoadingTime - elapsed)
             
-            DispatchQueue.main.asyncAfter(deadline: .now() + remainingTime) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + remainingTime) { [weak self] in
                 switch result {
                 case .success(let authors):
                     self?.authors = authors
@@ -314,7 +333,7 @@ class ArticleViewModel: ObservableObject {
         
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue("Bearer \(webflowAPIToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(WebflowService.shared.apiToken)", forHTTPHeaderField: "Authorization")
 
         URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
@@ -360,7 +379,7 @@ class ArticleViewModel: ObservableObject {
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue("Bearer \(webflowAPIToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(WebflowService.shared.apiToken)", forHTTPHeaderField: "Authorization")
         
         URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
@@ -416,25 +435,27 @@ class ArticleViewModel: ObservableObject {
             return
         }
         
-        // Safety check: avoid loading the same article multiple times
+        // Safety check: avoid loading the same article multiple times or if already loading or queued
         if let existingArticle = articles.first(where: { $0.id == id }),
            existingArticle.author != nil {
             print("✅ Article \(id) already has author, skipping")
             return
         }
         
-        // Safety check: avoid loading the same article concurrently
         if loadingArticles.contains(id) {
             print("🔄 Article \(id) already being loaded, skipping")
+            return
+        }
+        
+        if pendingLoads.contains(id) {
+            print("🔄 Article \(id) already queued for loading, skipping")
             return
         }
         
         // Check if we've reached the concurrent load limit
         if currentLoadCount >= maxConcurrentLoads {
             // print("🔄 Max concurrent loads reached, queuing article \(id)")
-            if !pendingLoads.contains(id) {
-                pendingLoads.append(id)
-            }
+            pendingLoads.append(id)
             return
         }
         
@@ -449,7 +470,8 @@ class ArticleViewModel: ObservableObject {
         // print("🔄 Fetching article with ID: \(id) (loads: \(currentLoadCount)/\(maxConcurrentLoads))")
         
         // Add timeout to prevent articles from being stuck in loading state
-        DispatchQueue.main.asyncAfter(deadline: .now() + 15) {  // Reduced timeout
+        DispatchQueue.main.asyncAfter(deadline: .now() + 15) { [weak self] in  // Reduced timeout
+            guard let self = self else { return }
             if self.loadingArticles.contains(id) {
                 // print("⏰ Timeout for article \(id), removing from loading state")
                 self.loadingArticles.remove(id)
@@ -458,7 +480,8 @@ class ArticleViewModel: ObservableObject {
             }
         }
 
-        fetchArticle(by: id) { result in
+        fetchArticle(by: id) { [weak self] result in
+            guard let self = self else { return }
             switch result {
             case .success(let fetchedArticle):
                 // print("✅ Article fetched: \(fetchedArticle.name ?? "No name")")
@@ -621,8 +644,8 @@ class ArticleViewModel: ObservableObject {
         }
         
         // Then sync with Firebase if user is logged in
-        Task {
-            await syncFavoritesWithFirestore()
+        Task { [weak self] in
+            await self?.syncFavoritesWithFirestore()
         }
     }
     
@@ -636,9 +659,9 @@ class ArticleViewModel: ObservableObject {
         guard UserManager.shared.currentUser != nil else {
             print("ℹ️ No user logged in - using local favorites only")
             // For logged-out users, just ensure local favorites are loaded
-            DispatchQueue.main.async {
-                self.isLoadingFavorites = false
-                self.favoriteError = nil
+            DispatchQueue.main.async { [weak self] in
+                self?.isLoadingFavorites = false
+                self?.favoriteError = nil
             }
             return
         }
@@ -652,7 +675,8 @@ class ArticleViewModel: ObservableObject {
             let firebaseFavorites = try await FirestoreService.shared.fetchFavorites()
             // print("📱 Loaded \(firebaseFavorites.count) favorites from Firebase")
             
-            DispatchQueue.main.async {
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
                 // Merge Firebase favorites with local favorites
                 let localFavorites = self.favorites.filter { localArticle in
                     !firebaseFavorites.contains { firebaseArticle in
@@ -665,9 +689,9 @@ class ArticleViewModel: ObservableObject {
                 // print("✅ Synced favorites: \(self.favorites.count) total")
             }
         } catch {
-            DispatchQueue.main.async {
-                self.favoriteError = "Kunne ikke synkronisere favoritter: \(error.localizedDescription)"
-                self.isLoadingFavorites = false
+            DispatchQueue.main.async { [weak self] in
+                self?.favoriteError = "Kunne ikke synkronisere favoritter: \(error.localizedDescription)"
+                self?.isLoadingFavorites = false
                 print("❌ Failed to sync with Firebase: \(error.localizedDescription)")
             }
         }
@@ -680,8 +704,8 @@ class ArticleViewModel: ObservableObject {
             return
         }
         
-        Task {
-            await syncFavoritesWithFirestore()
+        Task { [weak self] in
+            await self?.syncFavoritesWithFirestore()
         }
     }
     
@@ -880,8 +904,10 @@ class ArticleViewModel: ObservableObject {
         
         // Sort by date (newest first) and take first 10
         let sortedArticles = excludedArticles.sorted { article1, article2 in
-            let date1 = article1.publishedDate ?? article1.createdDate ?? Date.distantPast
-            let date2 = article2.publishedDate ?? article2.createdDate ?? Date.distantPast
+            var mutableArticle1 = article1
+            var mutableArticle2 = article2
+            let date1 = mutableArticle1.publishedDate ?? mutableArticle1.createdDate ?? Date.distantPast
+            let date2 = mutableArticle2.publishedDate ?? mutableArticle2.createdDate ?? Date.distantPast
             
             return date1 > date2
         }.prefix(10).map { $0 }
@@ -917,8 +943,10 @@ class ArticleViewModel: ObservableObject {
         // Music articles - exclude hero and anmeldelser articles, then sort by date (newest first)
         let excludedArticles = excludeArticles(withIDs: Array(usedArticleIDs), from: Array(musicArticles.prefix(20)))
         return excludedArticles.sorted { article1, article2 in
-            let date1 = article1.publishedDate ?? article1.createdDate ?? Date.distantPast
-            let date2 = article2.publishedDate ?? article2.createdDate ?? Date.distantPast
+            var mutableArticle1 = article1
+            var mutableArticle2 = article2
+            let date1 = mutableArticle1.publishedDate ?? mutableArticle1.createdDate ?? Date.distantPast
+            let date2 = mutableArticle2.publishedDate ?? mutableArticle2.createdDate ?? Date.distantPast
             return date1 > date2
         }.prefix(6).map { $0 }
     }
@@ -950,8 +978,10 @@ class ArticleViewModel: ObservableObject {
         // Kultur articles - exclude hero and anmeldelser articles, then sort by date (newest first)
         let excludedArticles = excludeArticles(withIDs: Array(usedArticleIDs), from: Array(kulturArticles.prefix(20)))
         let finalKulturArticles = excludedArticles.sorted { article1, article2 in
-            let date1 = article1.publishedDate ?? article1.createdDate ?? Date.distantPast
-            let date2 = article2.publishedDate ?? article2.createdDate ?? Date.distantPast
+            var mutableArticle1 = article1
+            var mutableArticle2 = article2
+            let date1 = mutableArticle1.publishedDate ?? mutableArticle1.createdDate ?? Date.distantPast
+            let date2 = mutableArticle2.publishedDate ?? mutableArticle2.createdDate ?? Date.distantPast
             return date1 > date2
         }.prefix(6).map { $0 }
         // print("[DEBUG] Final kultur articles: \(finalKulturArticles.map { $0.name ?? "Unknown" })")
@@ -985,8 +1015,10 @@ class ArticleViewModel: ObservableObject {
         // Serier & Film articles - exclude hero and anmeldelser articles, then sort by date (newest first)
         let excludedArticles = excludeArticles(withIDs: Array(usedArticleIDs), from: Array(serierFilmArticles.prefix(20)))
         let finalSerierFilmArticles = excludedArticles.sorted { article1, article2 in
-            let date1 = article1.publishedDate ?? article1.createdDate ?? Date.distantPast
-            let date2 = article2.publishedDate ?? article2.createdDate ?? Date.distantPast
+            var mutableArticle1 = article1
+            var mutableArticle2 = article2
+            let date1 = mutableArticle1.publishedDate ?? mutableArticle1.createdDate ?? Date.distantPast
+            let date2 = mutableArticle2.publishedDate ?? mutableArticle2.createdDate ?? Date.distantPast
             return date1 > date2
         }.prefix(6).map { $0 }
         // print("[DEBUG] Final serier & film articles: \(finalSerierFilmArticles.map { $0.name ?? "Unknown" })")
@@ -1007,7 +1039,8 @@ class ArticleViewModel: ObservableObject {
         let now = Date()
 
         let recentArticles = articles.compactMap { article -> (Article, Date)? in
-            let date = article.publishedDate ?? article.createdDate
+            var mutableArticle = article
+            let date = mutableArticle.publishedDate ?? mutableArticle.createdDate
             guard let date, date <= now else { return nil }
             return (article, date)
         }
@@ -1043,8 +1076,10 @@ class ArticleViewModel: ObservableObject {
         
         // Sort by date (newest first)
         let sortedArticles = musicArticles.sorted { article1, article2 in
-            let date1 = article1.publishedDate ?? article1.createdDate ?? Date.distantPast
-            let date2 = article2.publishedDate ?? article2.createdDate ?? Date.distantPast
+            var mutableArticle1 = article1
+            var mutableArticle2 = article2
+            let date1 = mutableArticle1.publishedDate ?? mutableArticle1.createdDate ?? Date.distantPast
+            let date2 = mutableArticle2.publishedDate ?? mutableArticle2.createdDate ?? Date.distantPast
             return date1 > date2
         }
         
@@ -1071,8 +1106,10 @@ class ArticleViewModel: ObservableObject {
         
         // Sort by date (newest first)
         return kulturArticles.sorted { article1, article2 in
-            let date1 = article1.publishedDate ?? article1.createdDate ?? Date.distantPast
-            let date2 = article2.publishedDate ?? article2.createdDate ?? Date.distantPast
+            var mutableArticle1 = article1
+            var mutableArticle2 = article2
+            let date1 = mutableArticle1.publishedDate ?? mutableArticle1.createdDate ?? Date.distantPast
+            let date2 = mutableArticle2.publishedDate ?? mutableArticle2.createdDate ?? Date.distantPast
             return date1 > date2
         }
     }
@@ -1097,8 +1134,10 @@ class ArticleViewModel: ObservableObject {
         
         // Sort by date (newest first)
         return serierFilmArticles.sorted { article1, article2 in
-            let date1 = article1.publishedDate ?? article1.createdDate ?? Date.distantPast
-            let date2 = article2.publishedDate ?? article2.createdDate ?? Date.distantPast
+            var mutableArticle1 = article1
+            var mutableArticle2 = article2
+            let date1 = mutableArticle1.publishedDate ?? mutableArticle1.createdDate ?? Date.distantPast
+            let date2 = mutableArticle2.publishedDate ?? mutableArticle2.createdDate ?? Date.distantPast
             return date1 > date2
         }
     }
@@ -1117,8 +1156,10 @@ class ArticleViewModel: ObservableObject {
         
         // Sort by date (newest first)
         return filteredArticles.sorted { article1, article2 in
-            let date1 = article1.publishedDate ?? article1.createdDate ?? Date.distantPast
-            let date2 = article2.publishedDate ?? article2.createdDate ?? Date.distantPast
+            var mutableArticle1 = article1
+            var mutableArticle2 = article2
+            let date1 = mutableArticle1.publishedDate ?? mutableArticle1.createdDate ?? Date.distantPast
+            let date2 = mutableArticle2.publishedDate ?? mutableArticle2.createdDate ?? Date.distantPast
             return date1 > date2
         }
     }
@@ -1135,8 +1176,10 @@ class ArticleViewModel: ObservableObject {
         
         // Sort by date (newest first)
         return filteredArticles.sorted { article1, article2 in
-            let date1 = article1.publishedDate ?? article1.createdDate ?? Date.distantPast
-            let date2 = article2.publishedDate ?? article2.createdDate ?? Date.distantPast
+            var mutableArticle1 = article1
+            var mutableArticle2 = article2
+            let date1 = mutableArticle1.publishedDate ?? mutableArticle1.createdDate ?? Date.distantPast
+            let date2 = mutableArticle2.publishedDate ?? mutableArticle2.createdDate ?? Date.distantPast
             return date1 > date2
         }
     }
@@ -1152,7 +1195,8 @@ class ArticleViewModel: ObservableObject {
         let now = Date()
         
         let recentArticles = articles.compactMap { article -> (Article, Date)? in
-            let date = article.publishedDate ?? article.createdDate
+            var mutableArticle = article
+            let date = mutableArticle.publishedDate ?? mutableArticle.createdDate
             guard let date, date <= now else { return nil }
             return (article, date)
         }
@@ -1260,10 +1304,11 @@ class ArticleViewModel: ObservableObject {
         print("📱 Fetching article for navigation: \(articleId)")
         
         fetchArticle(by: articleId) { [weak self] result in
+            guard let self = self else { return }
             switch result {
             case .success(let article):
                 print("📱 Article fetched successfully, navigating to: \(article.name ?? "Unknown")")
-                self?.navigateToArticle(article)
+                self.navigateToArticle(article)
             case .failure(let error):
                 print("❌ Failed to fetch article for navigation: \(error.localizedDescription)")
             }
@@ -1279,20 +1324,6 @@ class ArticleViewModel: ObservableObject {
             userInfo: ["article": article]
         )
     }
-}
-
-struct WebflowCollectionResponse: Codable {
-    let fields: [WebflowField]
-}
-
-struct WebflowField: Codable {
-    let slug: String
-    let options: [WebflowOption]?
-}
-
-struct WebflowOption: Codable {
-    let id: String
-    let label: String
 }
 
 // MARK: - Preview Extension

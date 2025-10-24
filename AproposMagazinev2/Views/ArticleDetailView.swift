@@ -94,7 +94,7 @@ struct TrailerWebView: UIViewRepresentable {
 }
 
 struct ArticleDetailView: View {
-    let article: Article
+    var article: Article
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.presentationMode) var presentationMode
     @Environment(\.navigationCoordinator) private var navigationCoordinator
@@ -333,8 +333,10 @@ struct ArticleDetailView: View {
                     Spacer()
 
                     // Safety check for thumbnail URL
-                    if !article.thumbnailURL.isEmpty,
-                       let url = URL(string: article.thumbnailURL),
+                    var mutableArticle = article
+                    let thumbnailURL = mutableArticle.thumbnailURL
+                    if !thumbnailURL.isEmpty,
+                       let url = URL(string: thumbnailURL),
                        UIApplication.shared.canOpenURL(url) {
                         WebImage(url: url)
                             .resizable()

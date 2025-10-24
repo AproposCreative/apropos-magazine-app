@@ -14,13 +14,32 @@ class RecommendationEngine: ObservableObject {
     private var relatedArticlesCache: [String: [Article]] = [:]
     private let cacheExpirationInterval: TimeInterval = 3600 // 1 hour
     
+    private var cacheClearTimer: Timer? // Keep reference to invalidate
+    
     private init() {
         loadRecommendations()
         
         // Clear cache periodically
-        Timer.scheduledTimer(withTimeInterval: cacheExpirationInterval, repeats: true) { _ in
-            self.clearCache()
+        cacheClearTimer = Timer.scheduledTimer(withTimeInterval: cacheExpirationInterval, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            Task {
+                await MainActor.run {
+                    self.clearCache()
+                }
+            }
         }
+    }
+    
+    deinit {
+        // Invalidate timer to avoid retain cycles and unexpected calls
+        cacheClearTimer?.invalidate()
+        cacheClearTimer = nil
+        
+        // Debug print for cleanup
+        print("RecommendationEngine deinitialized and resources cleaned up")
+        
+        // If NotificationCenter observers or other listeners were added, remove here
+        // (Currently none, but this is a good pattern)
     }
     
     // MARK: - Recommendation Generation
@@ -28,8 +47,9 @@ class RecommendationEngine: ObservableObject {
     func generateRecommendations(for user: UserProfile, from articles: [Article]) {
         isLoading = true
         
-        Task {
-            let recommendations = await calculateRecommendations(for: user, from: articles)
+        Task { [weak self] in
+            guard let self = self else { return }
+            let recommendations = await self.calculateRecommendations(for: user, from: articles)
             self.recommendations = recommendations
             self.saveRecommendations(recommendations)
             self.isLoading = false
@@ -347,7 +367,8 @@ struct RecommendationCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             // Thumbnail
-            if let url = URL(string: article.thumbnailURL) {
+            var mutableArticle = article
+            if let url = URL(string: mutableArticle.thumbnailURL) {
                 AsyncImage(url: url) { image in
                     image
                         .resizable()
@@ -360,13 +381,13 @@ struct RecommendationCard: View {
             }
             
             // Title
-            Text(article.name ?? "")
+            Text(mutableArticle.name ?? "")
                 .font(.headline)
                 .lineLimit(2)
                 .foregroundColor(.primary)
             
             // Category
-            if let topicId = article.topicID {
+            if let topicId = mutableArticle.topicID {
                 Text(topicId)
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -382,3 +403,4 @@ struct RecommendationCard: View {
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 }
+

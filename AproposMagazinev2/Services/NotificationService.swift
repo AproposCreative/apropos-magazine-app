@@ -332,9 +332,11 @@ class NotificationService: NSObject, ObservableObject {
             } else {
                 print("✅ Successfully force subscribed to 'new_articles'")
                 
-                // Also send token to backend
-                if let token = self.fcmToken {
-                    self.updateFCMTokenOnServer(token)
+                Task {
+                    let token = await MainActor.run { self.fcmToken }
+                    if let token {
+                        await MainActor.run { self.updateFCMTokenOnServer(token) }
+                    }
                 }
             }
         }

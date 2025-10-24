@@ -5,7 +5,7 @@ struct ArticleCardView_Enhanced: View {
     
     // MARK: - Properties
     let showTopic: Bool
-    let article: Article
+    var article: Article
     let onFavorite: ((Article) -> Void)?
     let isFavorite: Bool
     let cardHeight: CGFloat
@@ -63,7 +63,9 @@ private extension ArticleCardView_Enhanced {
     
     var imageSection: some View {
         GeometryReader { geometry in
-            WebImage(url: URL(string: article.thumbnailURL), options: [.retryFailed, .continueInBackground])
+            var mutableArticle = article
+            let thumbnailURL = mutableArticle.thumbnailURL
+            WebImage(url: URL(string: thumbnailURL), options: [.retryFailed, .continueInBackground])
                 .resizable()
                 .onSuccess { _, _, _ in
                     DispatchQueue.main.async {

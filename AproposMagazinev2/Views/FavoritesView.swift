@@ -273,13 +273,14 @@ struct FavoritesView: View {
 
 // MARK: - Favorite Article Row Component
 struct FavoriteArticleRow: View {
-    let article: Article
+    var article: Article
     @EnvironmentObject var viewModel: ArticleViewModel
 
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
             // Image - No rounded corners for Apple premium look
-            if let url = URL(string: article.thumbnailURL), !article.thumbnailURL.isEmpty {
+            var mutableArticle = article
+            if let url = URL(string: mutableArticle.thumbnailURL), !mutableArticle.thumbnailURL.isEmpty {
                 WebImage(url: url, options: [.retryFailed, .continueInBackground])
                     .resizable()
                     .indicator(.activity)

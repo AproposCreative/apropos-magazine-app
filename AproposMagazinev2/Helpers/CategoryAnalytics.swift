@@ -20,7 +20,10 @@ struct CategoryAnalytics {
                 totalArticles: articles.count,
                 favoriteCount: favoriteCount,
                 averageRating: averageRating,
-                lastUpdated: articles.map { $0.publishedDate ?? $0.createdDate }.compactMap { $0 }.max()
+                lastUpdated: articles.compactMap { article in
+                    var mutableArticle = article
+                    return mutableArticle.publishedDate ?? mutableArticle.createdDate
+                }.max()
             )
         }
         

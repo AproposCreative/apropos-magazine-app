@@ -40,9 +40,11 @@ struct SearchView: View {
                     Spacer()
                 } else {
                     List(filteredArticles) { article in
-                        NavigationLink(destination: ArticleDetailView(article: article)) {
+                        NavigationLink(destination: ArticleDetailView(article: article).environmentObject(viewModel)) {
                             HStack(alignment: .top, spacing: 12) {
-                                if let url = URL(string: article.thumbnailURL), !article.thumbnailURL.isEmpty {
+                                var mutableArticle = article
+                                let thumbnailURL = mutableArticle.thumbnailURL
+                                if let url = URL(string: thumbnailURL), !thumbnailURL.isEmpty {
                                     AsyncImage(url: url) { image in
                                         image.resizable()
                                             .aspectRatio(contentMode: .fill)

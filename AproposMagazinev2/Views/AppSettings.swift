@@ -20,12 +20,12 @@ struct AppSettings: View {
     }
 
     func update(topic: String, active: Bool) -> String {
-        var topics = selectedTopics.components(separatedBy: ",")
+        var topics = Set(selectedTopics.components(separatedBy: ",").filter { !$0.isEmpty })
         if active {
-            topics.append(topic)
+            topics.insert(topic)
         } else {
-            topics.removeAll { $0 == topic }
+            topics.remove(topic)
         }
-        return topics.filter { !$0.isEmpty }.joined(separator: ",")
+        return topics.sorted().joined(separator: ",")
     }
 } 
