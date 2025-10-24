@@ -76,9 +76,8 @@ class SecureConfig {
             return envKey
         }
         
-        // Last resort - return empty string (will cause API calls to fail)
-        print("⚠️ WARNING: No Google API key found in keychain or environment variables")
-        return ""
+        // For now, return the new API key directly (you should move this to keychain in production)
+        return "REDACTED_GOOGLE_API_KEY"
     }
 }
 
