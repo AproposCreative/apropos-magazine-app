@@ -12,6 +12,17 @@ struct AuthorCardView: View {
 
     @State private var isLoading = true
     @State private var author: Author?
+    @State private var isFetching = false
+    @EnvironmentObject private var viewModel: ArticleViewModel
+
+    private func resolveCachedAuthor() {
+        guard author == nil else { return }
+
+        if let cached = viewModel.authors.first(where: { $0.id == authorID }) {
+            author = cached
+            isLoading = false
+        }
+    }
 
     var body: some View {
         HStack(spacing: 5) {
@@ -73,8 +84,14 @@ struct AuthorCardView: View {
         .onAppear {
             // Safety check: ensure authorID is not empty
             if !authorID.isEmpty {
-                fetchAuthor(by: authorID)
+                resolveCachedAuthor()
+                if author == nil {
+                    fetchAuthor(by: authorID)
+                }
             }
+        }
+        .onChange(of: viewModel.authors) { _ in
+            resolveCachedAuthor()
         }
     }
 
@@ -84,42 +101,28 @@ struct AuthorCardView: View {
             print("❌ Author ID is empty")
             return
         }
-        
-        let urlString = "https://api.webflow.com/v2/collections/67dbf17ba540975b5b21c294/items/\(id)"
-        guard let url = URL(string: urlString) else { 
-            print("❌ Invalid URL: \(urlString)")
-            return 
-        }
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("81734a0b8bd3e2352d9325258ad958eea1626c447113661c97d13b5d3b12efa1", forHTTPHeaderField: "Authorization")
+        guard !isFetching else { return }
+        isFetching = true
 
-        URLSession.shared.dataTask(with: request) { data, response, error in
+        viewModel.fetchAuthor(by: id) { result in
             DispatchQueue.main.async {
+                isFetching = false
                 isLoading = false
-            }
 
-            // Check for network errors
-            if let error = error {
-                print("❌ Network error: \(error.localizedDescription)")
-                return
+                switch result {
+                case .success(let fetchedAuthor):
+                    author = fetchedAuthor
+                case .failure(let error):
+                    // Avoid spamming the console with repeated errors for the same author
+                    if author == nil {
+                        print("❌ Failed to fetch author \(id): \(error.localizedDescription)")
+                    }
+                }
             }
-            
-            // Check for HTTP errors
-            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
-                print("❌ HTTP error: \(httpResponse.statusCode)")
-                return
-            }
-
-            guard let data = data else { 
-                print("❌ No data received")
-                return 
-            }
-
-            do {
-                let decoder = JSONDecoder()
-                let wrapper = try decoder.decode(AuthorWrapper.self, from: data)
+        }
+    }
+}
                 DispatchQueue.main.async {
                     self.author = wrapper.toAuthor()
                 }
