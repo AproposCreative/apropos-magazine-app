@@ -61,9 +61,8 @@ class SecureConfig {
             return envKey
         }
         
-        // Last resort - return empty string (will cause API calls to fail)
-        print("⚠️ WARNING: No Webflow API key found in keychain or environment variables")
-        return ""
+        // For now, return the new API key directly (you should move this to keychain in production)
+        return "55a467391e742d7cb047b735fa43942c0ce8aa47af231781a73f7581435a2ee6"
     }
     
     var googleAPIKey: String {
