@@ -438,17 +438,23 @@ class ArticleViewModel: ObservableObject {
         // Safety check: avoid loading the same article multiple times or if already loading or queued
         if let existingArticle = articles.first(where: { $0.id == id }),
            existingArticle.author != nil {
+#if DEBUG
             print("✅ Article \(id) already has author, skipping")
+#endif
             return
         }
         
         if loadingArticles.contains(id) {
+#if DEBUG
             print("🔄 Article \(id) already being loaded, skipping")
+#endif
             return
         }
         
         if pendingLoads.contains(id) {
+#if DEBUG
             print("🔄 Article \(id) already queued for loading, skipping")
+#endif
             return
         }
         
@@ -1386,4 +1392,3 @@ extension ArticleViewModel {
         return viewModel
     }
 }
-

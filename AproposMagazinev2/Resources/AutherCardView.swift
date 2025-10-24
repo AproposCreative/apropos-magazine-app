@@ -99,6 +99,7 @@ struct AuthorCardView: View {
         // Safety check: ensure ID is not empty
         guard !id.isEmpty else {
             print("❌ Author ID is empty")
+            isLoading = false
             return
         }
 
@@ -121,15 +122,5 @@ struct AuthorCardView: View {
                 }
             }
         }
-    }
-}
-                DispatchQueue.main.async {
-                    self.author = wrapper.toAuthor()
-                }
-            } catch {
-                print("❌ JSON Decode error:", error)
-                print("Raw response:", String(data: data, encoding: .utf8) ?? "Invalid")
-            }
-        }.resume()
     }
 }
