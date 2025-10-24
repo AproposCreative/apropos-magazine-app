@@ -61,8 +61,9 @@ class SecureConfig {
             return envKey
         }
         
-        // For now, return the new API key directly (you should move this to keychain in production)
-        return "55a467391e742d7cb047b735fa43942c0ce8aa47af231781a73f7581435a2ee6"
+        // Last resort - return empty string (will cause API calls to fail)
+        print("⚠️ WARNING: No Webflow API key found in keychain or environment variables")
+        return ""
     }
     
     var googleAPIKey: String {
@@ -75,8 +76,9 @@ class SecureConfig {
             return envKey
         }
         
-        // For now, return the new API key directly (you should move this to keychain in production)
-        return "AIzaSyAie7qE-tb06QnQ35uuO7jk8CTbiJ_9EwY"
+        // Last resort - return empty string (will cause API calls to fail)
+        print("⚠️ WARNING: No Google API key found in keychain or environment variables")
+        return ""
     }
 }
 
