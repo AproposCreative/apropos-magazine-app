@@ -204,7 +204,7 @@ struct CategoryListView: View {
 
 // MARK: - Grid Article Card
 struct GridArticleCard: View {
-    let article: Article
+    var article: Article
     @EnvironmentObject var viewModel: ArticleViewModel
     @Environment(\.colorScheme) var colorScheme
     
@@ -231,7 +231,8 @@ struct GridArticleCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             // Image
-            WebImage(url: URL(string: article.thumbnailURL))
+            var mutableArticle = article
+            WebImage(url: URL(string: mutableArticle.thumbnailURL))
                 .resizable()
                 .aspectRatio(contentMode: .fill)
                 .frame(height: 200)
@@ -284,7 +285,7 @@ struct GridArticleCard: View {
 
 // MARK: - List Article Card
 struct ListArticleCard: View {
-    let article: Article
+    var article: Article
     @EnvironmentObject var viewModel: ArticleViewModel
     @Environment(\.colorScheme) var colorScheme
     
@@ -311,7 +312,8 @@ struct ListArticleCard: View {
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
             // Image
-            WebImage(url: URL(string: article.thumbnailURL))
+            var mutableArticle = article
+            WebImage(url: URL(string: mutableArticle.thumbnailURL))
                 .resizable()
                 .aspectRatio(contentMode: .fill)
                 .frame(width: 120, height: 120)
@@ -368,7 +370,7 @@ struct ListArticleCard: View {
 
 // MARK: - Masonry Article Card
 struct MasonryArticleCard: View {
-    let article: Article
+    var article: Article
     let index: Int
     @EnvironmentObject var viewModel: ArticleViewModel
     @Environment(\.colorScheme) var colorScheme
@@ -402,7 +404,8 @@ struct MasonryArticleCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             // Image with varying height
-            WebImage(url: URL(string: article.thumbnailURL))
+            var mutableArticle = article
+            WebImage(url: URL(string: mutableArticle.thumbnailURL))
                 .resizable()
                 .aspectRatio(contentMode: .fill)
                 .frame(height: imageHeight)
@@ -455,7 +458,7 @@ struct MasonryArticleCard: View {
 
 // MARK: - Improved Grid Article Card
 struct ImprovedGridArticleCard: View {
-    let article: Article
+    var article: Article
     @EnvironmentObject var viewModel: ArticleViewModel
     
     private var articleCategories: [String] {
@@ -481,7 +484,8 @@ struct ImprovedGridArticleCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             // Image
-            WebImage(url: URL(string: article.thumbnailURL))
+            var mutableArticle = article
+            WebImage(url: URL(string: mutableArticle.thumbnailURL))
                 .resizable()
                 .aspectRatio(16/9, contentMode: .fill)
                 .frame(height: 120)

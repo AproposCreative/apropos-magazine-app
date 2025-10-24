@@ -23,6 +23,12 @@ class OfflineManager: ObservableObject {
         setupConnectivityMonitoring()
     }
     
+    deinit {
+        // Remove observers to prevent leaks
+        NotificationCenter.default.removeObserver(self, name: NSNotification.Name("NetworkStatusChanged"), object: nil)
+        print("[OfflineManager] Deinitialized and observers removed")
+    }
+    
     // MARK: - Connectivity
     
     private func checkConnectivity() {
@@ -37,7 +43,9 @@ class OfflineManager: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.isOnline = false
+            Task { @MainActor in
+                self?.isOnline = false
+            }
         }
     }
     
@@ -46,14 +54,13 @@ class OfflineManager: ObservableObject {
     func saveArticleForOffline(_ article: Article) {
         var offlineArticles = getOfflineArticles()
         
-        // Check if we have space (limit to 50 articles)
-        if offlineArticles.count >= 50 {
-            // Remove oldest article
-            offlineArticles.removeFirst()
-        }
-        
         // Add new article
         offlineArticles.append(article)
+        
+        // Prune to max 50 articles by removing oldest if needed
+        if offlineArticles.count > 50 {
+            offlineArticles.removeFirst(offlineArticles.count - 50)
+        }
         
         // Save to UserDefaults
         if let data = try? JSONEncoder().encode(offlineArticles) {
@@ -86,9 +93,9 @@ class OfflineManager: ObservableObject {
     
     func syncWhenOnline() {
         guard isOnline else { return }
-        guard UserManager.shared.currentUser != nil else { 
+        guard UserManager.shared.currentUser != nil else {
             print("[OfflineManager] No authenticated user, skipping sync")
-            return 
+            return
         }
         
         syncInProgress = true
@@ -119,10 +126,12 @@ class OfflineManager: ObservableObject {
         db.collection("users").document(user.uid).updateData([
             "readingProgress": user.readingProgress,
             "lastSync": validDate
-        ]) { error in
+        ]) { [weak self] error in
             if let error = error {
                 print("Error syncing reading progress: \(error)")
             }
+            // Optionally handle success or update state here
+            _ = self
         }
     }
     
@@ -134,10 +143,11 @@ class OfflineManager: ObservableObject {
             "readingPreferences": (try? JSONEncoder().encode(user.readingPreferences)) ?? Data(),
             "favoriteCategories": user.favoriteCategories,
             "favoriteAuthors": user.favoriteAuthors
-        ]) { error in
+        ]) { [weak self] error in
             if let error = error {
                 print("Error syncing user preferences: \(error)")
             }
+            _ = self
         }
     }
     
@@ -147,10 +157,11 @@ class OfflineManager: ObservableObject {
         db.collection("users").document(user.uid).updateData([
             "bookmarkedArticles": user.bookmarkedArticles,
             "readArticles": user.readArticles
-        ]) { error in
+        ]) { [weak self] error in
             if let error = error {
                 print("Error syncing bookmarks: \(error)")
             }
+            _ = self
         }
     }
     

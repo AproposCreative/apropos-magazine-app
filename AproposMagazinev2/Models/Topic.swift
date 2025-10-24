@@ -10,6 +10,10 @@ struct Topic: Identifiable, Decodable, Equatable {
     let sortOrder: Int?
     let articleCount: Int?
     
+    // Cached lowercase name for performance optimization to avoid repeated lowercasing
+    // Useful when topic lists are large and these computed properties are accessed frequently
+    private let lowercasedName: String
+    
     // Webflow API decoding
     private enum CodingKeys: String, CodingKey {
         case id
@@ -35,6 +39,8 @@ struct Topic: Identifiable, Decodable, Equatable {
         isActive = try fieldData.decodeIfPresent(Bool.self, forKey: .isActive) ?? true
         sortOrder = try fieldData.decodeIfPresent(Int.self, forKey: .sortOrder)
         articleCount = nil // Will be calculated dynamically
+        
+        lowercasedName = name.lowercased()
     }
     
     // For previews
@@ -47,6 +53,8 @@ struct Topic: Identifiable, Decodable, Equatable {
         self.isActive = isActive
         self.sortOrder = sortOrder
         self.articleCount = articleCount
+        
+        lowercasedName = name.lowercased()
     }
     
     // Computed properties for better UX
@@ -59,7 +67,7 @@ struct Topic: Identifiable, Decodable, Equatable {
     }
     
     private var defaultIcon: String {
-        switch name.lowercased() {
+        switch lowercasedName {
         case let name where name.contains("design"): return "paintpalette.fill"
         case let name where name.contains("musik"): return "music.note.list"
         case let name where name.contains("litteratur"): return "book.fill"
@@ -73,7 +81,7 @@ struct Topic: Identifiable, Decodable, Equatable {
     }
     
     private var defaultColor: String {
-        switch name.lowercased() {
+        switch lowercasedName {
         case let name where name.contains("design"): return "purple"
         case let name where name.contains("musik"): return "blue"
         case let name where name.contains("litteratur"): return "orange"
@@ -98,6 +106,10 @@ struct WebflowSection: Identifiable, Decodable, Equatable {
     let sortOrder: Int?
     let articleCount: Int?
     
+    // Cached lowercase name for performance optimization to avoid repeated lowercasing
+    // Useful when section lists are large and these computed properties are accessed frequently
+    private let lowercasedName: String
+    
     // Webflow API decoding
     private enum CodingKeys: String, CodingKey {
         case id
@@ -123,6 +135,8 @@ struct WebflowSection: Identifiable, Decodable, Equatable {
         isActive = try fieldData.decodeIfPresent(Bool.self, forKey: .isActive) ?? true
         sortOrder = try fieldData.decodeIfPresent(Int.self, forKey: .sortOrder)
         articleCount = nil // Will be calculated dynamically
+        
+        lowercasedName = name.lowercased()
     }
     
     // For previews
@@ -135,6 +149,8 @@ struct WebflowSection: Identifiable, Decodable, Equatable {
         self.isActive = isActive
         self.sortOrder = sortOrder
         self.articleCount = articleCount
+        
+        lowercasedName = name.lowercased()
     }
     
     // Computed properties for better UX
@@ -147,7 +163,7 @@ struct WebflowSection: Identifiable, Decodable, Equatable {
     }
     
     private var defaultIcon: String {
-        switch name.lowercased() {
+        switch lowercasedName {
         case let name where name.contains("serier"): return "tv.fill"
         case let name where name.contains("film"): return "film.fill"
         case let name where name.contains("musik"): return "music.note.list"
@@ -160,7 +176,7 @@ struct WebflowSection: Identifiable, Decodable, Equatable {
     }
     
     private var defaultColor: String {
-        switch name.lowercased() {
+        switch lowercasedName {
         case let name where name.contains("serier"): return "blue"
         case let name where name.contains("film"): return "purple"
         case let name where name.contains("musik"): return "green"
@@ -171,4 +187,4 @@ struct WebflowSection: Identifiable, Decodable, Equatable {
         default: return "accent"
         }
     }
-} 
+}

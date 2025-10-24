@@ -177,7 +177,7 @@ struct CategoryArticlesView: View {
 
 // Compact row (thumbnail + title + subtitle)
 struct ArticleRowCompact: View {
-    let article: Article
+    var article: Article
     @EnvironmentObject var viewModel: ArticleViewModel
     @Environment(\.colorScheme) var colorScheme
     
@@ -207,7 +207,9 @@ struct ArticleRowCompact: View {
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             // Thumbnail
-            AsyncImage(url: URL(string: article.thumbnailURL)) { image in
+            var mutableArticle = article
+            let thumbnailURL = mutableArticle.thumbnailURL
+            AsyncImage(url: URL(string: thumbnailURL)) { image in
                 image
                     .resizable()
                     .scaledToFill()

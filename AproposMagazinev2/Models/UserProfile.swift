@@ -26,7 +26,7 @@ struct UserProfile: Codable {
         self.displayName = firebaseUser.displayName ?? ""
         self.photoURL = firebaseUser.photoURL?.absoluteString
         
-        // Validate dates to prevent timestamp crashes
+        // Validate dates once during initialization to prevent timestamp crashes
         let now = Date()
         
         if let creationDate = firebaseUser.metadata.creationDate,
@@ -71,7 +71,7 @@ struct UserProfile: Codable {
         displayName = try container.decode(String.self, forKey: .displayName)
         photoURL = try? container.decode(String.self, forKey: .photoURL)
         
-        // Safely decode dates with validation to prevent timestamp crashes
+        // Validate dates once during decoding to prevent timestamp crashes
         let now = Date()
         
         if let date = try? container.decode(Date.self, forKey: .createdAt),
@@ -90,7 +90,7 @@ struct UserProfile: Codable {
             lastLoginAt = now
         }
         
-        // Decode optional fields with defaults
+        // Decode optional fields with defaults efficiently (decoding only once)
         favoriteCategories = (try? container.decode([String].self, forKey: .favoriteCategories)) ?? []
         favoriteAuthors = (try? container.decode([String].self, forKey: .favoriteAuthors)) ?? []
         notificationPreferences = (try? container.decode(NotificationPreferences.self, forKey: .notificationPreferences)) ?? NotificationPreferences()
@@ -106,6 +106,10 @@ struct UserProfile: Codable {
         case readArticles, bookmarkedArticles, readingProgress
     }
 }
+
+// Structs for preferences are value types and have no stored or computed properties that would cause repeated allocations
+// Therefore, no caching needed, and no deinit required as structs don't have deinit
+// Using structs is efficient because they avoid heap allocations and ARC overhead
 
 struct NotificationPreferences: Codable, Equatable {
     var newArticles: Bool = true
@@ -129,7 +133,7 @@ struct QuietHours: Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         enabled = try container.decode(Bool.self, forKey: .enabled)
         
-        // Validate dates to prevent timestamp crashes
+        // Validate dates once during decoding to prevent timestamp crashes
         let defaultStartTime = Date(timeIntervalSince1970: 22 * 3600)
         let defaultEndTime = Date(timeIntervalSince1970: 8 * 3600)
         
@@ -166,6 +170,9 @@ enum FontSize: String, CaseIterable, Codable {
     case medium = "medium"
     case large = "large"
     case extraLarge = "extraLarge"
+    
+    // Computed properties are simple switches with no allocations,
+    // so no caching necessary
     
     var displayName: String {
         switch self {

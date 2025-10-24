@@ -1,12 +1,23 @@
 import Foundation
 import SwiftUI
 
+private var webflowAPIToken: String {
+    // TODO: Replace with secure environment variable or keychain
+    return "YOUR_NEW_WEBFLOW_API_KEY_HERE"
+}
+
 // The model types (Article, Topic, Author, WebflowSection) should be available
 // in the same module/target as this service
 
 class WebflowService {
     static let shared = WebflowService()
     private init() {}
+    
+    // API Token property for direct access
+    var apiToken: String {
+        // TODO: Replace with secure environment variable or keychain
+        return "YOUR_NEW_WEBFLOW_API_KEY_HERE"
+    }
 
     struct WebflowResponse: Decodable {
         let items: [Article]
@@ -49,7 +60,7 @@ class WebflowService {
            
            var request = URLRequest(url: url)
            request.httpMethod = "GET"
-           request.setValue("Bearer 81734a0b8bd3e2352d9325258ad958eea1626c447113661c97d13b5d3b12efa1", forHTTPHeaderField: "Authorization")
+           request.setValue("Bearer \(webflowAPIToken)", forHTTPHeaderField: "Authorization")
            request.setValue("1.0.0", forHTTPHeaderField: "accept-version")
            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
            
@@ -156,7 +167,7 @@ class WebflowService {
         
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue("Bearer 81734a0b8bd3e2352d9325258ad958eea1626c447113661c97d13b5d3b12efa1", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(webflowAPIToken)", forHTTPHeaderField: "Authorization")
         request.setValue("1.0.0", forHTTPHeaderField: "accept-version")
         
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
@@ -228,7 +239,7 @@ class WebflowService {
         }
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue("Bearer 81734a0b8bd3e2352d9325258ad958eea1626c447113661c97d13b5d3b12efa1", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(webflowAPIToken)", forHTTPHeaderField: "Authorization")
         request.setValue("1.0.0", forHTTPHeaderField: "accept-version")
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
@@ -264,7 +275,7 @@ class WebflowService {
             return
         }
         var request = URLRequest(url: url)
-        request.setValue("Bearer 81734a0b8bd3e2352d9325258ad958eea1626c447113661c97d13b5d3b12efa1", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(webflowAPIToken)", forHTTPHeaderField: "Authorization")
         request.setValue("1.0.0", forHTTPHeaderField: "accept-version")
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
@@ -303,7 +314,7 @@ class WebflowService {
         }
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue("Bearer 81734a0b8bd3e2352d9325258ad958eea1626c447113661c97d13b5d3b12efa1", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(webflowAPIToken)", forHTTPHeaderField: "Authorization")
         request.setValue("1.0.0", forHTTPHeaderField: "accept-version")
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
@@ -330,3 +341,4 @@ class WebflowService {
         task.resume()
     }
 }
+
