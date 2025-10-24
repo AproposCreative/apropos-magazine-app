@@ -2,8 +2,7 @@ import Foundation
 import SwiftUI
 
 private var webflowAPIToken: String {
-    // TODO: Replace with secure environment variable or keychain
-    return "YOUR_NEW_WEBFLOW_API_KEY_HERE"
+    return SecureConfig.shared.webflowAPIKey
 }
 
 // The model types (Article, Topic, Author, WebflowSection) should be available
@@ -15,8 +14,7 @@ class WebflowService {
     
     // API Token property for direct access
     var apiToken: String {
-        // TODO: Replace with secure environment variable or keychain
-        return "YOUR_NEW_WEBFLOW_API_KEY_HERE"
+        return SecureConfig.shared.webflowAPIKey
     }
 
     struct WebflowResponse: Decodable {
