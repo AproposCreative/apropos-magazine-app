@@ -193,11 +193,11 @@ struct SettingsView: View {
     @ObservedObject private var userManager = UserManager.shared
     @ObservedObject private var notificationService = NotificationService.shared
     @ObservedObject private var offlineManager = OfflineManager.shared
+    @ObservedObject private var themeManager = ThemeManager.shared
     
     // State for settings
     @State private var pushNotificationsEnabled = true
     @State private var emailUpdatesEnabled = false
-    @State private var darkModeSetting = "System"
     @State private var showReadingHistory = false
     @State private var showSavedArticles = false
     @State private var showReadingTime = false
@@ -272,7 +272,7 @@ struct SettingsView: View {
                     Button(action: {
                         showDarkModeOptions = true
                     }) {
-                        SettingsRow(icon: "moon.fill", title: "Dark Mode", subtitle: darkModeSetting)
+                        SettingsRow(icon: themeManager.currentTheme.icon, title: "Theme", subtitle: themeManager.currentTheme.displayName)
                     }
                     .buttonStyle(PlainButtonStyle())
                     
@@ -356,7 +356,7 @@ struct SettingsView: View {
             ReadingTimeView()
         }
         .sheet(isPresented: $showDarkModeOptions) {
-            DarkModeOptionsView(selectedMode: $darkModeSetting)
+            DarkModeOptionsView()
         }
         .sheet(isPresented: $showCacheOptions) {
             CacheOptionsView()
@@ -537,23 +537,27 @@ struct ReadingStatCard: View {
 
 struct DarkModeOptionsView: View {
     @Environment(\.dismiss) private var dismiss
-    @Binding var selectedMode: String
-    
-    private let modes = ["System", "Light", "Dark"]
+    @ObservedObject private var themeManager = ThemeManager.shared
     
     var body: some View {
         NavigationView {
             List {
-                ForEach(modes, id: \.self) { mode in
+                ForEach(AppTheme.allCases, id: \.self) { theme in
                     Button(action: {
-                        selectedMode = mode
+                        themeManager.setTheme(theme)
                         dismiss()
                     }) {
                         HStack {
-                            Text(mode)
+                            Image(systemName: theme.icon)
+                                .foregroundColor(.blue)
+                                .frame(width: 24)
+                            
+                            Text(theme.displayName)
                                 .foregroundColor(.primary)
+                            
                             Spacer()
-                            if selectedMode == mode {
+                            
+                            if themeManager.currentTheme == theme {
                                 Image(systemName: "checkmark")
                                     .foregroundColor(.blue)
                             }
@@ -562,7 +566,7 @@ struct DarkModeOptionsView: View {
                     .buttonStyle(PlainButtonStyle())
                 }
             }
-            .navigationTitle("Dark Mode")
+            .navigationTitle("Theme")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
