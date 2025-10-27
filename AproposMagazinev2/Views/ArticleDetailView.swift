@@ -65,10 +65,10 @@ struct TrailerWebView: UIViewRepresentable {
             print("🎬 TrailerWebView: Detected Embedly YouTube iframe, extracting URL")
             if let youtubeURL = extractYouTubeURLFromEmbedly(trailer) {
                 print("🎬 TrailerWebView: Extracted YouTube URL: \(youtubeURL)")
-                let videoID = extractYouTubeVideoID(from: youtubeURL)
-                if !videoID.isEmpty {
-                    let embedURL = "https://www.youtube.com/embed/\(videoID)?rel=0&modestbranding=1&autoplay=0&controls=1"
-                    print("🎬 TrailerWebView: Embed URL: \(embedURL)")
+                
+                // Check if the extracted URL is already an embed URL
+                if youtubeURL.contains("youtube.com/embed/") {
+                    print("🎬 TrailerWebView: URL is already embed format, using directly")
                     let embedHTML = """
                     <html><head>
                     <meta name='viewport' content='initial-scale=1, maximum-scale=1, user-scalable=no' />
@@ -76,10 +76,28 @@ struct TrailerWebView: UIViewRepresentable {
                         html,body{margin:0;padding:0;background:transparent;overflow:hidden}
                         iframe{width:100%;height:100%;border:0;border-radius:12px}
                     </style>
-                    </head><body><iframe src="\(embedURL)" frameborder="0" allowfullscreen></iframe></body></html>
+                    </head><body><iframe src="\(youtubeURL)" frameborder="0" allowfullscreen></iframe></body></html>
                     """
                     uiView.loadHTMLString(embedHTML, baseURL: nil)
                     return
+                } else {
+                    // Extract video ID from regular YouTube URL
+                    let videoID = extractYouTubeVideoID(from: youtubeURL)
+                    if !videoID.isEmpty {
+                        let embedURL = "https://www.youtube.com/embed/\(videoID)?rel=0&modestbranding=1&autoplay=0&controls=1"
+                        print("🎬 TrailerWebView: Embed URL: \(embedURL)")
+                        let embedHTML = """
+                        <html><head>
+                        <meta name='viewport' content='initial-scale=1, maximum-scale=1, user-scalable=no' />
+                        <style>
+                            html,body{margin:0;padding:0;background:transparent;overflow:hidden}
+                            iframe{width:100%;height:100%;border:0;border-radius:12px}
+                        </style>
+                        </head><body><iframe src="\(embedURL)" frameborder="0" allowfullscreen></iframe></body></html>
+                        """
+                        uiView.loadHTMLString(embedHTML, baseURL: nil)
+                        return
+                    }
                 }
             }
         }
