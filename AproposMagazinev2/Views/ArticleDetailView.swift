@@ -60,6 +60,30 @@ struct TrailerWebView: UIViewRepresentable {
     private func loadTrailer(uiView: WKWebView, trailer: String) {
         print("🎬 TrailerWebView: Analyzing trailer content...")
         
+        // Check for Embedly iframe first
+        if trailer.contains("embedly.com") && trailer.contains("youtube") {
+            print("🎬 TrailerWebView: Detected Embedly YouTube iframe, extracting URL")
+            if let youtubeURL = extractYouTubeURLFromEmbedly(trailer) {
+                print("🎬 TrailerWebView: Extracted YouTube URL: \(youtubeURL)")
+                let videoID = extractYouTubeVideoID(from: youtubeURL)
+                if !videoID.isEmpty {
+                    let embedURL = "https://www.youtube.com/embed/\(videoID)?rel=0&modestbranding=1&autoplay=0&controls=1"
+                    print("🎬 TrailerWebView: Embed URL: \(embedURL)")
+                    let embedHTML = """
+                    <html><head>
+                    <meta name='viewport' content='initial-scale=1, maximum-scale=1, user-scalable=no' />
+                    <style>
+                        html,body{margin:0;padding:0;background:transparent;overflow:hidden}
+                        iframe{width:100%;height:100%;border:0;border-radius:12px}
+                    </style>
+                    </head><body><iframe src="\(embedURL)" frameborder="0" allowfullscreen></iframe></body></html>
+                    """
+                    uiView.loadHTMLString(embedHTML, baseURL: nil)
+                    return
+                }
+            }
+        }
+        
         // If input looks like HTML embed, load directly
         if trailer.lowercased().contains("<iframe") || trailer.lowercased().contains("<video") || trailer.lowercased().contains("<embed") {
             print("🎬 TrailerWebView: Detected HTML embed, loading directly")
@@ -131,6 +155,46 @@ struct TrailerWebView: UIViewRepresentable {
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
             print("🎬 TrailerWebView: Started loading content")
         }
+    }
+    
+    private func extractYouTubeURLFromEmbedly(_ embedlyHTML: String) -> String? {
+        // Look for YouTube URL in Embedly iframe src
+        // Pattern: src="//cdn.embedly.com/widgets/media.html?src=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DVIDEO_ID"
+        
+        if let range = embedlyHTML.range(of: "src=\"//cdn.embedly.com/widgets/media.html?src=") {
+            let afterSrc = String(embedlyHTML[range.upperBound...])
+            if let endRange = afterSrc.range(of: "\"") {
+                let encodedURL = String(afterSrc[..<endRange.lowerBound])
+                // URL decode the encoded URL
+                if let decodedURL = encodedURL.removingPercentEncoding {
+                    print("🎬 TrailerWebView: Decoded URL: \(decodedURL)")
+                    return decodedURL
+                }
+            }
+        }
+        
+        // Alternative pattern: look for youtube.com in the iframe
+        if let youtubeRange = embedlyHTML.range(of: "youtube.com") {
+            let beforeYoutube = String(embedlyHTML[..<youtubeRange.lowerBound])
+            let afterYoutube = String(embedlyHTML[youtubeRange.lowerBound...])
+            
+            // Find the start of the URL
+            if let srcRange = beforeYoutube.range(of: "src=", options: .backwards) {
+                let urlStart = String(beforeYoutube[srcRange.upperBound...])
+                let fullURL = urlStart + afterYoutube
+                
+                // Extract just the YouTube URL part
+                if let endRange = fullURL.range(of: "\"") {
+                    let youtubeURL = String(fullURL[..<endRange.lowerBound])
+                    if let decodedURL = youtubeURL.removingPercentEncoding {
+                        print("🎬 TrailerWebView: Alternative decoded URL: \(decodedURL)")
+                        return decodedURL
+                    }
+                }
+            }
+        }
+        
+        return nil
     }
     
     private func extractYouTubeVideoID(from url: String) -> String {
