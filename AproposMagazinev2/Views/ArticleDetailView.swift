@@ -21,13 +21,20 @@ struct ScrollViewHeightKey: PreferenceKey {
 // MARK: - TrailerWebView to display YouTube or raw iframe HTML
 struct TrailerWebView: UIViewRepresentable {
     let trailer: String
+    @State private var isLoaded = false
 
     func makeUIView(context: Context) -> WKWebView {
-        let webView = WKWebView()
+        let config = WKWebViewConfiguration()
+        config.allowsInlineMediaPlayback = true
+        config.mediaTypesRequiringUserActionForPlayback = []
+        config.suppressesIncrementalRendering = true
+        
+        let webView = WKWebView(frame: .zero, configuration: config)
         webView.scrollView.isScrollEnabled = false
         webView.isOpaque = false
         webView.backgroundColor = .clear
-        webView.configuration.allowsInlineMediaPlayback = true
+        webView.navigationDelegate = context.coordinator
+        
         return webView
     }
 
@@ -37,26 +44,42 @@ struct TrailerWebView: UIViewRepresentable {
         
         let trimmed = trailer.trimmingCharacters(in: .whitespacesAndNewlines)
         
+        // Only load if not already loaded to prevent reloading
+        if context.coordinator.lastLoadedTrailer != trimmed {
+            context.coordinator.lastLoadedTrailer = trimmed
+            loadTrailer(uiView: uiView, trailer: trimmed)
+        }
+    }
+    
+    private func loadTrailer(uiView: WKWebView, trailer: String) {
         // If input looks like HTML embed, load directly
-        if trimmed.lowercased().contains("<iframe") || trimmed.lowercased().contains("<video") || trimmed.lowercased().contains("<embed") {
+        if trailer.lowercased().contains("<iframe") || trailer.lowercased().contains("<video") || trailer.lowercased().contains("<embed") {
             let html = """
-            <html><head><meta name='viewport' content='initial-scale=1, maximum-scale=1, user-scalable=no' />
-            <style>html,body{margin:0;padding:0;background:transparent} iframe,video{width:100%;height:100%;border:0;border-radius:12px}</style>
-            </head><body>\(trimmed)</body></html>
+            <html><head>
+            <meta name='viewport' content='initial-scale=1, maximum-scale=1, user-scalable=no' />
+            <style>
+                html,body{margin:0;padding:0;background:transparent;overflow:hidden}
+                iframe,video{width:100%;height:100%;border:0;border-radius:12px}
+            </style>
+            </head><body>\(trailer)</body></html>
             """
             uiView.loadHTMLString(html, baseURL: nil)
             return
         }
 
-        if let url = URL(string: trimmed), (url.scheme?.lowercased() == "http" || url.scheme?.lowercased() == "https") {
-            if trimmed.contains("youtube.com") || trimmed.contains("youtu.be") {
+        if let url = URL(string: trailer), (url.scheme?.lowercased() == "http" || url.scheme?.lowercased() == "https") {
+            if trailer.contains("youtube.com") || trailer.contains("youtu.be") {
                 // Convert YouTube link to embed format
-                let videoID = extractYouTubeVideoID(from: trimmed)
+                let videoID = extractYouTubeVideoID(from: trailer)
                 if !videoID.isEmpty {
-                    let embedURL = "https://www.youtube.com/embed/\(videoID)?rel=0&modestbranding=1"
+                    let embedURL = "https://www.youtube.com/embed/\(videoID)?rel=0&modestbranding=1&autoplay=0&controls=1"
                     let embedHTML = """
-                    <html><head><meta name='viewport' content='initial-scale=1, maximum-scale=1, user-scalable=no' />
-                    <style>html,body{margin:0;padding:0;background:transparent} iframe{width:100%;height:100%;border:0;border-radius:12px}</style>
+                    <html><head>
+                    <meta name='viewport' content='initial-scale=1, maximum-scale=1, user-scalable=no' />
+                    <style>
+                        html,body{margin:0;padding:0;background:transparent;overflow:hidden}
+                        iframe{width:100%;height:100%;border:0;border-radius:12px}
+                    </style>
                     </head><body><iframe src="\(embedURL)" frameborder="0" allowfullscreen></iframe></body></html>
                     """
                     uiView.loadHTMLString(embedHTML, baseURL: nil)
@@ -66,6 +89,22 @@ struct TrailerWebView: UIViewRepresentable {
                 let request = URLRequest(url: url)
                 uiView.load(request)
             }
+        }
+    }
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+    
+    class Coordinator: NSObject, WKNavigationDelegate {
+        var lastLoadedTrailer: String = ""
+        
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            // Optional: Handle successful loading
+        }
+        
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            print("TrailerWebView failed to load: \(error.localizedDescription)")
         }
     }
     
@@ -334,7 +373,7 @@ struct ArticleDetailView: View {
                     if !thumbnailURL.isEmpty,
                        let url = URL(string: thumbnailURL),
                        UIApplication.shared.canOpenURL(url) {
-                        WebImage(url: url)
+                        WebImage(url: url, options: [.retryFailed, .refreshCached, .avoidAutoSetImage])
                             .resizable()
                             .aspectRatio(contentMode: .fill)
                             .frame(maxWidth: .infinity, minHeight: 200, maxHeight: 320)
@@ -375,10 +414,14 @@ struct ArticleDetailView: View {
 
                         // Trailer / Video after content if present
                         if let trailer = article.trailer, !trailer.isEmpty {
-                            TrailerWebView(trailer: trailer)
-                                .frame(height: 220)
-                                .padding(.top, 10)
-                                .padding(.horizontal, 16)
+                            LazyVStack {
+                                TrailerWebView(trailer: trailer)
+                                    .frame(height: 220)
+                                    .cornerRadius(12)
+                                    .clipped()
+                            }
+                            .padding(.top, 10)
+                            .padding(.horizontal, 16)
                             
                             // Pæn separator mellem trailer og tekst
                             Rectangle()
