@@ -104,9 +104,9 @@ class WebflowService {
                }
                
                // Print hele JSON-svaret for at debugge stars data
-               if let jsonString = String(data: data, encoding: .utf8) {
-                   print("[DEBUG] RAW STARS JSON:\n" + jsonString)
-               }
+               // if let jsonString = String(data: data, encoding: .utf8) {
+               //     print("[DEBUG] RAW STARS JSON:\n" + jsonString)
+               // }
                
                do {
                    let decoded = try JSONDecoder().decode(WebflowCollectionResponse.self, from: data)
@@ -206,9 +206,9 @@ class WebflowService {
             }
             
             // Print hele JSON-svaret for at debugge publiceringsfelt
-            if let jsonString = String(data: data, encoding: .utf8) {
-                print("[DEBUG] RAW ARTICLE JSON:\n" + jsonString)
-            }
+            // if let jsonString = String(data: data, encoding: .utf8) {
+            //     print("[DEBUG] RAW ARTICLE JSON:\n" + jsonString)
+            // }
             
             do {
                 let webflowData = try JSONDecoder().decode(WebflowResponse.self, from: data)
