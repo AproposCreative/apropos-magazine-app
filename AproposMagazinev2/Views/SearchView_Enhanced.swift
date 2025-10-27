@@ -22,6 +22,12 @@ struct SearchView_Enhanced: View {
     @State private var showSearchBar = false
     @State private var showSortMenu = false
     
+    // Pagination state
+    @State private var displayedArticles: [Article] = []
+    @State private var currentPage = 0
+    @State private var isLoadingMore = false
+    private let articlesPerPage = 20
+    
     // Computed properties for filtered and sorted articles
     private var filteredArticles: [Article] {
         if searchText.isEmpty {
@@ -52,6 +58,17 @@ struct SearchView_Enhanced: View {
         case .category:
             return articles.sorted { ($0.topicID ?? "") < ($1.topicID ?? "") }
         }
+    }
+    
+    // Paginated articles for display
+    private var paginatedArticles: [Article] {
+        let startIndex = currentPage * articlesPerPage
+        let endIndex = min(startIndex + articlesPerPage, sortedArticles.count)
+        return Array(sortedArticles[startIndex..<endIndex])
+    }
+    
+    private var hasMoreArticles: Bool {
+        (currentPage + 1) * articlesPerPage < sortedArticles.count
     }
     
     var body: some View {
@@ -195,7 +212,7 @@ struct SearchView_Enhanced: View {
                         .padding(.top, 100)
                     } else {
                         VStack(spacing: 0) {
-                            ForEach(sortedArticles) { article in
+                            ForEach(displayedArticles) { article in
                                 Button(action: {
                                     navigationCoordinator.navigateToArticle(article, in: .search)
                                 }) {
@@ -203,11 +220,34 @@ struct SearchView_Enhanced: View {
                                 }
                                 .buttonStyle(PlainButtonStyle())
                                 
-                                if article.id != sortedArticles.last?.id {
+                                if article.id != displayedArticles.last?.id {
                                     Divider()
                                         .padding(.horizontal, 16)
                                         .padding(.vertical, 8)
                                 }
+                            }
+                            
+                            // Load More Button
+                            if hasMoreArticles {
+                                Button(action: loadMoreArticles) {
+                                    HStack {
+                                        if isLoadingMore {
+                                            ProgressView()
+                                                .scaleEffect(0.8)
+                                        } else {
+                                            Text("Indlæs flere artikler")
+                                                .font(.subheadline)
+                                                .foregroundColor(.primary)
+                                        }
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 16)
+                                    .background(Color.gray.opacity(0.1))
+                                    .cornerRadius(8)
+                                    .padding(.horizontal, 16)
+                                    .padding(.top, 8)
+                                }
+                                .disabled(isLoadingMore)
                             }
                         }
                         .padding(.top, showNavTitle ? 12 : 0)
@@ -227,6 +267,13 @@ struct SearchView_Enhanced: View {
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             showNavTitle = false
+            loadInitialArticles()
+        }
+        .onChange(of: searchText) { _, _ in
+            resetPagination()
+        }
+        .onChange(of: selectedSort) { _, _ in
+            resetPagination()
         }
     }
     
@@ -271,6 +318,32 @@ struct SearchView_Enhanced: View {
             }
         }
         .padding(.top, showNavTitle ? 12 : 0)
+    }
+    
+    // MARK: - Pagination Functions
+    
+    private func loadInitialArticles() {
+        currentPage = 0
+        displayedArticles = paginatedArticles
+    }
+    
+    private func loadMoreArticles() {
+        guard !isLoadingMore && hasMoreArticles else { return }
+        
+        isLoadingMore = true
+        
+        // Simulate loading delay for better UX
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            currentPage += 1
+            let newArticles = paginatedArticles
+            displayedArticles.append(contentsOf: newArticles)
+            isLoadingMore = false
+        }
+    }
+    
+    private func resetPagination() {
+        currentPage = 0
+        displayedArticles = paginatedArticles
     }
 }
 
