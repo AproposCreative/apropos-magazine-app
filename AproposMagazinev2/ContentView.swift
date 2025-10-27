@@ -76,7 +76,8 @@ struct ContentView: View {
             
             // Profile Tab
             NavigationStack(path: navigationCoordinator.path(for: .profile)) {
-                ProfileView()
+                ProfileView_NewDesign()
+                    .environmentObject(viewModel)
                     .navigationDestination(for: Article.self) { article in
                         ArticleDetailView(article: article)
                             .environmentObject(viewModel)
