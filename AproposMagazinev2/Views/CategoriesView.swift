@@ -220,6 +220,7 @@ struct ArticleRowCompact: View {
             .frame(width: 80, height: 60)
             .clipped()
             .cornerRadius(8)
+            .id(article.id) // Add ID for better memory management
             
             // Content
             VStack(alignment: .leading, spacing: 4) {
