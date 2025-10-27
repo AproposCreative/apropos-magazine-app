@@ -163,7 +163,7 @@ class ArticleViewModel: ObservableObject {
         
         // Try cache first for fast startup
         if let cached = CacheManager.shared.getCachedArticles(), !cached.isEmpty {
-            print("[DEBUG] fetchArticles: Found \(cached.count) cached articles")
+            // print("[DEBUG] fetchArticles: Found \(cached.count) cached articles")
             // Sort cached articles by date (newest first)
             let sortedCached = cached.sorted { article1, article2 in
                 var mutableArticle1 = article1
@@ -172,7 +172,7 @@ class ArticleViewModel: ObservableObject {
                 let date2 = mutableArticle2.createdDate ?? mutableArticle2.publishedDate ?? Date.distantPast
                 return date1 > date2
             }
-            print("[DEBUG] fetchArticles: Setting cached articles to \(sortedCached.count) articles")
+            // print("[DEBUG] fetchArticles: Setting cached articles to \(sortedCached.count) articles")
             self.articles = sortedCached
             
             // Load favorites after articles are available
@@ -198,7 +198,7 @@ class ArticleViewModel: ObservableObject {
                     self?.isLoading = false
                     switch result {
                     case .success(let articles):
-                        print("[DEBUG] fetchArticles: Fik \(articles.count) artikler")
+                        // print("[DEBUG] fetchArticles: Fik \(articles.count) artikler")
                         // Sort articles by date (newest first)
                         let sortedArticles = articles.sorted { article1, article2 in
                             var mutableArticle1 = article1
@@ -207,7 +207,7 @@ class ArticleViewModel: ObservableObject {
                             let date2 = mutableArticle2.createdDate ?? mutableArticle2.publishedDate ?? Date.distantPast
                             return date1 > date2
                         }
-                        print("[DEBUG] fetchArticles: Setting articles to \(sortedArticles.count) articles")
+                        // print("[DEBUG] fetchArticles: Setting articles to \(sortedArticles.count) articles")
                         self?.articles = sortedArticles
                         CacheManager.shared.cacheArticles(sortedArticles)
                         // Load favorites after articles are available

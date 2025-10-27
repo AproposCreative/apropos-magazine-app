@@ -194,6 +194,18 @@ struct SettingsView: View {
     @ObservedObject private var notificationService = NotificationService.shared
     @ObservedObject private var offlineManager = OfflineManager.shared
     
+    // State for settings
+    @State private var pushNotificationsEnabled = true
+    @State private var emailUpdatesEnabled = false
+    @State private var darkModeSetting = "System"
+    @State private var showReadingHistory = false
+    @State private var showSavedArticles = false
+    @State private var showReadingTime = false
+    @State private var showDarkModeOptions = false
+    @State private var showCacheOptions = false
+    @State private var showHelpSupport = false
+    @State private var showContactUs = false
+    
     var body: some View {
         NavigationView {
             List {
@@ -227,29 +239,78 @@ struct SettingsView: View {
                 
                 // Reading Settings
                 Section("Reading") {
-                    SettingsRow(icon: "book.fill", title: "Reading History", subtitle: "View your reading history")
-                    SettingsRow(icon: "bookmark.fill", title: "Saved Articles", subtitle: "\(viewModel.favorites.count) articles")
-                    SettingsRow(icon: "clock.fill", title: "Reading Time", subtitle: "Track your reading habits")
+                    Button(action: {
+                        showReadingHistory = true
+                    }) {
+                        SettingsRow(icon: "book.fill", title: "Reading History", subtitle: "View your reading history")
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    
+                    Button(action: {
+                        showSavedArticles = true
+                    }) {
+                        SettingsRow(icon: "bookmark.fill", title: "Saved Articles", subtitle: "\(viewModel.favorites.count) articles")
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    
+                    Button(action: {
+                        showReadingTime = true
+                    }) {
+                        SettingsRow(icon: "clock.fill", title: "Reading Time", subtitle: "Track your reading habits")
+                    }
+                    .buttonStyle(PlainButtonStyle())
                 }
                 
                 // Notifications
                 Section("Notifications") {
-                    ToggleRow(icon: "bell.fill", title: "Push Notifications", isOn: .constant(true))
-                    ToggleRow(icon: "envelope.fill", title: "Email Updates", isOn: .constant(false))
+                    ToggleRow(icon: "bell.fill", title: "Push Notifications", isOn: $pushNotificationsEnabled)
+                    ToggleRow(icon: "envelope.fill", title: "Email Updates", isOn: $emailUpdatesEnabled)
                 }
                 
                 // App Settings
                 Section("App") {
-                    SettingsRow(icon: "moon.fill", title: "Dark Mode", subtitle: "System")
+                    Button(action: {
+                        showDarkModeOptions = true
+                    }) {
+                        SettingsRow(icon: "moon.fill", title: "Dark Mode", subtitle: darkModeSetting)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    
                     SettingsRow(icon: "wifi", title: "Offline Reading", subtitle: offlineManager.isOnline ? "Online" : "Offline")
-                    SettingsRow(icon: "trash.fill", title: "Clear Cache", subtitle: "Free up space")
+                    
+                    Button(action: {
+                        showCacheOptions = true
+                    }) {
+                        SettingsRow(icon: "trash.fill", title: "Clear Cache", subtitle: "Free up space")
+                    }
+                    .buttonStyle(PlainButtonStyle())
                 }
                 
                 // Support
                 Section("Support") {
-                    SettingsRow(icon: "questionmark.circle.fill", title: "Help & Support")
-                    SettingsRow(icon: "star.fill", title: "Rate App")
-                    SettingsRow(icon: "envelope.fill", title: "Contact Us")
+                    Button(action: {
+                        showHelpSupport = true
+                    }) {
+                        SettingsRow(icon: "questionmark.circle.fill", title: "Help & Support")
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    
+                    Button(action: {
+                        // Open App Store rating
+                        if let url = URL(string: "https://apps.apple.com/app/id123456789") {
+                            UIApplication.shared.open(url)
+                        }
+                    }) {
+                        SettingsRow(icon: "star.fill", title: "Rate App")
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    
+                    Button(action: {
+                        showContactUs = true
+                    }) {
+                        SettingsRow(icon: "envelope.fill", title: "Contact Us")
+                    }
+                    .buttonStyle(PlainButtonStyle())
                 }
                 
                 // Account Actions
@@ -281,6 +342,30 @@ struct SettingsView: View {
                     }
                 }
             }
+        }
+        .sheet(isPresented: $showReadingHistory) {
+            ReadingHistoryView()
+        }
+        .sheet(isPresented: $showSavedArticles) {
+            NavigationView {
+                FavoritesView()
+                    .environmentObject(viewModel)
+            }
+        }
+        .sheet(isPresented: $showReadingTime) {
+            ReadingTimeView()
+        }
+        .sheet(isPresented: $showDarkModeOptions) {
+            DarkModeOptionsView(selectedMode: $darkModeSetting)
+        }
+        .sheet(isPresented: $showCacheOptions) {
+            CacheOptionsView()
+        }
+        .sheet(isPresented: $showHelpSupport) {
+            HelpSupportView()
+        }
+        .sheet(isPresented: $showContactUs) {
+            ContactUsView()
         }
     }
 }
@@ -342,6 +427,352 @@ struct ToggleRow: View {
             Toggle("", isOn: $isOn)
         }
         .padding(.vertical, 4)
+    }
+}
+
+// MARK: - Settings Detail Views
+struct ReadingHistoryView: View {
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        NavigationView {
+            List {
+                Section("Recent Articles") {
+                    ForEach(0..<5) { index in
+                        HStack {
+                            Image(systemName: "doc.text")
+                                .foregroundColor(.blue)
+                            VStack(alignment: .leading) {
+                                Text("Article \(index + 1)")
+                                    .font(.headline)
+                                Text("Read 2 hours ago")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+            }
+            .navigationTitle("Reading History")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct ReadingTimeView: View {
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 20) {
+                VStack(spacing: 8) {
+                    Text("📚")
+                        .font(.system(size: 60))
+                    Text("Reading Statistics")
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                }
+                
+                VStack(spacing: 16) {
+                    ReadingStatCard(title: "Total Reading Time", value: "24h 32m", icon: "clock.fill")
+                    ReadingStatCard(title: "Articles Read", value: "47", icon: "book.fill")
+                    ReadingStatCard(title: "Average per Article", value: "31m", icon: "timer")
+                    ReadingStatCard(title: "This Week", value: "8h 15m", icon: "calendar")
+                }
+                .padding(.horizontal)
+                
+                Spacer()
+            }
+            .padding()
+            .navigationTitle("Reading Time")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct ReadingStatCard: View {
+    let title: String
+    let value: String
+    let icon: String
+    
+    var body: some View {
+        HStack {
+            Image(systemName: icon)
+                .foregroundColor(.blue)
+                .font(.title2)
+                .frame(width: 30)
+            
+            VStack(alignment: .leading) {
+                Text(title)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                Text(value)
+                    .font(.title2)
+                    .fontWeight(.semibold)
+            }
+            
+            Spacer()
+        }
+        .padding()
+        .background(Color(.systemGray6))
+        .cornerRadius(12)
+    }
+}
+
+struct DarkModeOptionsView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Binding var selectedMode: String
+    
+    private let modes = ["System", "Light", "Dark"]
+    
+    var body: some View {
+        NavigationView {
+            List {
+                ForEach(modes, id: \.self) { mode in
+                    Button(action: {
+                        selectedMode = mode
+                        dismiss()
+                    }) {
+                        HStack {
+                            Text(mode)
+                                .foregroundColor(.primary)
+                            Spacer()
+                            if selectedMode == mode {
+                                Image(systemName: "checkmark")
+                                    .foregroundColor(.blue)
+                            }
+                        }
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+            }
+            .navigationTitle("Dark Mode")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct CacheOptionsView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var cacheSize = "45.2 MB"
+    @State private var isClearing = false
+    
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 20) {
+                VStack(spacing: 8) {
+                    Text("🗂️")
+                        .font(.system(size: 60))
+                    Text("Cache Management")
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                }
+                
+                VStack(spacing: 16) {
+                    HStack {
+                        Text("Cache Size:")
+                            .font(.headline)
+                        Spacer()
+                        Text(cacheSize)
+                            .font(.headline)
+                            .foregroundColor(.blue)
+                    }
+                    .padding()
+                    .background(Color(.systemGray6))
+                    .cornerRadius(12)
+                    
+                    Button(action: {
+                        clearCache()
+                    }) {
+                        HStack {
+                            if isClearing {
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                            } else {
+                                Image(systemName: "trash.fill")
+                            }
+                            Text(isClearing ? "Clearing..." : "Clear Cache")
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.red)
+                        .foregroundColor(.white)
+                        .cornerRadius(12)
+                    }
+                    .disabled(isClearing)
+                }
+                .padding(.horizontal)
+                
+                Spacer()
+            }
+            .padding()
+            .navigationTitle("Cache Options")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+    
+    private func clearCache() {
+        isClearing = true
+        // Simulate cache clearing
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            cacheSize = "0 MB"
+            isClearing = false
+        }
+    }
+}
+
+struct HelpSupportView: View {
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        NavigationView {
+            List {
+                Section("Frequently Asked Questions") {
+                    HelpRow(title: "How do I save articles?", subtitle: "Tap the bookmark icon on any article")
+                    HelpRow(title: "Can I read offline?", subtitle: "Yes, saved articles are available offline")
+                    HelpRow(title: "How do I change notifications?", subtitle: "Go to Settings > Notifications")
+                }
+                
+                Section("Contact Support") {
+                    Button(action: {
+                        if let url = URL(string: "mailto:support@aproposmagazine.com") {
+                            UIApplication.shared.open(url)
+                        }
+                    }) {
+                        HelpRow(title: "Email Support", subtitle: "support@aproposmagazine.com")
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+            }
+            .navigationTitle("Help & Support")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct HelpRow: View {
+    let title: String
+    let subtitle: String
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.headline)
+            Text(subtitle)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+struct ContactUsView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var message = ""
+    @State private var isSending = false
+    
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 20) {
+                VStack(spacing: 8) {
+                    Text("📧")
+                        .font(.system(size: 60))
+                    Text("Contact Us")
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                }
+                
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Send us a message:")
+                        .font(.headline)
+                    
+                    TextEditor(text: $message)
+                        .frame(height: 120)
+                        .padding(8)
+                        .background(Color(.systemGray6))
+                        .cornerRadius(8)
+                }
+                
+                Button(action: {
+                    sendMessage()
+                }) {
+                    HStack {
+                        if isSending {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                        } else {
+                            Image(systemName: "paperplane.fill")
+                        }
+                        Text(isSending ? "Sending..." : "Send Message")
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(message.isEmpty ? Color.gray : Color.blue)
+                    .foregroundColor(.white)
+                    .cornerRadius(12)
+                }
+                .disabled(message.isEmpty || isSending)
+                
+                Spacer()
+            }
+            .padding()
+            .navigationTitle("Contact Us")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+    
+    private func sendMessage() {
+        isSending = true
+        // Simulate sending
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            isSending = false
+            message = ""
+            dismiss()
+        }
     }
 }
 

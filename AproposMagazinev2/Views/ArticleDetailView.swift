@@ -244,10 +244,6 @@ struct ArticleDetailView: View {
                         .onChange(of: geo.frame(in: .named("scroll")).minY) { _, newValue in
                             // newValue is negative when scrolling down, so we make it positive
                             scrollOffset = max(0, -newValue)
-                            // Debug logging for scroll tracking
-                            if scrollOffset > 0 && scrollOffset.truncatingRemainder(dividingBy: 10) < 1 {
-                                print("📄 Article scroll offset: \(scrollOffset), Progress: \(progress)")
-                            }
                         }
                 }
                 .frame(height: 0.1)
