@@ -375,23 +375,10 @@ struct ArticleDetailView: View {
 
                         // Trailer / Video after content if present
                         if let trailer = article.trailer, !trailer.isEmpty {
-                            VStack(alignment: .leading, spacing: 8) {
-                                // Debug info
-                                Text("🎬 Video/Trailer:")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                
-                                TrailerWebView(trailer: trailer)
-                                    .frame(height: 220)
-                                
-                                // Debug: Show raw trailer content
-                                Text("Raw trailer: \(trailer)")
-                                    .font(.caption2)
-                                    .foregroundColor(.red)
-                                    .lineLimit(3)
-                            }
-                            .padding(.top, 10)
-                            .padding(.horizontal, 16)
+                            TrailerWebView(trailer: trailer)
+                                .frame(height: 220)
+                                .padding(.top, 10)
+                                .padding(.horizontal, 16)
                             
                             // Pæn separator mellem trailer og tekst
                             Rectangle()
@@ -399,18 +386,6 @@ struct ArticleDetailView: View {
                                 .frame(height: 1)
                                 .padding(.top, 10)
                                 .padding(.horizontal, 16)
-                        } else {
-                            // Debug: Show when trailer is missing
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("❌ No trailer found")
-                                    .font(.caption)
-                                    .foregroundColor(.red)
-                                Text("Trailer value: \(article.trailer ?? "nil")")
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                            }
-                            .padding(.top, 10)
-                            .padding(.horizontal, 16)
                         }
 
                         //MARK: Author card detail view
