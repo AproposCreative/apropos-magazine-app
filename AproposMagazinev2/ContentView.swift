@@ -12,6 +12,7 @@ import SwiftUI
 struct ContentView: View {
     @StateObject private var navigationCoordinator = NavigationCoordinator()
     @StateObject private var viewModel = ArticleViewModel()
+    @StateObject private var themeManager = ThemeManager.shared
     // Temporarily removed RecommendationEngine to fix crash
     // @StateObject private var recommendationEngine = RecommendationEngine.shared
     
@@ -114,6 +115,7 @@ struct ContentView: View {
             UITabBar.appearance().standardAppearance = appearance
             UITabBar.appearance().scrollEdgeAppearance = appearance
         }
+        .preferredColorScheme(themeManager.currentTheme.colorScheme)
     }
 
     
@@ -132,7 +134,8 @@ struct ContentView: View {
         case .favorites:
             FavoritesView()
         case .profile:
-            ProfileView()
+            ProfileView_NewDesign()
+                .environmentObject(viewModel)
         case .article(let article):
             ArticleDetailView(article: article)
                 .environmentObject(viewModel)
