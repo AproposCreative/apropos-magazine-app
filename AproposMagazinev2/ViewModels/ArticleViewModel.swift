@@ -168,8 +168,8 @@ class ArticleViewModel: ObservableObject {
             let sortedCached = cached.sorted { article1, article2 in
                 var mutableArticle1 = article1
                 var mutableArticle2 = article2
-                let date1 = mutableArticle1.publishedDate ?? mutableArticle1.createdDate ?? Date.distantPast
-                let date2 = mutableArticle2.publishedDate ?? mutableArticle2.createdDate ?? Date.distantPast
+                let date1 = mutableArticle1.createdDate ?? mutableArticle1.publishedDate ?? Date.distantPast
+                let date2 = mutableArticle2.createdDate ?? mutableArticle2.publishedDate ?? Date.distantPast
                 return date1 > date2
             }
             print("[DEBUG] fetchArticles: Setting cached articles to \(sortedCached.count) articles")
@@ -203,8 +203,8 @@ class ArticleViewModel: ObservableObject {
                         let sortedArticles = articles.sorted { article1, article2 in
                             var mutableArticle1 = article1
                             var mutableArticle2 = article2
-                            let date1 = mutableArticle1.publishedDate ?? mutableArticle1.createdDate ?? Date.distantPast
-                            let date2 = mutableArticle2.publishedDate ?? mutableArticle2.createdDate ?? Date.distantPast
+                            let date1 = mutableArticle1.createdDate ?? mutableArticle1.publishedDate ?? Date.distantPast
+                            let date2 = mutableArticle2.createdDate ?? mutableArticle2.publishedDate ?? Date.distantPast
                             return date1 > date2
                         }
                         print("[DEBUG] fetchArticles: Setting articles to \(sortedArticles.count) articles")
@@ -912,8 +912,8 @@ class ArticleViewModel: ObservableObject {
         let sortedArticles = excludedArticles.sorted { article1, article2 in
             var mutableArticle1 = article1
             var mutableArticle2 = article2
-            let date1 = mutableArticle1.publishedDate ?? mutableArticle1.createdDate ?? Date.distantPast
-            let date2 = mutableArticle2.publishedDate ?? mutableArticle2.createdDate ?? Date.distantPast
+            let date1 = mutableArticle1.createdDate ?? mutableArticle1.publishedDate ?? Date.distantPast
+            let date2 = mutableArticle2.createdDate ?? mutableArticle2.publishedDate ?? Date.distantPast
             
             return date1 > date2
         }.prefix(10).map { $0 }
@@ -951,8 +951,8 @@ class ArticleViewModel: ObservableObject {
         return excludedArticles.sorted { article1, article2 in
             var mutableArticle1 = article1
             var mutableArticle2 = article2
-            let date1 = mutableArticle1.publishedDate ?? mutableArticle1.createdDate ?? Date.distantPast
-            let date2 = mutableArticle2.publishedDate ?? mutableArticle2.createdDate ?? Date.distantPast
+            let date1 = mutableArticle1.createdDate ?? mutableArticle1.publishedDate ?? Date.distantPast
+            let date2 = mutableArticle2.createdDate ?? mutableArticle2.publishedDate ?? Date.distantPast
             return date1 > date2
         }.prefix(6).map { $0 }
     }
@@ -986,8 +986,8 @@ class ArticleViewModel: ObservableObject {
         let finalKulturArticles = excludedArticles.sorted { article1, article2 in
             var mutableArticle1 = article1
             var mutableArticle2 = article2
-            let date1 = mutableArticle1.publishedDate ?? mutableArticle1.createdDate ?? Date.distantPast
-            let date2 = mutableArticle2.publishedDate ?? mutableArticle2.createdDate ?? Date.distantPast
+            let date1 = mutableArticle1.createdDate ?? mutableArticle1.publishedDate ?? Date.distantPast
+            let date2 = mutableArticle2.createdDate ?? mutableArticle2.publishedDate ?? Date.distantPast
             return date1 > date2
         }.prefix(6).map { $0 }
         // print("[DEBUG] Final kultur articles: \(finalKulturArticles.map { $0.name ?? "Unknown" })")
@@ -1023,8 +1023,8 @@ class ArticleViewModel: ObservableObject {
         let finalSerierFilmArticles = excludedArticles.sorted { article1, article2 in
             var mutableArticle1 = article1
             var mutableArticle2 = article2
-            let date1 = mutableArticle1.publishedDate ?? mutableArticle1.createdDate ?? Date.distantPast
-            let date2 = mutableArticle2.publishedDate ?? mutableArticle2.createdDate ?? Date.distantPast
+            let date1 = mutableArticle1.createdDate ?? mutableArticle1.publishedDate ?? Date.distantPast
+            let date2 = mutableArticle2.createdDate ?? mutableArticle2.publishedDate ?? Date.distantPast
             return date1 > date2
         }.prefix(6).map { $0 }
         // print("[DEBUG] Final serier & film articles: \(finalSerierFilmArticles.map { $0.name ?? "Unknown" })")
@@ -1046,7 +1046,7 @@ class ArticleViewModel: ObservableObject {
 
         let recentArticles = articles.compactMap { article -> (Article, Date)? in
             var mutableArticle = article
-            let date = mutableArticle.publishedDate ?? mutableArticle.createdDate
+            let date = mutableArticle.createdDate ?? mutableArticle.publishedDate
             guard let date, date <= now else { return nil }
             return (article, date)
         }
@@ -1084,8 +1084,8 @@ class ArticleViewModel: ObservableObject {
         let sortedArticles = musicArticles.sorted { article1, article2 in
             var mutableArticle1 = article1
             var mutableArticle2 = article2
-            let date1 = mutableArticle1.publishedDate ?? mutableArticle1.createdDate ?? Date.distantPast
-            let date2 = mutableArticle2.publishedDate ?? mutableArticle2.createdDate ?? Date.distantPast
+            let date1 = mutableArticle1.createdDate ?? mutableArticle1.publishedDate ?? Date.distantPast
+            let date2 = mutableArticle2.createdDate ?? mutableArticle2.publishedDate ?? Date.distantPast
             return date1 > date2
         }
         
@@ -1114,8 +1114,8 @@ class ArticleViewModel: ObservableObject {
         return kulturArticles.sorted { article1, article2 in
             var mutableArticle1 = article1
             var mutableArticle2 = article2
-            let date1 = mutableArticle1.publishedDate ?? mutableArticle1.createdDate ?? Date.distantPast
-            let date2 = mutableArticle2.publishedDate ?? mutableArticle2.createdDate ?? Date.distantPast
+            let date1 = mutableArticle1.createdDate ?? mutableArticle1.publishedDate ?? Date.distantPast
+            let date2 = mutableArticle2.createdDate ?? mutableArticle2.publishedDate ?? Date.distantPast
             return date1 > date2
         }
     }
@@ -1142,8 +1142,8 @@ class ArticleViewModel: ObservableObject {
         return serierFilmArticles.sorted { article1, article2 in
             var mutableArticle1 = article1
             var mutableArticle2 = article2
-            let date1 = mutableArticle1.publishedDate ?? mutableArticle1.createdDate ?? Date.distantPast
-            let date2 = mutableArticle2.publishedDate ?? mutableArticle2.createdDate ?? Date.distantPast
+            let date1 = mutableArticle1.createdDate ?? mutableArticle1.publishedDate ?? Date.distantPast
+            let date2 = mutableArticle2.createdDate ?? mutableArticle2.publishedDate ?? Date.distantPast
             return date1 > date2
         }
     }
@@ -1164,8 +1164,8 @@ class ArticleViewModel: ObservableObject {
         return filteredArticles.sorted { article1, article2 in
             var mutableArticle1 = article1
             var mutableArticle2 = article2
-            let date1 = mutableArticle1.publishedDate ?? mutableArticle1.createdDate ?? Date.distantPast
-            let date2 = mutableArticle2.publishedDate ?? mutableArticle2.createdDate ?? Date.distantPast
+            let date1 = mutableArticle1.createdDate ?? mutableArticle1.publishedDate ?? Date.distantPast
+            let date2 = mutableArticle2.createdDate ?? mutableArticle2.publishedDate ?? Date.distantPast
             return date1 > date2
         }
     }
@@ -1184,8 +1184,8 @@ class ArticleViewModel: ObservableObject {
         return filteredArticles.sorted { article1, article2 in
             var mutableArticle1 = article1
             var mutableArticle2 = article2
-            let date1 = mutableArticle1.publishedDate ?? mutableArticle1.createdDate ?? Date.distantPast
-            let date2 = mutableArticle2.publishedDate ?? mutableArticle2.createdDate ?? Date.distantPast
+            let date1 = mutableArticle1.createdDate ?? mutableArticle1.publishedDate ?? Date.distantPast
+            let date2 = mutableArticle2.createdDate ?? mutableArticle2.publishedDate ?? Date.distantPast
             return date1 > date2
         }
     }
@@ -1202,7 +1202,7 @@ class ArticleViewModel: ObservableObject {
         
         let recentArticles = articles.compactMap { article -> (Article, Date)? in
             var mutableArticle = article
-            let date = mutableArticle.publishedDate ?? mutableArticle.createdDate
+            let date = mutableArticle.createdDate ?? mutableArticle.publishedDate
             guard let date, date <= now else { return nil }
             return (article, date)
         }
