@@ -40,20 +40,29 @@ struct TrailerWebView: UIViewRepresentable {
 
     func updateUIView(_ uiView: WKWebView, context: Context) {
         // Safety check: ensure trailer is not empty
-        guard !trailer.isEmpty else { return }
+        guard !trailer.isEmpty else { 
+            print("🎬 TrailerWebView: Empty trailer, skipping")
+            return 
+        }
         
         let trimmed = trailer.trimmingCharacters(in: .whitespacesAndNewlines)
+        print("🎬 TrailerWebView: Loading trailer: \(trimmed.prefix(100))...")
         
         // Only load if not already loaded to prevent reloading
         if context.coordinator.lastLoadedTrailer != trimmed {
             context.coordinator.lastLoadedTrailer = trimmed
             loadTrailer(uiView: uiView, trailer: trimmed)
+        } else {
+            print("🎬 TrailerWebView: Already loaded, skipping")
         }
     }
     
     private func loadTrailer(uiView: WKWebView, trailer: String) {
+        print("🎬 TrailerWebView: Analyzing trailer content...")
+        
         // If input looks like HTML embed, load directly
         if trailer.lowercased().contains("<iframe") || trailer.lowercased().contains("<video") || trailer.lowercased().contains("<embed") {
+            print("🎬 TrailerWebView: Detected HTML embed, loading directly")
             let html = """
             <html><head>
             <meta name='viewport' content='initial-scale=1, maximum-scale=1, user-scalable=no' />
@@ -69,10 +78,13 @@ struct TrailerWebView: UIViewRepresentable {
 
         if let url = URL(string: trailer), (url.scheme?.lowercased() == "http" || url.scheme?.lowercased() == "https") {
             if trailer.contains("youtube.com") || trailer.contains("youtu.be") {
+                print("🎬 TrailerWebView: Detected YouTube URL, converting to embed")
                 // Convert YouTube link to embed format
                 let videoID = extractYouTubeVideoID(from: trailer)
+                print("🎬 TrailerWebView: Extracted video ID: \(videoID)")
                 if !videoID.isEmpty {
                     let embedURL = "https://www.youtube.com/embed/\(videoID)?rel=0&modestbranding=1&autoplay=0&controls=1"
+                    print("🎬 TrailerWebView: Embed URL: \(embedURL)")
                     let embedHTML = """
                     <html><head>
                     <meta name='viewport' content='initial-scale=1, maximum-scale=1, user-scalable=no' />
@@ -83,12 +95,17 @@ struct TrailerWebView: UIViewRepresentable {
                     </head><body><iframe src="\(embedURL)" frameborder="0" allowfullscreen></iframe></body></html>
                     """
                     uiView.loadHTMLString(embedHTML, baseURL: nil)
+                } else {
+                    print("🎬 TrailerWebView: Failed to extract video ID")
                 }
             } else {
+                print("🎬 TrailerWebView: Loading other URL directly: \(trailer)")
                 // Load other URLs directly
                 let request = URLRequest(url: url)
                 uiView.load(request)
             }
+        } else {
+            print("🎬 TrailerWebView: Invalid URL format: \(trailer)")
         }
     }
     
@@ -100,11 +117,19 @@ struct TrailerWebView: UIViewRepresentable {
         var lastLoadedTrailer: String = ""
         
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            // Optional: Handle successful loading
+            print("🎬 TrailerWebView: Successfully loaded content")
         }
         
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-            print("TrailerWebView failed to load: \(error.localizedDescription)")
+            print("🎬 TrailerWebView: Failed to load: \(error.localizedDescription)")
+        }
+        
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            print("🎬 TrailerWebView: Failed provisional navigation: \(error.localizedDescription)")
+        }
+        
+        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+            print("🎬 TrailerWebView: Started loading content")
         }
     }
     
@@ -422,6 +447,9 @@ struct ArticleDetailView: View {
                             }
                             .padding(.top, 10)
                             .padding(.horizontal, 16)
+                            .onAppear {
+                                print("🎬 ArticleDetailView: Found trailer: \(trailer.prefix(100))...")
+                            }
                             
                             // Pæn separator mellem trailer og tekst
                             Rectangle()
@@ -429,6 +457,12 @@ struct ArticleDetailView: View {
                                 .frame(height: 1)
                                 .padding(.top, 10)
                                 .padding(.horizontal, 16)
+                        } else {
+                            // Debug when no trailer
+                            Color.clear
+                                .onAppear {
+                                    print("🎬 ArticleDetailView: No trailer found for article: \(article.name ?? "Unknown")")
+                                }
                         }
 
                         //MARK: Author card detail view
@@ -459,6 +493,7 @@ struct ArticleDetailView: View {
                 }
             }
             .coordinateSpace(name: "scroll")
+            .allowsHitTesting(true)
         }
         .navigationBarBackButtonHidden(true)
         .enhancedSwipeToGoBack(isEnabled: true)
