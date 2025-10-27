@@ -27,6 +27,7 @@ struct EnhancedSwipeBackModifier: ViewModifier {
                         guard isEnabled else { return }
                         
                         if value.translation.width > 0 {
+                            print("🔄 SwipeBack: Drag detected - translation: \(value.translation.width)")
                             isDragging = true
                             dragOffset = value.translation.width * SwipeBackConfiguration.dragDampingFactor
                         }
@@ -34,9 +35,11 @@ struct EnhancedSwipeBackModifier: ViewModifier {
                     .onEnded { value in
                         guard isEnabled else { return }
                         
+                        print("🔄 SwipeBack: Drag ended - translation: \(value.translation.width), threshold: \(threshold)")
                         isDragging = false
                         
                         if value.translation.width > threshold {
+                            print("🔄 SwipeBack: Threshold exceeded, going back")
                             // Swipe right detected - go back
                             if hapticFeedback {
                                 let impact = UIImpactFeedbackGenerator(style: .medium)
@@ -56,6 +59,7 @@ struct EnhancedSwipeBackModifier: ViewModifier {
                                 }
                             }
                         } else {
+                            print("🔄 SwipeBack: Threshold not met, resetting")
                             // Reset position
                             withAnimation(.easeOut(duration: 0.2)) {
                                 dragOffset = 0
