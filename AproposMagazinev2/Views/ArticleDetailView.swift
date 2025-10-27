@@ -68,23 +68,44 @@ struct TrailerWebView: UIViewRepresentable {
                 
                 // Check if the extracted URL is already an embed URL
                 if youtubeURL.contains("youtube.com/embed/") {
-                    print("🎬 TrailerWebView: URL is already embed format, using directly")
-                    let embedHTML = """
-                    <html><head>
-                    <meta name='viewport' content='initial-scale=1, maximum-scale=1, user-scalable=no' />
-                    <style>
-                        html,body{margin:0;padding:0;background:transparent;overflow:hidden}
-                        iframe{width:100%;height:100%;border:0;border-radius:12px}
-                    </style>
-                    </head><body><iframe src="\(youtubeURL)" frameborder="0" allowfullscreen></iframe></body></html>
-                    """
-                    uiView.loadHTMLString(embedHTML, baseURL: nil)
-                    return
+                    print("🎬 TrailerWebView: URL is already embed format, optimizing for quality")
+                    
+                    // Extract video ID from embed URL and create optimized embed
+                    let videoID = extractYouTubeVideoID(from: youtubeURL)
+                    if !videoID.isEmpty {
+                        let optimizedEmbedURL = "https://www.youtube.com/embed/\(videoID)?rel=0&modestbranding=1&autoplay=0&controls=1&hd=1&vq=hd720&showinfo=0&fs=1&cc_load_policy=0&iv_load_policy=3&modestbranding=1"
+                        print("🎬 TrailerWebView: Optimized embed URL: \(optimizedEmbedURL)")
+                        
+                        let embedHTML = """
+                        <html><head>
+                        <meta name='viewport' content='initial-scale=1, maximum-scale=1, user-scalable=no' />
+                        <style>
+                            html,body{margin:0;padding:0;background:transparent;overflow:hidden}
+                            iframe{width:100%;height:100%;border:0;border-radius:12px}
+                        </style>
+                        </head><body><iframe src="\(optimizedEmbedURL)" frameborder="0" allowfullscreen></iframe></body></html>
+                        """
+                        uiView.loadHTMLString(embedHTML, baseURL: nil)
+                        return
+                    } else {
+                        // Fallback to original URL if video ID extraction fails
+                        let embedHTML = """
+                        <html><head>
+                        <meta name='viewport' content='initial-scale=1, maximum-scale=1, user-scalable=no' />
+                        <style>
+                            html,body{margin:0;padding:0;background:transparent;overflow:hidden}
+                            iframe{width:100%;height:100%;border:0;border-radius:12px}
+                        </style>
+                        </head><body><iframe src="\(youtubeURL)" frameborder="0" allowfullscreen></iframe></body></html>
+                        """
+                        uiView.loadHTMLString(embedHTML, baseURL: nil)
+                        return
+                    }
                 } else {
                     // Extract video ID from regular YouTube URL
                     let videoID = extractYouTubeVideoID(from: youtubeURL)
                     if !videoID.isEmpty {
-                        let embedURL = "https://www.youtube.com/embed/\(videoID)?rel=0&modestbranding=1&autoplay=0&controls=1"
+                        let embedURL = "https://www.youtube.com/embed/\(videoID)?rel=0&modestbranding=1&autoplay=0&controls=1&hd=1&vq=hd720&showinfo=0&fs=1&cc_load_policy=0&iv_load_policy=3"
                         print("🎬 TrailerWebView: Embed URL: \(embedURL)")
                         let embedHTML = """
                         <html><head>
@@ -125,7 +146,7 @@ struct TrailerWebView: UIViewRepresentable {
                 let videoID = extractYouTubeVideoID(from: trailer)
                 print("🎬 TrailerWebView: Extracted video ID: \(videoID)")
                 if !videoID.isEmpty {
-                    let embedURL = "https://www.youtube.com/embed/\(videoID)?rel=0&modestbranding=1&autoplay=0&controls=1"
+                    let embedURL = "https://www.youtube.com/embed/\(videoID)?rel=0&modestbranding=1&autoplay=0&controls=1&hd=1&vq=hd720&showinfo=0&fs=1&cc_load_policy=0&iv_load_policy=3"
                     print("🎬 TrailerWebView: Embed URL: \(embedURL)")
                     let embedHTML = """
                     <html><head>
