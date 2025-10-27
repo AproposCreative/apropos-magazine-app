@@ -1,7 +1,7 @@
 import SwiftUI
 import GoogleSignIn
 
-struct ProfileView: View {
+struct ProfileView_Backup: View {
     @ObservedObject private var signInService = GoogleSignInService.shared
     @ObservedObject private var userManager = UserManager.shared
     @ObservedObject private var notificationService = NotificationService.shared
@@ -85,7 +85,7 @@ struct ProfileView: View {
     }
 
 // MARK: - Apple Style User Profile Section
-struct AppleStyleUserProfileSection: View {
+struct AppleStyleUserProfileSection_Backup: View {
     let user: GIDGoogleUser
     
     var body: some View {
@@ -133,7 +133,7 @@ struct AppleStyleUserProfileSection: View {
 
 
 // MARK: - Apple Style Reading Stats Section
-struct AppleStyleReadingStatsSection: View {
+struct AppleStyleReadingStatsSection_Backup: View {
     let stats: ReadingStats
     
     var body: some View {
@@ -200,7 +200,7 @@ struct AppleStyleReadingStatsSection: View {
 }
 
 // MARK: - Apple Style List Row
-struct AppleStyleListRow: View {
+struct AppleStyleListRow_Backup: View {
     let title: String
     var subtitle: String? = nil
     let icon: String
@@ -243,7 +243,7 @@ struct AppleStyleListRow: View {
 }
 
 // MARK: - Apple Style Settings Sections
-struct AppleStyleSettingsSections: View {
+struct AppleStyleSettingsSections_Backup: View {
     var body: some View {
         VStack(spacing: 20) {
             // Notification Settings
@@ -256,7 +256,7 @@ struct AppleStyleSettingsSections: View {
     }
 }
 
-struct AppleStyleNotificationSettingsSection: View {
+struct AppleStyleNotificationSettingsSection_Backup: View {
     @ObservedObject private var userManager = UserManager.shared
     @ObservedObject private var notificationService = NotificationService.shared
     @State private var preferences: NotificationPreferences = NotificationPreferences()
@@ -387,7 +387,7 @@ struct AppleStyleNotificationSettingsSection: View {
     }
 }
 
-struct AppleStyleToggleRow: View {
+struct AppleStyleToggleRow_Backup: View {
     let title: String
     let subtitle: String
     let icon: String
@@ -423,7 +423,7 @@ struct AppleStyleToggleRow: View {
     }
 }
 
-struct AppleStyleOfflineSettingsSection: View {
+struct AppleStyleOfflineSettingsSection_Backup: View {
     @ObservedObject private var offlineManager = OfflineManager.shared
     @State private var isOfflineModeEnabled = false
     @State private var autoDownloadEnabled = false
@@ -497,7 +497,7 @@ struct AppleStyleOfflineSettingsSection: View {
 }
 
 // MARK: - Apple Style Sign Out Section
-struct AppleStyleSignOutSection: View {
+struct AppleStyleSignOutSection_Backup: View {
     @ObservedObject private var signInService = GoogleSignInService.shared
     @State private var showingSignOutAlert = false
     
@@ -541,7 +541,7 @@ struct AppleStyleSignOutSection: View {
 }
 
 // MARK: - Apple Style Sign In Section
-struct AppleStyleSignInSection: View {
+struct AppleStyleSignInSection_Backup: View {
     var body: some View {
         VStack(spacing: 24) {
             VStack(spacing: 20) {
@@ -585,7 +585,7 @@ struct AppleStyleSignInSection: View {
 }
 
 // MARK: - Debug Section
-struct AppleStyleDebugSection: View {
+struct AppleStyleDebugSection_Backup: View {
     @ObservedObject private var notificationService = NotificationService.shared
     @ObservedObject private var userManager = UserManager.shared
     
@@ -741,7 +741,7 @@ struct AppleStyleDebugSection: View {
     }
 }
 
-struct ProfileView_Previews: PreviewProvider {
+struct ProfileView_Backup_Previews: PreviewProvider {
     static var previews: some View {
         ProfileView()
             .preferredColorScheme(.dark)
