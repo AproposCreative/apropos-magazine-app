@@ -1,6 +1,7 @@
 import Foundation
-import UserNotifications
+import OSLog
 import SwiftUI
+import UserNotifications
 
 @MainActor
 class SmartNotificationService: NSObject, ObservableObject {
@@ -8,6 +9,9 @@ class SmartNotificationService: NSObject, ObservableObject {
     @Published var notificationSettings = NotificationSettings()
     
     static let shared = SmartNotificationService()
+    
+    private let notificationService = NotificationService.shared
+    private let logger = Logger(subsystem: "com.aproposmagazine.app", category: "SmartNotificationService")
     
     private override init() {
         super.init()
@@ -18,36 +22,25 @@ class SmartNotificationService: NSObject, ObservableObject {
     // MARK: - Authorization
     
     func requestAuthorization() async {
-        do {
-            let granted = try await UNUserNotificationCenter.current().requestAuthorization(
-                options: [.alert, .badge, .sound, .provisional]
-            )
-            
-            await MainActor.run {
-                self.isAuthorized = granted
-            }
-            
-            if granted {
-                await registerForRemoteNotifications()
-                HapticManager.shared.success()
-            }
-        } catch {
-            print("Failed to request notification authorization: \(error)")
+        await notificationService.requestAuthorization()
+        
+        await MainActor.run {
+            self.isAuthorized = self.notificationService.isAuthorized
+        }
+        
+        if isAuthorized {
+            HapticManager.shared.success()
+        } else {
+            logger.warning("Push-autorisation blev ikke givet.")
             HapticManager.shared.error()
         }
     }
     
     private func checkAuthorizationStatus() {
-        UNUserNotificationCenter.current().getNotificationSettings { settings in
+        UNUserNotificationCenter.current().getNotificationSettings { [weak self] settings in
             DispatchQueue.main.async {
-                self.isAuthorized = settings.authorizationStatus == .authorized
+                self?.isAuthorized = settings.authorizationStatus == .authorized
             }
-        }
-    }
-    
-    private func registerForRemoteNotifications() async {
-        await MainActor.run {
-            UIApplication.shared.registerForRemoteNotifications()
         }
     }
     
@@ -72,7 +65,7 @@ class SmartNotificationService: NSObject, ObservableObject {
         
         UNUserNotificationCenter.current().add(request) { error in
             if let error = error {
-                print("Error scheduling reading reminder: \(error)")
+                self.logger.error("Fejl ved planlægning af læsepåmindelse: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
@@ -96,7 +89,7 @@ class SmartNotificationService: NSObject, ObservableObject {
         
         UNUserNotificationCenter.current().add(request) { error in
             if let error = error {
-                print("Error scheduling personalized recommendations: \(error)")
+                self.logger.error("Fejl ved planlægning af personlige anbefalinger: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
@@ -125,7 +118,7 @@ class SmartNotificationService: NSObject, ObservableObject {
         
         UNUserNotificationCenter.current().add(request) { error in
             if let error = error {
-                print("Error scheduling festival reminder: \(error)")
+                self.logger.error("Fejl ved planlægning af festivalpåmindelse: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
@@ -149,7 +142,7 @@ class SmartNotificationService: NSObject, ObservableObject {
         
         UNUserNotificationCenter.current().add(request) { error in
             if let error = error {
-                print("Error scheduling breaking news: \(error)")
+                self.logger.error("Fejl ved planlægning af breaking news: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
@@ -174,7 +167,7 @@ class SmartNotificationService: NSObject, ObservableObject {
         
         UNUserNotificationCenter.current().add(request) { error in
             if let error = error {
-                print("Error scheduling weekly digest: \(error)")
+                self.logger.error("Fejl ved planlægning af weekly digest: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
@@ -211,7 +204,7 @@ class SmartNotificationService: NSObject, ObservableObject {
         
         UNUserNotificationCenter.current().add(request) { error in
             if let error = error {
-                print("Error scheduling welcome notification: \(error)")
+                self.logger.error("Fejl ved planlægning af velkomstnotifikation: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
@@ -233,7 +226,7 @@ class SmartNotificationService: NSObject, ObservableObject {
         
         UNUserNotificationCenter.current().add(request) { error in
             if let error = error {
-                print("Error scheduling gentle reminder: \(error)")
+                self.logger.error("Fejl ved planlægning af gentle reminder: \(error.localizedDescription, privacy: .public)")
             }
         }
     }

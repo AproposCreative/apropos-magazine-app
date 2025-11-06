@@ -1,25 +1,28 @@
-import SwiftUI
 import FirebaseCore
 import FirebaseMessaging
 import UserNotifications
 import GoogleSignIn
 import UIKit
+import OSLog
+import SwiftUI
 
 @objc final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate, MessagingDelegate {
+    
+    private let logger = Logger(subsystem: "com.aproposmagazine.app", category: "AppDelegate")
     
     // MARK: - UIApplicationDelegate Methods
 
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
 
-        print("📱 AppDelegate: didFinishLaunchingWithOptions called")
+        logger.info("didFinishLaunchingWithOptions")
         
         // Ensure Firebase is configured
         if FirebaseApp.app() == nil {
             FirebaseApp.configure()
-            print("✅ AppDelegate: Firebase configured")
+            logger.info("Firebase konfigureret.")
         } else {
-            print("ℹ️ AppDelegate: Firebase already configured")
+            logger.debug("Firebase allerede konfigureret.")
         }
 
         // Set up notification delegate
@@ -27,39 +30,39 @@ import UIKit
         
         // Request notification permissions with a longer delay to ensure app is fully loaded
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-            print("📱 Requesting notification permissions...")
+            self.logger.info("Anmoder om notifikations-tilladelser.")
             
             // First check current authorization status
             UNUserNotificationCenter.current().getNotificationSettings { settings in
-                print("📱 Current notification settings:")
-                print("   - Authorization status: \(settings.authorizationStatus.rawValue)")
-                print("   - Alert setting: \(settings.alertSetting.rawValue)")
-                print("   - Badge setting: \(settings.badgeSetting.rawValue)")
-                print("   - Sound setting: \(settings.soundSetting.rawValue)")
+                self.logger.debug("Notification settings: authorization=\(settings.authorizationStatus.rawValue, privacy: .public), alert=\(settings.alertSetting.rawValue, privacy: .public), badge=\(settings.badgeSetting.rawValue, privacy: .public), sound=\(settings.soundSetting.rawValue, privacy: .public)")
                 
                 // Only request if not already authorized
                 if settings.authorizationStatus == .notDetermined {
-                    print("📱 Authorization status is not determined, requesting permissions...")
+                    self.logger.info("Notifikationsstatus ukendt – anmoder nu.")
                     UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound, .provisional]) { granted, error in
                         DispatchQueue.main.async {
                             if granted {
-                                print("✅ Notification permission granted")
+                                self.logger.info("Notifikationstilladelse givet.")
                                 application.registerForRemoteNotifications()
                             } else {
-                                print("❌ Notification permission denied: \(error?.localizedDescription ?? "Unknown error")")
+                                if let error {
+                                    self.logger.error("Notifikationstilladelse afvist: \(error.localizedDescription, privacy: .public)")
+                                } else {
+                                    self.logger.warning("Notifikationstilladelse afvist uden fejl.")
+                                }
                             }
                         }
                     }
                 } else if settings.authorizationStatus == .authorized {
-                    print("✅ Notification permissions already authorized")
+                    self.logger.debug("Notifikationstilladelse allerede givet.")
                     DispatchQueue.main.async {
                         application.registerForRemoteNotifications()
                     }
                 } else if settings.authorizationStatus == .denied {
-                    print("⚠️ Notification permissions denied by user. Status: \(settings.authorizationStatus.rawValue)")
+                    self.logger.warning("Notifikations-tilladelse afvist af bruger.")
                     // Don't try to register for remote notifications if denied
                 } else {
-                    print("⚠️ Notification permissions not authorized, status: \(settings.authorizationStatus.rawValue)")
+                    self.logger.warning("Notifikationstilladelse ikke givet. Status=\(settings.authorizationStatus.rawValue, privacy: .public)")
                 }
             }
         }
@@ -69,13 +72,13 @@ import UIKit
         
         // Log existing FCM token if available
         if let existingToken = UserDefaults.standard.string(forKey: "FCMRegistrationToken") {
-            print("📱 Existing FCM Token: \(existingToken)")
+            logger.debug("Eksisterende FCM token fundet.")
         }
         
         // Configure Google Sign-In
         GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: "817066738308-q8pdk1q5b9t9ugopjh67i2n2lau9k3sm.apps.googleusercontent.com")
         
-        print("ℹ️ AppDelegate: Firebase AppDelegateProxy disabled via Info.plist")
+        logger.debug("Firebase AppDelegateProxy er deaktiveret via Info.plist.")
         
 
 
@@ -85,15 +88,15 @@ import UIKit
     // APNs token -> FCM
     func application(_ application: UIApplication,
                      didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
-        print("📱 APNS Device Token received: \(deviceToken.map { String(format: "%02.2hhx", $0) }.joined())")
+        logger.debug("APNS token modtaget.")
         Messaging.messaging().apnsToken = deviceToken
         
         // Now that we have APNS token, we can safely get FCM token
         Messaging.messaging().token { token, error in
             if let error = error {
-                print("❌ Error fetching FCM token: \(error)")
+                self.logger.error("Fejl ved hentning af FCM token: \(error.localizedDescription, privacy: .public)")
             } else if let token = token {
-                print("✅ FCM Registration Token: \(token)")
+                self.logger.info("FCM token hentet.")
                 UserDefaults.standard.set(token, forKey: "FCMRegistrationToken")
                 
                 // Update the NotificationService
@@ -107,14 +110,14 @@ import UIKit
     // Handle APNs registration failure
     func application(_ application: UIApplication,
                      didFailToRegisterForRemoteNotificationsWithError error: Error) {
-        print("❌ Failed to register for remote notifications: \(error)")
+        logger.error("Fejl ved registrering af fjernnotifikationer: \(error.localizedDescription, privacy: .public)")
     }
 
     // FCM token refresh
     func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
         if let token = fcmToken {
-            print("✅ FCM Registration Token refreshed: \(token)")
-            print("📱 Token Length: \(token.count) characters")
+            logger.info("FCM token fornyet.")
+            logger.debug("FCM token længde: \(token.count, privacy: .public)")
             
             // Save token in UserDefaults
             UserDefaults.standard.set(token, forKey: "FCMRegistrationToken")
@@ -124,21 +127,18 @@ import UIKit
                 NotificationService.shared.fcmToken = token
             }
             
-            // Log token to console for easy copying
-            print("📱 === FCM TOKEN START ===")
-            print(token)
-            print("📱 === FCM TOKEN END ===")
+            logger.debug("FCM token gemt lokalt.")
         } else {
-            print("❌ FCM token is nil")
+            logger.warning("Fik null FCM token.")
         }
     }
 
     // Handle notification when app is in foreground
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
-        print("📱 Received notification in foreground: \(notification.request.content.title)")
-        print("📱 Notification content: \(notification.request.content.body)")
-        print("📱 Notification userInfo: \(notification.request.content.userInfo)")
+        logger.debug("Notifikation i forgrund: \(notification.request.content.title, privacy: .public)")
+        logger.debug("Indhold: \(notification.request.content.body, privacy: .public)")
+        logger.debug("userInfo: \(notification.request.content.userInfo, privacy: .public)")
         
         // Add haptic feedback for notifications
         let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
@@ -150,17 +150,17 @@ import UIKit
     // Handle notification tap when app is in background
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 didReceive response: UNNotificationResponse) async {
-        print("📱 User tapped notification: \(response.notification.request.content.title)")
+        logger.debug("Bruger tappede notifikation: \(response.notification.request.content.title, privacy: .public)")
         
         // Handle the notification tap here
         let userInfo = response.notification.request.content.userInfo
-        print("📱 Notification userInfo: \(userInfo)")
+        logger.debug("userInfo: \(userInfo, privacy: .public)")
         
         // Check if this is a new article notification
         if let type = userInfo["type"] as? String, type == "new_article",
            let articleId = userInfo["article_id"] as? String, !articleId.isEmpty {
             
-            print("📱 Opening article with ID: \(articleId)")
+            logger.info("Åbner artikel fra push: \(articleId, privacy: .public)")
             
             // Post notification to open the article
             DispatchQueue.main.async {
@@ -180,61 +180,61 @@ import UIKit
     
     // MARK: - Application Lifecycle
     func applicationDidEnterBackground(_ application: UIApplication) {
-        print("📱 AppDelegate: Application entered background")
+        logger.debug("App entered background.")
     }
     
     func applicationWillEnterForeground(_ application: UIApplication) {
-        print("📱 AppDelegate: Application will enter foreground")
+        logger.debug("App will enter foreground.")
     }
     
     func applicationDidBecomeActive(_ application: UIApplication) {
-        print("📱 AppDelegate: Application became active")
+        logger.debug("App blev aktiv.")
     }
     
     func applicationWillResignActive(_ application: UIApplication) {
-        print("📱 AppDelegate: Application will resign active")
+        logger.debug("App vil blive inaktiv.")
     }
     
     func applicationWillTerminate(_ application: UIApplication) {
-        print("📱 AppDelegate: Application will terminate")
+        logger.debug("App terminerer.")
     }
     
     // MARK: - Additional UIApplicationDelegate Methods for Full Conformance
     
     func application(_ application: UIApplication, configurationForConnecting connectingSceneSession: UISceneSession, options: UIScene.ConnectionOptions) -> UISceneConfiguration {
-        print("📱 AppDelegate: Configuration for connecting scene session")
+        logger.debug("Konfigurerer ny scene session.")
         return UISceneConfiguration(name: "Default Configuration", sessionRole: connectingSceneSession.role)
     }
     
     func application(_ application: UIApplication, didDiscardSceneSessions sceneSessions: Set<UISceneSession>) {
-        print("📱 AppDelegate: Did discard scene sessions")
+        logger.debug("Scene session kasseret.")
     }
     
     func application(_ application: UIApplication, performActionFor shortcutItem: UIApplicationShortcutItem, completionHandler: @escaping (Bool) -> Void) {
-        print("📱 AppDelegate: Perform action for shortcut item: \(shortcutItem.type)")
+        logger.debug("Udfører genvejs-handling: \(shortcutItem.type, privacy: .public)")
         completionHandler(true)
     }
     
     func application(_ application: UIApplication, continue userActivity: NSUserActivity, restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void) -> Bool {
-        print("📱 AppDelegate: Continue user activity: \(userActivity.activityType)")
+        logger.debug("Fortsætter user activity: \(userActivity.activityType, privacy: .public)")
         return true
     }
     
     func application(_ application: UIApplication, didUpdate userActivity: NSUserActivity) {
-        print("📱 AppDelegate: Did update user activity: \(userActivity.activityType)")
+        logger.debug("Opdaterede user activity: \(userActivity.activityType, privacy: .public)")
     }
     
     func application(_ application: UIApplication, didFailToContinueUserActivityWithType userActivityType: String, error: Error) {
-        print("📱 AppDelegate: Did fail to continue user activity: \(userActivityType), error: \(error)")
+        logger.error("Fejl ved fortsættelse af user activity \(userActivityType, privacy: .public): \(error.localizedDescription, privacy: .public)")
     }
     
     func application(_ application: UIApplication, performFetchWithCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
-        print("📱 AppDelegate: Perform fetch with completion handler")
+        logger.debug("Baggrundsfetch udført.")
         completionHandler(.newData)
     }
     
     func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String, completionHandler: @escaping () -> Void) {
-        print("📱 AppDelegate: Handle events for background URL session: \(identifier)")
+        logger.debug("Håndterer baggrunds-URL-session: \(identifier, privacy: .public)")
         completionHandler()
     }
 }

@@ -1,15 +1,17 @@
-import SwiftUI
 import FirebaseCore
+import OSLog
+import SwiftUI
 
 @main
 struct AproposMagazinev2App: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    private static let logger = Logger(subsystem: "com.aproposmagazine.app", category: "AproposMagazinev2App")
     
     init() {
         // Configure Firebase as early as possible
-        print("🔥 AproposMagazinev2App: Starting Firebase configuration...")
+        Self.logger.info("Starter Firebase-konfiguration.")
         FirebaseApp.configure()
-        print("🔥 AproposMagazinev2App: Firebase configuration completed")
+        Self.logger.info("Firebase-konfiguration fuldført.")
     }
     
     var body: some Scene {

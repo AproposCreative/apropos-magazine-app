@@ -1,6 +1,8 @@
-import SwiftUI
 import FirebaseAuth
 import FirebaseFirestore
+import FirebaseFirestoreSwift
+import OSLog
+import SwiftUI
 
 @MainActor
 class UserManager: ObservableObject {
@@ -11,6 +13,7 @@ class UserManager: ObservableObject {
     static let shared = UserManager()
     private lazy var db = Firestore.firestore()
     private var authStateListener: AuthStateDidChangeListenerHandle?
+    private let logger = Logger(subsystem: "com.aproposmagazine.app", category: "UserManager")
     
     private init() {
         // Initialize Firebase auth listener after a short delay to ensure Firebase is configured
@@ -19,21 +22,51 @@ class UserManager: ObservableObject {
         }
     }
     
+    private func merge(existing: UserProfile, with firebaseUser: User) -> UserProfile {
+        let now = Date()
+        let created = existing.createdAt.timeIntervalSince1970 > 0
+        ? existing.createdAt
+        : (firebaseUser.metadata.creationDate ?? now)
+        
+        let lastLogin = firebaseUser.metadata.lastSignInDate ?? existing.lastLoginAt
+        
+        return UserProfile(
+            uid: existing.uid,
+            email: firebaseUser.email ?? existing.email,
+            displayName: {
+                if let name = firebaseUser.displayName, !name.isEmpty {
+                    return name
+                }
+                return existing.displayName
+            }(),
+            photoURL: firebaseUser.photoURL?.absoluteString ?? existing.photoURL,
+            createdAt: created,
+            lastLoginAt: lastLogin.timeIntervalSince1970 > 0 ? lastLogin : now,
+            favoriteCategories: existing.favoriteCategories,
+            favoriteAuthors: existing.favoriteAuthors,
+            notificationPreferences: existing.notificationPreferences,
+            readingPreferences: existing.readingPreferences,
+            readArticles: existing.readArticles,
+            bookmarkedArticles: existing.bookmarkedArticles,
+            readingProgress: existing.readingProgress
+        )
+    }
+    
     private func setupAuthListener() {
         // Listen for auth state changes
         authStateListener = Auth.auth().addStateDidChangeListener { [weak self] _, user in
             if let user = user, !user.uid.isEmpty {
-                print("[UserManager] User authenticated, loading profile: \(user.uid)")
+                self?.logger.info("Bruger autentificeret. Loader profil for \(user.uid, privacy: .public).")
                 self?.loadUserProfile(for: user)
             } else {
-                print("[UserManager] No valid user, clearing profile")
+                self?.logger.info("Ingen gyldig bruger. Nulstiller profil.")
                 self?.currentUser = nil
             }
         }
         
         // Also check for existing user immediately
         if let currentUser = Auth.auth().currentUser, !currentUser.uid.isEmpty {
-            print("[UserManager] Found existing Firebase user: \(currentUser.uid)")
+            logger.info("Eksisterende Firebase-bruger fundet: \(currentUser.uid, privacy: .public).")
             loadUserProfile(for: currentUser)
         }
     }
@@ -42,19 +75,38 @@ class UserManager: ObservableObject {
     
     func loadUserProfile(for firebaseUser: User) {
         guard !firebaseUser.uid.isEmpty else {
-            print("[UserManager] Invalid user UID, skipping profile load")
+            logger.warning("Ugyldigt bruger-ID. Spring profilindlæsning over.")
             return
         }
         
-        print("[UserManager] Attempting to load profile for user: \(firebaseUser.uid)")
+        logger.debug("Henter profil for bruger \(firebaseUser.uid, privacy: .public).")
         isLoading = true
         
-        // Skip reading existing profile to avoid timestamp crashes
-        print("[UserManager] Skipping profile read to avoid timestamp issues")
-        DispatchQueue.main.async { [weak self] in
-            self?.isLoading = false
-            let newProfile = UserProfile(firebaseUser: firebaseUser)
-            self?.saveUserProfile(newProfile)
+        Task {
+            do {
+                let document = try await db.collection("users").document(firebaseUser.uid).getDocument()
+                let profile: UserProfile
+                
+                if document.exists, let existing = try? document.data(as: UserProfile.self) {
+                    profile = self.merge(existing: existing, with: firebaseUser)
+                } else {
+                    profile = UserProfile(firebaseUser: firebaseUser)
+                }
+                
+                await MainActor.run {
+                    self.saveUserProfile(profile)
+                    self.isLoading = false
+                }
+            } catch {
+                self.logger.error("Kunne ikke hente brugerprofil: \(error.localizedDescription, privacy: .public)")
+                let fallbackProfile = UserProfile(firebaseUser: firebaseUser)
+                
+                await MainActor.run {
+                    self.errorMessage = "Kunne ikke hente brugerprofil."
+                    self.saveUserProfile(fallbackProfile)
+                    self.isLoading = false
+                }
+            }
         }
     }
     
@@ -80,10 +132,10 @@ class UserManager: ObservableObject {
             
             try db.collection("users").document(profile.uid).setData(from: validatedProfile)
             currentUser = validatedProfile
-            print("[UserManager] Profile saved successfully with validated dates")
+            logger.debug("Profil gemt for \(profile.uid, privacy: .public).")
         } catch {
             errorMessage = "Failed to save profile: \(error.localizedDescription)"
-            print("[UserManager] Error saving profile: \(error)")
+            logger.error("Fejl ved gemning af profil: \(error.localizedDescription, privacy: .public)")
         }
     }
     

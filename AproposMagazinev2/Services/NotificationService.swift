@@ -1,7 +1,8 @@
-import SwiftUI
-import UserNotifications
 import FirebaseFirestore
 import FirebaseMessaging
+import OSLog
+import SwiftUI
+import UserNotifications
 
 @MainActor
 class NotificationService: NSObject, ObservableObject {
@@ -10,14 +11,15 @@ class NotificationService: NSObject, ObservableObject {
     
     static let shared = NotificationService()
     
+    private let logger = Logger(subsystem: "com.aproposmagazine.app", category: "NotificationService")
+    
     private override init() {
         super.init()
         checkAuthorizationStatus()
-        // Don't set up messaging here - let AppDelegate handle it
-        // Just get the existing token if available
+        
         if let existingToken = UserDefaults.standard.string(forKey: "FCMRegistrationToken") {
-            self.fcmToken = existingToken
-            print("[NotificationService] Using existing FCM token: \(existingToken)")
+            fcmToken = existingToken
+            logger.debug("Genbruger eksisterende FCM token.")
         }
     }
     
@@ -33,11 +35,15 @@ class NotificationService: NSObject, ObservableObject {
                 self.isAuthorized = granted
             }
             
-            if granted {
-                await registerForRemoteNotifications()
+            guard granted else {
+                logger.warning("Bruger afviste push-notifikationer.")
+                return
             }
+            
+            await registerForRemoteNotifications()
+            logger.info("Push-notifikationer er autoriseret.")
         } catch {
-            print("Failed to request notification authorization: \(error)")
+            logger.error("Kunne ikke anmode om push-tilladelse: \(error.localizedDescription, privacy: .public)")
         }
     }
     
@@ -45,6 +51,7 @@ class NotificationService: NSObject, ObservableObject {
         UNUserNotificationCenter.current().getNotificationSettings { settings in
             DispatchQueue.main.async {
                 self.isAuthorized = settings.authorizationStatus == .authorized
+                self.logger.debug("Notifikationsstatus opdateret til \(settings.authorizationStatus.rawValue, privacy: .public)")
             }
         }
     }
@@ -58,14 +65,13 @@ class NotificationService: NSObject, ObservableObject {
     // MARK: - FCM Token Management
     
     func updateFCMTokenOnServer(_ token: String?) {
-        guard let token = token else { 
-            print("[NotificationService] No FCM token provided")
-            return 
+        guard let token else {
+            logger.warning("Forsøgte at opdatere FCM token uden værdi.")
+            return
         }
         
-        print("[NotificationService] Updating FCM token: \(token)")
+        logger.debug("Opdaterer FCM token mod backend.")
         
-        // If user is logged in, update in Firestore
         if let user = UserManager.shared.currentUser, !user.uid.isEmpty {
             let db = Firestore.firestore()
             let validDate = Date()
@@ -73,52 +79,51 @@ class NotificationService: NSObject, ObservableObject {
                 "fcmToken": token,
                 "lastTokenUpdate": validDate
             ]) { error in
-                if let error = error {
-                    print("[NotificationService] Error updating FCM token in Firestore: \(error)")
+                if let error {
+                    self.logger.error("Fejl ved opdatering af FCM token i Firestore: \(error.localizedDescription, privacy: .public)")
                 } else {
-                    print("[NotificationService] FCM token updated successfully in Firestore")
+                    self.logger.info("FCM token opdateret i Firestore.")
                 }
             }
         }
         
-        // Also send to your backend API if you have one
         sendTokenToBackend(token)
     }
     
     private func sendTokenToBackend(_ token: String) {
-        // Use your actual backend endpoint for FCM token registration
-        // This should be your own server, not the Webflow webhook
-        guard let url = URL(string: "https://your-backend-api.com/api/fcm-token") else {
-            print("[NotificationService] Invalid backend URL - please configure your FCM token endpoint")
+        guard let url = SecureConfig.shared.fcmBackendURL else {
+            logger.notice("Ingen FCM backend URL konfigureret. Spring HTTP-registrering over.")
             return
         }
         
-        // Add timeout and retry configuration
         var request = URLRequest(url: url)
         request.timeoutInterval = 30.0
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("AproposMagazine-iOS/1.0", forHTTPHeaderField: "User-Agent")
         
-        let tokenData = [
+        let tokenData: [String: Any] = [
             "fcmToken": token,
             "userId": UserManager.shared.currentUser?.uid ?? "anonymous",
             "platform": "ios",
             "timestamp": Date().timeIntervalSince1970
-        ] as [String : Any]
+        ]
         
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: tokenData)
         } catch {
-            print("[NotificationService] Error serializing token data: \(error)")
+            logger.error("Kunne ikke serialisere FCM token payload: \(error.localizedDescription, privacy: .public)")
             return
         }
         
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            if let error = error {
-                print("[NotificationService] Error sending token to backend: \(error)")
-            } else if let httpResponse = response as? HTTPURLResponse {
-                print("[NotificationService] Backend response: \(httpResponse.statusCode)")
+        URLSession.shared.dataTask(with: request) { _, response, error in
+            if let error {
+                self.logger.error("Fejl ved afsendelse af FCM token til backend: \(error.localizedDescription, privacy: .public)")
+                return
+            }
+            
+            if let httpResponse = response as? HTTPURLResponse {
+                self.logger.info("FCM backend svarede med status \(httpResponse.statusCode, privacy: .public).")
             }
         }.resume()
     }
@@ -126,35 +131,26 @@ class NotificationService: NSObject, ObservableObject {
     // MARK: - Topic Subscriptions
     
     func subscribeToTopics(for user: UserProfile) {
-        // Subscribe to general topics
         Messaging.messaging().subscribe(toTopic: "all_users")
         
-        // Subscribe to user-specific topics
-        // Messaging.messaging().subscribe(toTopic: "user_\(user.uid)")
-        
-        // Subscribe to favorite categories
-        for _ in user.favoriteCategories {
-            // Messaging.messaging().subscribe(toTopic: "category_\(categoryId)")
+        for categoryId in user.favoriteCategories {
+            Messaging.messaging().subscribe(toTopic: topicIdentifier(prefix: "category", rawValue: categoryId))
         }
         
-        // Subscribe to favorite authors
-        for _ in user.favoriteAuthors {
-            // Messaging.messaging().subscribe(toTopic: "author_\(authorId)")
+        for authorId in user.favoriteAuthors {
+            Messaging.messaging().subscribe(toTopic: topicIdentifier(prefix: "author", rawValue: authorId))
         }
     }
     
     func unsubscribeFromTopics(for user: UserProfile) {
-        // Unsubscribe from all topics
-        // Messaging.messaging().unsubscribe(fromTopic: "all_users")
-        // Messaging.messaging().unsubscribe(fromTopic: "user_\(user.uid)")
+        Messaging.messaging().unsubscribe(fromTopic: "all_users")
         
-        // Unsubscribe from categories and authors
-        for _ in user.favoriteCategories {
-            // Messaging.messaging().unsubscribe(fromTopic: "category_\(categoryId)")
+        for categoryId in user.favoriteCategories {
+            Messaging.messaging().unsubscribe(fromTopic: topicIdentifier(prefix: "category", rawValue: categoryId))
         }
         
-        for _ in user.favoriteAuthors {
-            // Messaging.messaging().unsubscribe(fromTopic: "author_\(authorId)")
+        for authorId in user.favoriteAuthors {
+            Messaging.messaging().unsubscribe(fromTopic: topicIdentifier(prefix: "author", rawValue: authorId))
         }
     }
     
@@ -170,8 +166,8 @@ class NotificationService: NSObject, ObservableObject {
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: trigger)
         
         UNUserNotificationCenter.current().add(request) { error in
-            if let error = error {
-                print("Error scheduling local notification: \(error)")
+            if let error {
+                self.logger.error("Fejl ved planlægning af lokal notifikation: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
@@ -182,15 +178,17 @@ class NotificationService: NSObject, ObservableObject {
         content.body = "\(festivalName) starter snart!"
         content.sound = .default
         
-        // Schedule 1 day before
         let reminderDate = date.addingTimeInterval(-24 * 60 * 60)
-        let trigger = UNCalendarNotificationTrigger(dateMatching: Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: reminderDate), repeats: false)
+        let trigger = UNCalendarNotificationTrigger(
+            dateMatching: Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: reminderDate),
+            repeats: false
+        )
         
         let request = UNNotificationRequest(identifier: "festival_\(festivalName)", content: content, trigger: trigger)
         
         UNUserNotificationCenter.current().add(request) { error in
-            if let error = error {
-                print("Error scheduling festival reminder: \(error)")
+            if let error {
+                self.logger.error("Fejl ved planlægning af festivalpåmindelse: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
@@ -200,29 +198,17 @@ class NotificationService: NSObject, ObservableObject {
     func updateNotificationPreferences(_ preferences: NotificationPreferences) {
         guard UserManager.shared.currentUser != nil else { return }
         
-        // Update topic subscriptions based on preferences
-        if preferences.newArticles {
-            Messaging.messaging().subscribe(toTopic: "new_articles")
+        toggleTopic(preferences.newArticles, topic: "new_articles")
+        toggleTopic(preferences.festivalReminders, topic: "festival_reminders")
+        toggleTopic(preferences.breakingNews, topic: "breaking_news")
+        toggleTopic(preferences.weeklyDigest, topic: "weekly_digest")
+    }
+    
+    private func toggleTopic(_ isEnabled: Bool, topic: String) {
+        if isEnabled {
+            Messaging.messaging().subscribe(toTopic: topic)
         } else {
-            Messaging.messaging().unsubscribe(fromTopic: "new_articles")
-        }
-        
-        if preferences.festivalReminders {
-            Messaging.messaging().subscribe(toTopic: "festival_reminders")
-        } else {
-            Messaging.messaging().unsubscribe(fromTopic: "festival_reminders")
-        }
-        
-        if preferences.breakingNews {
-            Messaging.messaging().subscribe(toTopic: "breaking_news")
-        } else {
-            Messaging.messaging().unsubscribe(fromTopic: "breaking_news")
-        }
-        
-        if preferences.weeklyDigest {
-            Messaging.messaging().subscribe(toTopic: "weekly_digest")
-        } else {
-            Messaging.messaging().unsubscribe(fromTopic: "weekly_digest")
+            Messaging.messaging().unsubscribe(fromTopic: topic)
         }
     }
     
@@ -235,7 +221,6 @@ class NotificationService: NSObject, ObservableObject {
         content.sound = .default
         content.badge = 1
         
-        // Add custom data
         content.userInfo = [
             "type": "test",
             "article_id": "test_123"
@@ -245,10 +230,10 @@ class NotificationService: NSObject, ObservableObject {
         let request = UNNotificationRequest(identifier: "test_notification", content: content, trigger: trigger)
         
         UNUserNotificationCenter.current().add(request) { error in
-            if let error = error {
-                print("Error sending test notification: \(error)")
+            if let error {
+                self.logger.error("Fejl ved afsendelse af testnotifikation: \(error.localizedDescription, privacy: .public)")
             } else {
-                print("Test notification scheduled successfully")
+                self.logger.info("Testnotifikation planlagt.")
             }
         }
     }
@@ -256,90 +241,84 @@ class NotificationService: NSObject, ObservableObject {
     // MARK: - Comprehensive Debug
     
     func debugNotificationSystem() {
-        print("🔍 === COMPREHENSIVE NOTIFICATION DEBUG ===")
-        print("📱 FCM Token: \(fcmToken ?? "NIL")")
-        print("📱 Is Authorized: \(isAuthorized)")
+        logger.info("=== Notifikationsdiagnostik start ===")
+        logger.info("FCM token: \(self.fcmToken ?? "nil", privacy: .public)")
+        logger.info("Autoriseret: \(self.isAuthorized)")
         
-        // Check current user
         if let user = UserManager.shared.currentUser {
-            print("👤 Current User: \(user.uid)")
-            print("👤 User Name: \(user.displayName)")
-            print("👤 Notification Preferences: \(user.notificationPreferences)")
+            logger.info("Aktuel bruger: \(user.uid, privacy: .public)")
+            logger.debug("Notifikationspræferencer: \(String(describing: user.notificationPreferences), privacy: .public)")
         } else {
-            print("👤 No current user logged in")
+            logger.info("Ingen bruger er logget ind.")
         }
         
-        // Check notification settings
         UNUserNotificationCenter.current().getNotificationSettings { settings in
-            print("📱 Notification Settings:")
-            print("   - Authorization: \(settings.authorizationStatus.rawValue)")
-            print("   - Alert: \(settings.alertSetting.rawValue)")
-            print("   - Badge: \(settings.badgeSetting.rawValue)")
-            print("   - Sound: \(settings.soundSetting.rawValue)")
-            print("   - Lock Screen: \(settings.lockScreenSetting.rawValue)")
-            print("   - Notification Center: \(settings.notificationCenterSetting.rawValue)")
-            print("   - Car Play: \(settings.carPlaySetting.rawValue)")
-            print("   - Critical Alert: \(settings.criticalAlertSetting.rawValue)")
-            print("   - Announcement: \(settings.announcementSetting.rawValue)")
+            self.logger.info("Notifikationsindstillinger: autorisation=\(settings.authorizationStatus.rawValue, privacy: .public)")
         }
         
-        // Check pending notifications
         UNUserNotificationCenter.current().getPendingNotificationRequests { requests in
-            print("📱 Pending Notifications: \(requests.count)")
+            self.logger.info("Planlagte notifikationer: \(requests.count)")
             for request in requests {
-                print("   - \(request.identifier): \(request.content.title)")
+                self.logger.debug("Planlagt: \(request.identifier, privacy: .public) – \(request.content.title, privacy: .public)")
             }
         }
         
-        // Check delivered notifications
         UNUserNotificationCenter.current().getDeliveredNotifications { notifications in
-            print("📱 Delivered Notifications: \(notifications.count)")
+            self.logger.info("Leverede notifikationer: \(notifications.count)")
             for notification in notifications {
-                print("   - \(notification.request.identifier): \(notification.request.content.title)")
+                self.logger.debug("Leveret: \(notification.request.identifier, privacy: .public) – \(notification.request.content.title, privacy: .public)")
             }
         }
         
-        // Test FCM topics
-        print("🔔 Testing FCM topic subscriptions...")
         if UserManager.shared.currentUser != nil {
-            // Force subscribe to new_articles for testing
             Messaging.messaging().subscribe(toTopic: "new_articles") { error in
-                if let error = error {
-                    print("❌ Error subscribing to 'new_articles': \(error)")
+                if let error {
+                    self.logger.error("Fejl ved abonnement på 'new_articles': \(error.localizedDescription, privacy: .public)")
                 } else {
-                    print("✅ Successfully subscribed to 'new_articles'")
+                    self.logger.info("Abonnerede på 'new_articles'.")
                 }
             }
             
-            // Test other topics
             Messaging.messaging().subscribe(toTopic: "all_users") { error in
-                if let error = error {
-                    print("❌ Error subscribing to 'all_users': \(error)")
+                if let error {
+                    self.logger.error("Fejl ved abonnement på 'all_users': \(error.localizedDescription, privacy: .public)")
                 } else {
-                    print("✅ Successfully subscribed to 'all_users'")
+                    self.logger.info("Abonnerede på 'all_users'.")
                 }
             }
         }
         
-        print("🔍 === END DEBUG ===")
+        logger.info("=== Notifikationsdiagnostik slut ===")
     }
     
     func forceSubscribeToNewArticles() {
-        print("🔔 Force subscribing to 'new_articles' topic...")
+        logger.info("Tvinger abonnement på 'new_articles'.")
         Messaging.messaging().subscribe(toTopic: "new_articles") { error in
-            if let error = error {
-                print("❌ Error subscribing to 'new_articles': \(error)")
-            } else {
-                print("✅ Successfully force subscribed to 'new_articles'")
-                
-                Task {
-                    let token = await MainActor.run { self.fcmToken }
-                    if let token {
-                        await MainActor.run { self.updateFCMTokenOnServer(token) }
+            if let error {
+                self.logger.error("Fejl ved abonnement på 'new_articles': \(error.localizedDescription, privacy: .public)")
+                return
+            }
+            
+            self.logger.info("Abonnerede på 'new_articles'.")
+            
+            Task {
+                let token = await MainActor.run { self.fcmToken }
+                if let token {
+                    await MainActor.run {
+                        self.updateFCMTokenOnServer(token)
                     }
                 }
             }
         }
     }
     
+    // MARK: - Helpers
+    
+    private func topicIdentifier(prefix: String, rawValue: String) -> String {
+        let sanitized = rawValue
+            .lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .joined()
+        return "\(prefix)_\(sanitized)"
+    }
 }

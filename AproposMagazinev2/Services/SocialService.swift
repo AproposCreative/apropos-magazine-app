@@ -1,6 +1,8 @@
-import SwiftUI
-import FirebaseFirestore
 import FirebaseAuth
+import FirebaseFirestore
+import FirebaseFirestoreSwift
+import OSLog
+import SwiftUI
 
 @MainActor
 class SocialService: ObservableObject {
@@ -10,6 +12,7 @@ class SocialService: ObservableObject {
     
     static let shared = SocialService()
     private lazy var db = Firestore.firestore()
+    private let logger = Logger(subsystem: "com.aproposmagazine.app", category: "SocialService")
     
     private init() {}
     
@@ -39,7 +42,7 @@ class SocialService: ObservableObject {
                         do {
                             return try document.data(as: Comment.self)
                         } catch {
-                            print("[SocialService] Failed to decode comment: \(error.localizedDescription)")
+                            self?.logger.error("Kunne ikke dekode kommentar: \(error.localizedDescription, privacy: .public)")
                             return nil
                         }
                     }
@@ -71,6 +74,7 @@ class SocialService: ObservableObject {
                 .setData(from: comment)
         } catch {
             errorMessage = "Failed to add comment: \(error.localizedDescription)"
+            logger.error("Kunne ikke tilføje kommentar: \(error.localizedDescription, privacy: .public)")
         }
     }
     
@@ -88,6 +92,7 @@ class SocialService: ObservableObject {
                 DispatchQueue.main.async {
                     self?.errorMessage = "Failed to like comment: \(error.localizedDescription)"
                 }
+                self?.logger.error("Kunne ikke synes godt om kommentar: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
@@ -111,12 +116,13 @@ class SocialService: ObservableObject {
             .collection("comments").document(commentId)
         
         commentRef.updateData([
-            "replies": FieldValue.arrayUnion([(try? JSONEncoder().encode(reply)) ?? Data()])
+            "replies": FieldValue.arrayUnion([reply.firestoreData])
         ]) { [weak self] error in
             if let error = error {
                 DispatchQueue.main.async {
                     self?.errorMessage = "Failed to add reply: \(error.localizedDescription)"
                 }
+                self?.logger.error("Kunne ikke tilføje svar: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
@@ -335,5 +341,19 @@ struct CommentReply: Codable, Identifiable {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
         return formatter.localizedString(for: timestamp, relativeTo: Date())
+    }
+    
+    var firestoreData: [String: Any] {
+        var data: [String: Any] = [
+            "id": id,
+            "userId": userId,
+            "userName": userName,
+            "text": text,
+            "timestamp": Timestamp(date: timestamp)
+        ]
+        if let userPhotoURL = userPhotoURL {
+            data["userPhotoURL"] = userPhotoURL
+        }
+        return data
     }
 }

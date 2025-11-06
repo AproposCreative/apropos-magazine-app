@@ -1,6 +1,8 @@
-import SwiftUI
-import Foundation
 import FirebaseFirestore
+import Foundation
+import Network
+import OSLog
+import SwiftUI
 
 @MainActor
 class OfflineManager: ObservableObject {
@@ -11,6 +13,9 @@ class OfflineManager: ObservableObject {
     static let shared = OfflineManager()
     private let userDefaults = UserDefaults.standard
     private lazy var db = Firestore.firestore()
+    private let logger = Logger(subsystem: "com.aproposmagazine.app", category: "OfflineManager")
+    private let monitor = NWPathMonitor()
+    private let monitorQueue = DispatchQueue(label: "OfflineManager.NetworkMonitor")
     
     // Keys for UserDefaults
     private let offlineArticlesKey = "offline_articles"
@@ -18,35 +23,37 @@ class OfflineManager: ObservableObject {
     private let pendingActionsKey = "pending_actions"
     
     private init() {
-        checkConnectivity()
         loadLastSyncDate()
         setupConnectivityMonitoring()
     }
     
     deinit {
-        // Remove observers to prevent leaks
-        NotificationCenter.default.removeObserver(self, name: NSNotification.Name("NetworkStatusChanged"), object: nil)
-        print("[OfflineManager] Deinitialized and observers removed")
+        monitor.cancel()
+        logger.debug("OfflineManager deinit – netværksovervågning stoppet.")
     }
     
     // MARK: - Connectivity
     
     private func checkConnectivity() {
-        // Simple connectivity check - in production you'd use Network framework
-        isOnline = true // For now, assume online
+        isOnline = monitor.currentPath.status == .satisfied
     }
     
     private func setupConnectivityMonitoring() {
-        // Monitor network changes
-        NotificationCenter.default.addObserver(
-            forName: NSNotification.Name("NetworkStatusChanged"),
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
+        monitor.pathUpdateHandler = { [weak self] path in
             Task { @MainActor in
-                self?.isOnline = false
+                let status = path.status == .satisfied
+                self?.isOnline = status
+                if status {
+                    self?.logger.debug("Netværk tilgængeligt.")
+                    self?.processPendingActions()
+                    self?.syncWhenOnline()
+                } else {
+                    self?.logger.warning("Netværk utilgængeligt.")
+                }
             }
         }
+        monitor.start(queue: monitorQueue)
+        checkConnectivity()
     }
     
     // MARK: - Offline Storage
@@ -94,7 +101,7 @@ class OfflineManager: ObservableObject {
     func syncWhenOnline() {
         guard isOnline else { return }
         guard UserManager.shared.currentUser != nil else {
-            print("[OfflineManager] No authenticated user, skipping sync")
+            logger.debug("Ingen autentificeret bruger – springer sync over.")
             return
         }
         
@@ -123,12 +130,12 @@ class OfflineManager: ObservableObject {
         // Sync reading progress to server with safety check
         // Validate date before creating timestamp
         let validDate = Date()
-        db.collection("users").document(user.uid).updateData([
-            "readingProgress": user.readingProgress,
-            "lastSync": validDate
-        ]) { [weak self] error in
-            if let error = error {
-                print("Error syncing reading progress: \(error)")
+            db.collection("users").document(user.uid).updateData([
+                "readingProgress": user.readingProgress,
+                "lastSync": validDate
+            ]) { [weak self] error in
+                if let error = error {
+                self?.logger.error("Fejl ved sync af læseprogression: \(error.localizedDescription, privacy: .public)")
             }
             // Optionally handle success or update state here
             _ = self
@@ -138,14 +145,16 @@ class OfflineManager: ObservableObject {
     private func syncUserPreferences() {
         guard let user = UserManager.shared.currentUser else { return }
         
-        db.collection("users").document(user.uid).updateData([
-            "notificationPreferences": (try? JSONEncoder().encode(user.notificationPreferences)) ?? Data(),
-            "readingPreferences": (try? JSONEncoder().encode(user.readingPreferences)) ?? Data(),
+        let updatePayload: [String: Any] = [
+            "notificationPreferences": notificationPreferencesDictionary(from: user.notificationPreferences),
+            "readingPreferences": readingPreferencesDictionary(from: user.readingPreferences),
             "favoriteCategories": user.favoriteCategories,
             "favoriteAuthors": user.favoriteAuthors
-        ]) { [weak self] error in
+        ]
+        
+        db.collection("users").document(user.uid).updateData(updatePayload) { [weak self] error in
             if let error = error {
-                print("Error syncing user preferences: \(error)")
+                self?.logger.error("Fejl ved sync af brugerpræferencer: \(error.localizedDescription, privacy: .public)")
             }
             _ = self
         }
@@ -159,7 +168,7 @@ class OfflineManager: ObservableObject {
             "readArticles": user.readArticles
         ]) { [weak self] error in
             if let error = error {
-                print("Error syncing bookmarks: \(error)")
+                self?.logger.error("Fejl ved sync af bogmærker: \(error.localizedDescription, privacy: .public)")
             }
             _ = self
         }
@@ -225,6 +234,30 @@ class OfflineManager: ObservableObject {
     func clearOfflineStorage() {
         userDefaults.removeObject(forKey: offlineArticlesKey)
         userDefaults.removeObject(forKey: pendingActionsKey)
+    }
+    
+    private func notificationPreferencesDictionary(from preferences: NotificationPreferences) -> [String: Any] {
+        return [
+            "newArticles": preferences.newArticles,
+            "festivalReminders": preferences.festivalReminders,
+            "breakingNews": preferences.breakingNews,
+            "weeklyDigest": preferences.weeklyDigest,
+            "quietHours": [
+                "enabled": preferences.quietHours.enabled,
+                "startTime": preferences.quietHours.startTime.timeIntervalSince1970,
+                "endTime": preferences.quietHours.endTime.timeIntervalSince1970
+            ]
+        ]
+    }
+    
+    private func readingPreferencesDictionary(from preferences: ReadingPreferences) -> [String: Any] {
+        return [
+            "fontSize": preferences.fontSize.rawValue,
+            "darkMode": preferences.darkMode,
+            "autoPlayVideos": preferences.autoPlayVideos,
+            "showImages": preferences.showImages,
+            "readingTimeEstimate": preferences.readingTimeEstimate
+        ]
     }
 }
 

@@ -1,9 +1,14 @@
 import Foundation
+import OSLog
 import Security
 
 /// Secure configuration manager for API keys and sensitive data
 class SecureConfig {
     static let shared = SecureConfig()
+    
+    private let logger = Logger(subsystem: "com.aproposmagazine.app", category: "SecureConfig")
+    private let secrets: [String: Any] = SecureConfig.loadSecrets()
+    
     private init() {}
     
     // MARK: - Keychain Operations
@@ -49,36 +54,64 @@ class SecureConfig {
         return key
     }
     
+    // MARK: - Helpers
+    
+    private static func loadSecrets() -> [String: Any] {
+        if let url = Bundle.main.url(forResource: "Secrets", withExtension: "plist"),
+           let dict = NSDictionary(contentsOf: url) as? [String: Any] {
+            return dict
+        }
+        
+        return [:]
+    }
+    
+    private func sanitizeSecret(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty,
+              trimmed.lowercased().hasPrefix("your-") == false,
+              trimmed.contains("example.com") == false else {
+            return nil
+        }
+        return trimmed
+    }
+    
+    private func secretValue(for plistKey: String, service: String, envKey: String) -> String? {
+        if let keychainValue = sanitizeSecret(getAPIKey(for: service)) {
+            return keychainValue
+        }
+        
+        if let plistValue = sanitizeSecret(secrets[plistKey] as? String) {
+            return plistValue
+        }
+        
+        if let envValue = sanitizeSecret(ProcessInfo.processInfo.environment[envKey]) {
+            return envValue
+        }
+        
+        logger.warning("Missing secret for \(plistKey, privacy: .public). Provide it via Keychain, Secrets.plist, or \(envKey).")
+        return nil
+    }
+    
     // MARK: - API Key Getters
     
     var webflowAPIKey: String {
-        if let key = getAPIKey(for: "webflow") {
-            return key
-        }
-        
-        // Fallback to environment variable for development
-        if let envKey = ProcessInfo.processInfo.environment["WEBFLOW_API_KEY"] {
-            return envKey
-        }
-        
-        // For development - return the API key directly
-        // In production, this should be stored in keychain
-        return "55a467391e742d7cb047b735fa43942c0ce8aa47af231781a73f7581435a2ee6"
+        return secretValue(for: "WEBFLOW_API_KEY", service: "webflow", envKey: "WEBFLOW_API_KEY") ?? ""
     }
     
     var googleAPIKey: String {
-        if let key = getAPIKey(for: "google") {
-            return key
+        return secretValue(for: "GOOGLE_API_KEY", service: "google", envKey: "GOOGLE_API_KEY") ?? ""
+    }
+    
+    var openAIAPIKey: String {
+        return secretValue(for: "OPENAI_API_KEY", service: "openai", envKey: "OPENAI_API_KEY") ?? ""
+    }
+    
+    var fcmBackendURL: URL? {
+        guard let rawValue = secretValue(for: "FCM_BACKEND_URL", service: "fcm_backend_url", envKey: "FCM_BACKEND_URL"),
+              let url = URL(string: rawValue) else {
+            return nil
         }
-        
-        // Fallback to environment variable for development
-        if let envKey = ProcessInfo.processInfo.environment["GOOGLE_API_KEY"] {
-            return envKey
-        }
-        
-        // For development - return the API key directly
-        // In production, this should be stored in keychain
-        return "REDACTED_GOOGLE_API_KEY"
+        return url
     }
 }
 
@@ -91,12 +124,9 @@ extension SecureConfig {
         // For production, use keychain storage
         
         #if DEBUG
-        // Development setup - you can hardcode keys here temporarily
-        // but make sure to remove them before committing
-        print("🔧 Development mode: Using environment variables for API keys")
+        logger.info("Development mode: load secrets from Keychain, Secrets.plist, or environment variables.")
         #else
-        // Production setup - keys should be stored in keychain
-        print("🔒 Production mode: Using keychain for API keys")
+        logger.info("Production mode: load secrets from Keychain.")
         #endif
     }
 }

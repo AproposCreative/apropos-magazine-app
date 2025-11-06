@@ -7,6 +7,12 @@ yarn-error.log*
 firebase-debug.log*
 firebase-debug.*.log*
 
+# Secrets & credentials
+Resources/Secrets.plist
+serviceAccountKey.json
+*.pem
+*.p12
+
 # Firebase cache
 .firebase/
 
