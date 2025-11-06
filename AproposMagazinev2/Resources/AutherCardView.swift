@@ -90,7 +90,7 @@ struct AuthorCardView: View {
                 }
             }
         }
-        .onChange(of: viewModel.authors) { _ in
+        .onChange(of: viewModel.authors) { _, _ in
             resolveCachedAuthor()
         }
     }

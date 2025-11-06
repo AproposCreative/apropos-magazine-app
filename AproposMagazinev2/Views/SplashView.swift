@@ -9,18 +9,23 @@ struct BootloaderView: View {
     var body: some View {
         ZStack {
             if showRootView {
-                ContentView() // Naviger til hovedappen
-                    .transition(.opacity)
+                Group {
+                    ContentView() // Naviger til hovedappen
+                        .transition(.opacity)
+                        .onAppear {
+                            print("✅ ContentView er nu synlig")
+                        }
+                }
             } else {
                 BootloaderVideoPlayerView(videoName: "Splash02", fileExtension: "mp4") {
                     print("🎬 Video færdig – forsøger at vise Root View nu")
-                    DispatchQueue.main.async {
+                    Task { @MainActor in
                         withAnimation(.easeInOut(duration: 1.0)) {
                             opacity = 0.0
                         }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                            showRootView = true
-                        }
+                        try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 sekund
+                        print("✅ Sætter showRootView til true")
+                        showRootView = true
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -33,14 +38,13 @@ struct BootloaderView: View {
         .background(Color.black)
         .ignoresSafeArea(.all)
         .onAppear {
+            print("🚀 BootloaderView appeared")
             // Failsafe fallback-timer
-            Task {
-                try? await Task.sleep(nanoseconds: 4_000_000_000)
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 4_000_000_000) // 4 sekunder
                 if !showRootView {
                     print("⏰ Timeout – tvinger visning af rootView")
-                    DispatchQueue.main.async {
-                        showRootView = true
-                    }
+                    showRootView = true
                 }
             }
         }
@@ -116,6 +120,14 @@ struct BootloaderVideoPlayerView: UIViewControllerRepresentable {
             ) { _ in
                 onFinished()
             }
+            
+            return controller
+        }
+        
+        // Fallback: Hvis videoen ikke kan loades, gå direkte til appen
+        print("⚠️ Video kunne ikke loades - går direkte til appen")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            onFinished()
         }
 
         return controller

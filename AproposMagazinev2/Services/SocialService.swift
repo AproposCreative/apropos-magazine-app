@@ -101,14 +101,16 @@ class SocialService: ObservableObject {
             firestoreData["userPhotoURL"] = userPhotoURL
         }
         
-        db.collection("articles").document(articleId)
-            .collection("comments").document(comment.id)
-            .setData(firestoreData) { [weak self] error in
-                if let error = error {
-                    self?.errorMessage = "Failed to add comment: \(error.localizedDescription)"
-                    self?.logger.error("Kunne ikke tilføje kommentar: \(error.localizedDescription, privacy: .public)")
+            db.collection("articles").document(articleId)
+                .collection("comments").document(comment.id)
+                .setData(firestoreData) { [weak self] error in
+                    Task { @MainActor in
+                        if let error = error {
+                            self?.errorMessage = "Failed to add comment: \(error.localizedDescription)"
+                            self?.logger.error("Kunne ikke tilføje kommentar: \(error.localizedDescription, privacy: .public)")
+                        }
+                    }
                 }
-            }
     }
     
     func likeComment(_ commentId: String, in articleId: String) {
