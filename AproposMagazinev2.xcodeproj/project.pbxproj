@@ -16,6 +16,8 @@
 		DD447F542E4DE0BC0072E9B5 /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = DD447F532E4DE0BC0072E9B5 /* FirebaseMessaging */; };
 		DD447F5F2E4DEAFE0072E9B5 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = DD447F5E2E4DEAFE0072E9B5 /* GoogleSignIn */; };
 		DD447F612E4DEAFE0072E9B5 /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = DD447F602E4DEAFE0072E9B5 /* GoogleSignInSwift */; };
+		B68382452E056B35005C4E85 /* AproposMagazinev2Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B68382462E056B35005C4E85 /* AproposMagazinev2Tests.swift */; };
+		B68382472E056B35005C4E85 /* AproposMagazinev2UITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B68382482E056B35005C4E85 /* AproposMagazinev2UITests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -40,6 +42,8 @@
 		B683821A2E056B2F005C4E85 /* Apropos Magazine.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Apropos Magazine.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		B68382272E056B35005C4E85 /* AproposMagazinev2Tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AproposMagazinev2Tests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B68382312E056B35005C4E85 /* AproposMagazinev2UITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AproposMagazinev2UITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B68382462E056B35005C4E85 /* AproposMagazinev2Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AproposMagazinev2Tests.swift; sourceTree = "<group>"; };
+		B68382482E056B35005C4E85 /* AproposMagazinev2UITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AproposMagazinev2UITests.swift; sourceTree = "<group>"; };
 		DD8EA8AF2E782D2200F37B5C /* AproposMagazinev2.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = AproposMagazinev2.xcodeproj; sourceTree = "<group>"; };
 		DD8EA9B32E782F5300F37B5C /* AproposMagazinev2.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = AproposMagazinev2.xcodeproj; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -105,6 +109,8 @@
 				5E8D9D962E2A77D600F4E113 /* FontsFree-Net-SFProDisplay-Regular.ttf */,
 				B683821C2E056B2F005C4E85 /* AproposMagazinev2 */,
 				B683821B2E056B2F005C4E85 /* Products */,
+				B68382492E056B35005C4E85 /* AproposMagazinev2Tests */,
+				B683824A2E056B35005C4E85 /* AproposMagazinev2UITests */,
 			);
 			sourceTree = "<group>";
 		};
@@ -130,6 +136,22 @@
 			children = (
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		B68382492E056B35005C4E85 /* AproposMagazinev2Tests */ = {
+			isa = PBXGroup;
+			children = (
+				B68382462E056B35005C4E85 /* AproposMagazinev2Tests.swift */,
+			);
+			path = AproposMagazinev2Tests;
+			sourceTree = "<group>";
+		};
+		B683824A2E056B35005C4E85 /* AproposMagazinev2UITests */ = {
+			isa = PBXGroup;
+			children = (
+				B68382482E056B35005C4E85 /* AproposMagazinev2UITests.swift */,
+			);
+			path = AproposMagazinev2UITests;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -299,6 +321,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B68382452E056B35005C4E85 /* AproposMagazinev2Tests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -306,6 +329,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B68382472E056B35005C4E85 /* AproposMagazinev2UITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
