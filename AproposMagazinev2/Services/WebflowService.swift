@@ -73,13 +73,13 @@ class WebflowService {
     func fetchStarsMapping(completion: @escaping ([String: String]) -> Void) {
            
            guard !apiToken.isEmpty else {
-               logger.error("Kan ikke hente stjerner – Webflow API nøgle mangler.")
+               self.logger.error("Kan ikke hente stjerner – Webflow API nøgle mangler.")
                completion(Self.defaultStarsMapping)
                return
            }
            
            guard let url = URL(string: "https://api.webflow.com/v2/collections/67dbf17ba540975b5b21c294") else {
-               logger.error("Ugyldig URL til stjernemapping.")
+               self.logger.error("Ugyldig URL til stjernemapping.")
                completion([:])
                return
            }
@@ -93,22 +93,22 @@ class WebflowService {
            let task = URLSession.shared.dataTask(with: request) { data, response, error in
                
                if let error = error {
-                   logger.error("Fejl ved hentning af stjernemapping: \(error.localizedDescription, privacy: .public)")
+                   self.logger.error("Fejl ved hentning af stjernemapping: \(error.localizedDescription, privacy: .public)")
                    completion(Self.defaultStarsMapping)
                    return
                }
                
                if let httpResponse = response as? HTTPURLResponse {
-                   logger.debug("Stjernemapping HTTP status: \(httpResponse.statusCode, privacy: .public)")
+                   self.logger.debug("Stjernemapping HTTP status: \(httpResponse.statusCode, privacy: .public)")
                    if httpResponse.statusCode != 200 {
-                       logger.error("Fejlstatus fra Webflow-stjerner: \(httpResponse.statusCode, privacy: .public)")
+                       self.logger.error("Fejlstatus fra Webflow-stjerner: \(httpResponse.statusCode, privacy: .public)")
                        completion(Self.defaultStarsMapping)
                        return
                    }
                }
                
                guard let data = data else {
-                   logger.warning("Ingen data modtaget for stjernemapping – bruger defaults.")
+                   self.logger.warning("Ingen data modtaget for stjernemapping – bruger defaults.")
                    completion(Self.defaultStarsMapping)
                    return
                }
@@ -125,18 +125,18 @@ class WebflowService {
                       let options = starsField.options {
                        
                        let mapping = Dictionary(uniqueKeysWithValues: options.map { ($0.id, $0.label) })
-                       logger.debug("Stjernemapping hentet: \(mapping, privacy: .public)")
+                       self.logger.debug("Stjernemapping hentet: \(mapping, privacy: .public)")
                        completion(mapping)
                        
                    } else {
-                       logger.warning("Feltet 'stars-1-5' blev ikke fundet – bruger default mapping.")
+                       self.logger.warning("Feltet 'stars-1-5' blev ikke fundet – bruger default mapping.")
                       completion(Self.defaultStarsMapping)
                   }
                   
               } catch {
-                  logger.error("Fejl ved dekodning af stjernemapping: \(error.localizedDescription, privacy: .public)")
+                  self.logger.error("Fejl ved dekodning af stjernemapping: \(error.localizedDescription, privacy: .public)")
                    if let decodingError = error as? DecodingError {
-                       logger.debug("Decoding detaljer: \(String(describing: decodingError), privacy: .public)")
+                       self.logger.debug("Decoding detaljer: \(String(describing: decodingError), privacy: .public)")
                    }
                    completion(Self.defaultStarsMapping)
                }
@@ -147,7 +147,7 @@ class WebflowService {
     
     func fetchArticles(completion: @escaping (Result<[Article], Error>) -> Void) {
         guard !apiToken.isEmpty else {
-            logger.error("Kan ikke hente artikler – Webflow API nøgle mangler.")
+            self.logger.error("Kan ikke hente artikler – Webflow API nøgle mangler.")
             DispatchQueue.main.async {
                 completion(.failure(WebflowError.missingAPIToken))
             }
@@ -225,7 +225,7 @@ class WebflowService {
     
     func fetchTopics(completion: @escaping (Result<[Topic], Error>) -> Void) {
         guard !apiToken.isEmpty else {
-            logger.error("Kan ikke hente emner – Webflow API nøgle mangler.")
+            self.logger.error("Kan ikke hente emner – Webflow API nøgle mangler.")
             DispatchQueue.main.async {
                 completion(.failure(WebflowError.missingAPIToken))
             }
@@ -268,7 +268,7 @@ class WebflowService {
     
     func fetchAuthors(completion: @escaping (Result<[Author], Error>) -> Void) {
         guard !apiToken.isEmpty else {
-            logger.error("Kan ikke hente forfattere – Webflow API nøgle mangler.")
+            self.logger.error("Kan ikke hente forfattere – Webflow API nøgle mangler.")
             DispatchQueue.main.async {
                 completion(.failure(WebflowError.missingAPIToken))
             }
@@ -314,7 +314,7 @@ class WebflowService {
     
     func fetchSections(completion: @escaping (Result<[WebflowSection], Error>) -> Void) {
         guard !apiToken.isEmpty else {
-            logger.error("Kan ikke hente sektioner – Webflow API nøgle mangler.")
+            self.logger.error("Kan ikke hente sektioner – Webflow API nøgle mangler.")
             DispatchQueue.main.async {
                 completion(.failure(WebflowError.missingAPIToken))
             }
