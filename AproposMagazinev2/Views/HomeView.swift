@@ -249,18 +249,38 @@ struct HomeView: View {
     private var contentBody: some View {
         VStack(alignment: .leading) {
             
-            // Debug info
+            // Debug info or empty state
             if viewModel.articles.isEmpty {
-                VStack {
-                    Text("Debug: No articles loaded")
-                        .foregroundColor(.red)
-                    Text("Articles count: \(viewModel.articles.count)")
-                    Text("Is loading: \(viewModel.isLoading ? "Yes" : "No")")
-                    if let error = viewModel.fetchError {
-                        Text("Error: \(error.localizedDescription)")
-                            .foregroundColor(.red)
+                VStack(spacing: 20) {
+                    Spacer()
+                    Image(systemName: "doc.text.magnifyingglass")
+                        .font(.system(size: 60))
+                        .foregroundColor(.secondary)
+                    
+                    Text("Ingen artikler")
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                    
+                    if viewModel.isLoading {
+                        ProgressView()
+                            .padding()
+                    } else {
+                        VStack(spacing: 8) {
+                            Text("Artikler bliver indlæst...")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                            
+                            if let error = viewModel.fetchError {
+                                Text("Fejl: \(error.localizedDescription)")
+                                    .font(.caption)
+                                    .foregroundColor(.red)
+                                    .padding()
+                            }
+                        }
                     }
+                    Spacer()
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding()
             }
             

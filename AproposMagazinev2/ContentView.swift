@@ -17,11 +17,11 @@ struct ContentView: View {
     // @StateObject private var recommendationEngine = RecommendationEngine.shared
     
     var body: some View {
-        let _ = print("📱 ContentView body rendered")
         TabView(selection: $navigationCoordinator.selectedTab) {
             // Home Tab
             NavigationStack(path: navigationCoordinator.path(for: .home)) { 
                 HomeView()
+                    .environmentObject(viewModel)
                     .navigationDestination(for: Article.self) { article in
                         ArticleDetailView(article: article)
                             .environmentObject(viewModel)
@@ -36,6 +36,7 @@ struct ContentView: View {
             // Search Tab
             NavigationStack(path: navigationCoordinator.path(for: .search)) {
                 SearchView_Enhanced()
+                    .environmentObject(viewModel)
                     .navigationDestination(for: Article.self) { article in
                         ArticleDetailView(article: article)
                             .environmentObject(viewModel)
@@ -50,6 +51,7 @@ struct ContentView: View {
             // Categories Tab
             NavigationStack(path: navigationCoordinator.path(for: .categories)) {
                 CategoriesView()
+                    .environmentObject(viewModel)
                     .environmentObject(navigationCoordinator)
                     .navigationDestination(for: Article.self) { article in
                         ArticleDetailView(article: article)
@@ -65,6 +67,7 @@ struct ContentView: View {
             // Favorites Tab
             NavigationStack(path: navigationCoordinator.path(for: .favorites)) {
                 FavoritesView()
+                    .environmentObject(viewModel)
                     .navigationDestination(for: Article.self) { article in
                         ArticleDetailView(article: article)
                             .environmentObject(viewModel)
@@ -116,6 +119,7 @@ struct ContentView: View {
             UITabBar.appearance().standardAppearance = appearance
             UITabBar.appearance().scrollEdgeAppearance = appearance
         }
+        .environmentObject(viewModel)
         .preferredColorScheme(themeManager.currentTheme.colorScheme)
         .onAppear {
             print("📱 ContentView TabView appeared")
