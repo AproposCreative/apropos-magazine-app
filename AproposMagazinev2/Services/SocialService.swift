@@ -39,7 +39,23 @@ class SocialService: ObservableObject {
                     
                     self?.comments = documents.compactMap { document in
                         do {
-                            let data = document.data()
+                            var data = document.data()
+                            
+                            // Convert Firestore Timestamp to Date
+                            if let timestamp = data["timestamp"] as? Timestamp {
+                                data["timestamp"] = timestamp.dateValue()
+                            }
+                            
+                            // Convert nested replies timestamps
+                            if var replies = data["replies"] as? [[String: Any]] {
+                                for i in 0..<replies.count {
+                                    if let replyTimestamp = replies[i]["timestamp"] as? Timestamp {
+                                        replies[i]["timestamp"] = replyTimestamp.dateValue()
+                                    }
+                                }
+                                data["replies"] = replies
+                            }
+                            
                             let decoder = JSONDecoder()
                             let jsonData = try JSONSerialization.data(withJSONObject: data)
                             return try decoder.decode(Comment.self, from: jsonData)
@@ -70,23 +86,29 @@ class SocialService: ObservableObject {
             replies: []
         )
         
-        do {
-            let encoder = JSONEncoder()
-            let jsonData = try encoder.encode(comment)
-            let data = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any] ?? [:]
-            
-            db.collection("articles").document(articleId)
-                .collection("comments").document(comment.id)
-                .setData(data) { [weak self] error in
-                    if let error = error {
-                        self?.errorMessage = "Failed to add comment: \(error.localizedDescription)"
-                        self?.logger.error("Kunne ikke tilføje kommentar: \(error.localizedDescription, privacy: .public)")
-                    }
-                }
-        } catch {
-            errorMessage = "Failed to add comment: \(error.localizedDescription)"
-            logger.error("Kunne ikke tilføje kommentar: \(error.localizedDescription, privacy: .public)")
+        var firestoreData: [String: Any] = [
+            "id": comment.id,
+            "articleId": comment.articleId,
+            "userId": comment.userId,
+            "userName": comment.userName,
+            "text": comment.text,
+            "timestamp": Timestamp(date: comment.timestamp),
+            "likes": comment.likes,
+            "replies": comment.replies.map { $0.firestoreData }
+        ]
+        
+        if let userPhotoURL = comment.userPhotoURL {
+            firestoreData["userPhotoURL"] = userPhotoURL
         }
+        
+        db.collection("articles").document(articleId)
+            .collection("comments").document(comment.id)
+            .setData(firestoreData) { [weak self] error in
+                if let error = error {
+                    self?.errorMessage = "Failed to add comment: \(error.localizedDescription)"
+                    self?.logger.error("Kunne ikke tilføje kommentar: \(error.localizedDescription, privacy: .public)")
+                }
+            }
     }
     
     func likeComment(_ commentId: String, in articleId: String) {

@@ -88,7 +88,16 @@ class UserManager: ObservableObject {
                 
                 if document.exists {
                     do {
-                        let data = document.data() ?? [:]
+                        var data = document.data() ?? [:]
+                        
+                        // Convert Firestore Timestamp to Date
+                        if let createdAt = data["createdAt"] as? Timestamp {
+                            data["createdAt"] = createdAt.dateValue()
+                        }
+                        if let lastLoginAt = data["lastLoginAt"] as? Timestamp {
+                            data["lastLoginAt"] = lastLoginAt.dateValue()
+                        }
+                        
                         let decoder = JSONDecoder()
                         let jsonData = try JSONSerialization.data(withJSONObject: data)
                         let existing = try decoder.decode(UserProfile.self, from: jsonData)
@@ -118,10 +127,9 @@ class UserManager: ObservableObject {
     }
     
     func saveUserProfile(_ profile: UserProfile) {
-        do {
-            // Validate dates before saving to prevent timestamp issues
-            let now = Date()
-            let validatedProfile = UserProfile(
+        // Validate dates before saving to prevent timestamp issues
+        let now = Date()
+        let validatedProfile = UserProfile(
                 uid: profile.uid,
                 email: profile.email,
                 displayName: profile.displayName,
@@ -137,23 +145,46 @@ class UserManager: ObservableObject {
                 readingProgress: profile.readingProgress
             )
             
-            let encoder = JSONEncoder()
-            let jsonData = try encoder.encode(validatedProfile)
-            let data = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any] ?? [:]
+            // Convert to Firestore-compatible format
+            var firestoreData: [String: Any] = [
+                "uid": validatedProfile.uid,
+                "email": validatedProfile.email,
+                "displayName": validatedProfile.displayName,
+                "createdAt": Timestamp(date: validatedProfile.createdAt),
+                "lastLoginAt": Timestamp(date: validatedProfile.lastLoginAt),
+                "favoriteCategories": validatedProfile.favoriteCategories,
+                "favoriteAuthors": validatedProfile.favoriteAuthors,
+                "readArticles": validatedProfile.readArticles,
+                "bookmarkedArticles": validatedProfile.bookmarkedArticles,
+                "readingProgress": validatedProfile.readingProgress
+            ]
             
-            db.collection("users").document(profile.uid).setData(data) { [weak self] error in
-                if let error = error {
-                    self?.errorMessage = "Failed to save profile: \(error.localizedDescription)"
-                    self?.logger.error("Fejl ved gemning af profil: \(error.localizedDescription, privacy: .public)")
-                } else {
-                    self?.currentUser = validatedProfile
-                    self?.logger.debug("Profil gemt for \(profile.uid, privacy: .public).")
+            if let photoURL = validatedProfile.photoURL {
+                firestoreData["photoURL"] = photoURL
+            }
+            
+            // Encode nested structs
+            let encoder = JSONEncoder()
+            if let notificationPrefs = try? encoder.encode(validatedProfile.notificationPreferences),
+               let notificationDict = try? JSONSerialization.jsonObject(with: notificationPrefs) as? [String: Any] {
+                firestoreData["notificationPreferences"] = notificationDict
+            }
+            if let readingPrefs = try? encoder.encode(validatedProfile.readingPreferences),
+               let readingDict = try? JSONSerialization.jsonObject(with: readingPrefs) as? [String: Any] {
+                firestoreData["readingPreferences"] = readingDict
+            }
+            
+            db.collection("users").document(profile.uid).setData(firestoreData) { [weak self] error in
+                Task { @MainActor in
+                    if let error = error {
+                        self?.errorMessage = "Failed to save profile: \(error.localizedDescription)"
+                        self?.logger.error("Fejl ved gemning af profil: \(error.localizedDescription, privacy: .public)")
+                    } else {
+                        self?.currentUser = validatedProfile
+                        self?.logger.debug("Profil gemt for \(profile.uid, privacy: .public).")
+                    }
                 }
             }
-        } catch {
-            errorMessage = "Failed to save profile: \(error.localizedDescription)"
-            logger.error("Fejl ved gemning af profil: \(error.localizedDescription, privacy: .public)")
-        }
     }
     
     // MARK: - Reading History
