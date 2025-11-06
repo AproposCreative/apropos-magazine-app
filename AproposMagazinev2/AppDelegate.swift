@@ -71,7 +71,7 @@ import SwiftUI
         Messaging.messaging().delegate = self
         
         // Log existing FCM token if available
-        if let existingToken = UserDefaults.standard.string(forKey: "FCMRegistrationToken") {
+        if UserDefaults.standard.string(forKey: "FCMRegistrationToken") != nil {
             logger.debug("Eksisterende FCM token fundet.")
         }
         

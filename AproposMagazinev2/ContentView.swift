@@ -17,6 +17,7 @@ struct ContentView: View {
     // @StateObject private var recommendationEngine = RecommendationEngine.shared
     
     var body: some View {
+        let _ = print("📱 ContentView body rendered")
         TabView(selection: $navigationCoordinator.selectedTab) {
             // Home Tab
             NavigationStack(path: navigationCoordinator.path(for: .home)) { 
@@ -116,6 +117,9 @@ struct ContentView: View {
             UITabBar.appearance().scrollEdgeAppearance = appearance
         }
         .preferredColorScheme(themeManager.currentTheme.colorScheme)
+        .onAppear {
+            print("📱 ContentView TabView appeared")
+        }
     }
 
     
