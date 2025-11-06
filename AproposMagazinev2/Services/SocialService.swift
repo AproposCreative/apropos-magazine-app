@@ -1,6 +1,5 @@
 import FirebaseAuth
 import FirebaseFirestore
-import FirebaseFirestoreSwift
 import OSLog
 import SwiftUI
 
@@ -40,7 +39,10 @@ class SocialService: ObservableObject {
                     
                     self?.comments = documents.compactMap { document in
                         do {
-                            return try document.data(as: Comment.self)
+                            let data = document.data()
+                            let decoder = JSONDecoder()
+                            let jsonData = try JSONSerialization.data(withJSONObject: data)
+                            return try decoder.decode(Comment.self, from: jsonData)
                         } catch {
                             self?.logger.error("Kunne ikke dekode kommentar: \(error.localizedDescription, privacy: .public)")
                             return nil
@@ -69,9 +71,18 @@ class SocialService: ObservableObject {
         )
         
         do {
-            try db.collection("articles").document(articleId)
+            let encoder = JSONEncoder()
+            let jsonData = try encoder.encode(comment)
+            let data = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any] ?? [:]
+            
+            db.collection("articles").document(articleId)
                 .collection("comments").document(comment.id)
-                .setData(from: comment)
+                .setData(data) { [weak self] error in
+                    if let error = error {
+                        self?.errorMessage = "Failed to add comment: \(error.localizedDescription)"
+                        self?.logger.error("Kunne ikke tilføje kommentar: \(error.localizedDescription, privacy: .public)")
+                    }
+                }
         } catch {
             errorMessage = "Failed to add comment: \(error.localizedDescription)"
             logger.error("Kunne ikke tilføje kommentar: \(error.localizedDescription, privacy: .public)")
