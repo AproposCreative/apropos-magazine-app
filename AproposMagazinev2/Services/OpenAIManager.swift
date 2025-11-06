@@ -1,10 +1,11 @@
 import Foundation
+import OSLog
 
 class OpenAIManager {
     static let shared = OpenAIManager()
     private init() {}
     
-    private let apiKey = "sk-..." // INDSÆT DIN OPENAI API-NØGLE HER
+    private let logger = Logger(subsystem: "com.aproposmagazine.app", category: "OpenAIManager")
     private let endpoint = "https://api.openai.com/v1/chat/completions"
     
     struct AIArticle: Codable {
@@ -16,6 +17,13 @@ class OpenAIManager {
     }
     
     func getRecommendations(for readTitles: [String], completion: @escaping ([Article]) -> Void) {
+        let apiKey = SecureConfig.shared.openAIAPIKey
+        guard !apiKey.isEmpty else {
+            logger.error("Cannot fetch AI recommendations – OpenAI API key mangler.")
+            DispatchQueue.main.async { completion([]) }
+            return
+        }
+        
         let prompt = "Du er en kulturredaktør. Giv 3 anbefalinger på artikler (som JSON array) til en bruger, der har læst: \n\(readTitles.joined(separator: ", ")). Hver artikel skal have felterne: title, intro, content, imageURL, rating (1-6). Svar kun med JSON."
         let requestBody: [String: Any] = [
             "model": "gpt-3.5-turbo",
