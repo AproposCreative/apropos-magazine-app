@@ -10,11 +10,25 @@ import SwiftUI
 
 
 struct ContentView: View {
-    @StateObject private var navigationCoordinator = NavigationCoordinator()
+    @StateObject private var navigationCoordinator = NavigationCoordinator.shared
     @StateObject private var viewModel = ArticleViewModel()
     @StateObject private var themeManager = ThemeManager.shared
     // Temporarily removed RecommendationEngine to fix crash
     // @StateObject private var recommendationEngine = RecommendationEngine.shared
+    @State private var showWhatsNew = false
+    @State private var whatsNewEntries: [WhatsNewEntry] = []
+    
+    init() {
+        // Listen for deep link notifications
+        NotificationCenter.default.addObserver(
+            forName: NSNotification.Name("HandleDeepLink"),
+            object: nil,
+            queue: .main
+        ) { _ in
+            // NavigationCoordinator will be available in body
+            // We'll handle this in onAppear
+        }
+    }
     
     var body: some View {
         TabView(selection: $navigationCoordinator.selectedTab) {
@@ -98,7 +112,6 @@ struct ContentView: View {
         .environmentObject(viewModel)
         .environment(\.navigationCoordinator, navigationCoordinator)
         .onAppear {
-            print("🌱 ContentView vises nu")
             // Set tab bar appearance with glass effect from backup
             let appearance = UITabBarAppearance()
             appearance.configureWithTransparentBackground() // ✅ Transparent for glass effect
@@ -122,7 +135,61 @@ struct ContentView: View {
         .environmentObject(viewModel)
         .preferredColorScheme(themeManager.currentTheme.colorScheme)
         .onAppear {
-            print("📱 ContentView TabView appeared")
+            // TabView appeared
+            
+            // Handle pending deep links
+            if let deepLink = navigationCoordinator.pendingDeepLink {
+                navigationCoordinator.handleDeepLink(deepLink)
+                navigationCoordinator.pendingDeepLink = nil
+            }
+            
+            // Listen for deep link notifications
+            NotificationCenter.default.addObserver(
+                forName: NSNotification.Name("HandleDeepLink"),
+                object: nil,
+                queue: .main
+            ) { notification in
+                if let url = notification.userInfo?["url"] as? URL {
+                    Task { @MainActor in
+                        navigationCoordinator.handleDeepLink(url)
+                    }
+                }
+            }
+            
+            // Check for What's New after a short delay to ensure view is fully visible
+            // This prevents the sheet from appearing before ContentView is ready
+            Task { @MainActor in
+                // Wait a bit for ContentView to be fully visible after splash screen
+                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+                
+                if !showWhatsNew && whatsNewEntries.isEmpty {
+                    let shouldShow = WhatsNewManager.shared.shouldShowWhatsNew()
+                    print("🔍 [ContentView] shouldShowWhatsNew: \(shouldShow)")
+                    
+                    if shouldShow {
+                        let allEntries = WhatsNewManager.shared.getAllEntries()
+                        print("🔍 [ContentView] Found \(allEntries.count) What's New entries")
+                        whatsNewEntries = allEntries
+                        showWhatsNew = true
+                        print("✅ [ContentView] Showing What's New sheet")
+                    } else {
+                        print("⚠️ [ContentView] What's New should not be shown (already seen or no entries)")
+                    }
+                } else {
+                    print("⚠️ [ContentView] What's New already shown or entries already loaded")
+                }
+            }
+        }
+        .sheet(isPresented: $showWhatsNew) {
+            WhatsNewView(entries: whatsNewEntries) {
+                // Mark ALL entries as seen (so they won't show again)
+                // This ensures users see What's New for each update, but only once per version
+                for entry in whatsNewEntries {
+                    WhatsNewManager.shared.markEntryAsSeen(entry)
+                }
+                showWhatsNew = false
+            }
+            .interactiveDismissDisabled()
         }
     }
 
@@ -178,3 +245,4 @@ struct ContentView_Previews: PreviewProvider {
         ContentView()
     }
 }
+

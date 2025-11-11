@@ -32,6 +32,7 @@ fastlane/screenshots
 *.cer
 *.mobileprovision
 *.certSigningRequest
+temp_auto_push.bat
 
 # Firebase Admin SDK keys
 serviceAccountKey.json
@@ -64,3 +65,7 @@ AproposMagazinev2/SourcePackages/
 GoogleService-Info.plist
 .env
 .env
+Resources/Secrets.plist
+AproposMagazinev2/Resources/Secrets.plist
+.gitignore
+temp_interactive_push.bat

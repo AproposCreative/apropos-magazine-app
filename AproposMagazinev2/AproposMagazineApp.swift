@@ -9,9 +9,7 @@ struct AproposMagazinev2App: App {
     
     init() {
         // Configure Firebase as early as possible
-        Self.logger.info("Starter Firebase-konfiguration.")
         FirebaseApp.configure()
-        Self.logger.info("Firebase-konfiguration fuldført.")
     }
     
     var body: some Scene {

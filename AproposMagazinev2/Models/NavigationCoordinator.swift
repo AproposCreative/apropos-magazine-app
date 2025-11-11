@@ -8,6 +8,7 @@
 
 import SwiftUI
 import Foundation
+import OSLog
 
 // MARK: - Navigation Routes
 
@@ -47,6 +48,9 @@ enum Tab: String, CaseIterable, Identifiable, Codable {
 
 @MainActor
 class NavigationCoordinator: ObservableObject {
+    // Singleton instance
+    static let shared = NavigationCoordinator()
+    
     // Tab selection
     @Published var selectedTab: Tab = .home
     
@@ -60,17 +64,29 @@ class NavigationCoordinator: ObservableObject {
     // Deep linking support
     @Published var pendingDeepLink: URL?
     
-    init() {
+    private let logger = Logger(subsystem: "com.aproposmagazine.app", category: "NavigationCoordinator")
+    
+    private init() {
         // Listen for article navigation requests
+        // Since this is a singleton, we don't need weak self
         NotificationCenter.default.addObserver(
             forName: NSNotification.Name("NavigateToArticle"),
             object: nil,
             queue: .main
-        ) { [weak self] notification in
+        ) { [unowned self] notification in
             if let article = notification.userInfo?["article"] as? Article {
                 Task { @MainActor in
-                    self?.navigateToArticle(article, in: .home)
+                    // Switch to home tab first
+                    self.selectedTab = .home
+                    
+                    // Longer delay to ensure tab switch and view updates complete
+                    try? await Task.sleep(nanoseconds: 300_000_000) // 0.3 seconds
+                    
+                    // Then navigate to article
+                    self.navigateToArticle(article, in: .home)
                 }
+            } else {
+                self.logger.warning("NavigateToArticle notification mangler Article objekt")
             }
         }
     }
@@ -188,8 +204,46 @@ class NavigationCoordinator: ObservableObject {
     
     /// Handle deep link navigation
     func handleDeepLink(_ url: URL) {
-        // Parse URL and navigate accordingly
-        // This can be expanded based on your deep linking requirements
+        logger.info("Håndterer deep link: \(url.absoluteString, privacy: .public)")
+        
+        // Parse URL scheme and path
+        guard url.scheme == "aproposmagazine" || url.host == "aproposmagazine.com" else {
+            logger.warning("Ukendt URL scheme: \(url.scheme ?? "nil", privacy: .public)")
+            return
+        }
+        
+        let pathComponents = url.pathComponents.filter { $0 != "/" }
+        
+        // Handle different deep link types
+        if pathComponents.count >= 2 {
+            let type = pathComponents[0]
+            let identifier = pathComponents[1]
+            
+            switch type {
+            case "article":
+                // Navigate to article: aproposmagazine://article/123
+                navigateToArticleFromNotification(articleId: identifier)
+                
+            case "category":
+                // Navigate to category: aproposmagazine://category/musik
+                navigateToCategory(identifier, in: .categories)
+                
+            case "author":
+                // Navigate to author: aproposmagazine://author/123
+                // This can be expanded when author detail view is implemented
+                logger.debug("Author deep link: \(identifier, privacy: .public)")
+                
+            default:
+                logger.warning("Ukendt deep link type: \(type, privacy: .public)")
+            }
+        } else if let fragment = url.fragment, !fragment.isEmpty {
+            // Handle URL fragment: aproposmagazine://#article/123
+            if fragment.hasPrefix("article/") {
+                let articleId = String(fragment.dropFirst(8))
+                navigateToArticleFromNotification(articleId: articleId)
+            }
+        }
+        
         pendingDeepLink = url
     }
     
@@ -216,7 +270,7 @@ class NavigationCoordinator: ObservableObject {
 
 private struct NavigationCoordinatorKey: EnvironmentKey {
     @MainActor static var defaultValue: NavigationCoordinator {
-        NavigationCoordinator()
+        NavigationCoordinator.shared
     }
 }
 

@@ -19,7 +19,6 @@ class NotificationService: NSObject, ObservableObject {
         
         if let existingToken = UserDefaults.standard.string(forKey: "FCMRegistrationToken") {
             fcmToken = existingToken
-            logger.debug("Genbruger eksisterende FCM token.")
         }
     }
     
@@ -66,11 +65,8 @@ class NotificationService: NSObject, ObservableObject {
     
     func updateFCMTokenOnServer(_ token: String?) {
         guard let token else {
-            logger.warning("Forsøgte at opdatere FCM token uden værdi.")
             return
         }
-        
-        logger.debug("Opdaterer FCM token mod backend.")
         
         if let user = UserManager.shared.currentUser, !user.uid.isEmpty {
             let db = Firestore.firestore()
@@ -81,8 +77,6 @@ class NotificationService: NSObject, ObservableObject {
             ]) { error in
                 if let error {
                     self.logger.error("Fejl ved opdatering af FCM token i Firestore: \(error.localizedDescription, privacy: .public)")
-                } else {
-                    self.logger.info("FCM token opdateret i Firestore.")
                 }
             }
         }
@@ -92,7 +86,6 @@ class NotificationService: NSObject, ObservableObject {
     
     private func sendTokenToBackend(_ token: String) {
         guard let url = SecureConfig.shared.fcmBackendURL else {
-            logger.notice("Ingen FCM backend URL konfigureret. Spring HTTP-registrering over.")
             return
         }
         
@@ -156,11 +149,16 @@ class NotificationService: NSObject, ObservableObject {
     
     // MARK: - Local Notifications
     
-    func scheduleLocalNotification(title: String, body: String, timeInterval: TimeInterval) {
+    func scheduleLocalNotification(title: String, body: String, timeInterval: TimeInterval, threadIdentifier: String? = nil) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.sound = .default
+        
+        // Add thread identifier for grouping
+        if let threadId = threadIdentifier {
+            content.threadIdentifier = threadId
+        }
         
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: timeInterval, repeats: false)
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: trigger)
@@ -212,6 +210,53 @@ class NotificationService: NSObject, ObservableObject {
         }
     }
     
+    // MARK: - Article Notifications (Rich Notifications Support)
+    
+    /// Send a notification about a new article with thumbnail support
+    /// The thumbnail will be added by NotificationServiceExtension if available
+    func sendArticleNotification(article: Article, title: String? = nil, body: String? = nil) {
+        let content = UNMutableNotificationContent()
+        content.title = title ?? "Ny artikel: \(article.name ?? "Ukendt")"
+        content.body = body ?? article.intro ?? ""
+        content.sound = .default
+        content.categoryIdentifier = "NEW_ARTICLE"
+        content.threadIdentifier = "new_articles" // Group all new article notifications
+        
+        // Add article data to userInfo for NotificationServiceExtension
+        // The extension will download the thumbnail and add it as an attachment
+        var userInfo: [String: Any] = [
+            "type": "new_article",
+            "article_id": article.id
+        ]
+        
+        // Add thumbnail URL if available (for NotificationServiceExtension)
+        if let thumbnailURL = article.thumbURL {
+            userInfo["thumbnail_url"] = thumbnailURL.absoluteString
+        }
+        
+        // Add cover URL as fallback
+        if let coverURL = article.coverURL {
+            userInfo["cover_url"] = coverURL.absoluteString
+        }
+        
+        content.userInfo = userInfo
+        
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+        let request = UNNotificationRequest(
+            identifier: "article_\(article.id)_\(UUID().uuidString)",
+            content: content,
+            trigger: trigger
+        )
+        
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error {
+                self.logger.error("Fejl ved afsendelse af artikelnotifikation: \(error.localizedDescription, privacy: .public)")
+            } else {
+                self.logger.info("Artikelnotifikation planlagt: \(article.name ?? "Ukendt", privacy: .public)")
+            }
+        }
+    }
+    
     // MARK: - Test Local Notification
     
     func sendTestLocalNotification() {
@@ -220,6 +265,7 @@ class NotificationService: NSObject, ObservableObject {
         content.body = "This is a test notification from Apropos Magazine"
         content.sound = .default
         content.badge = 1
+        content.threadIdentifier = "test_notifications" // Group test notifications
         
         content.userInfo = [
             "type": "test",

@@ -69,6 +69,12 @@ class GoogleSignInService: ObservableObject {
 
             // Sign in to Firebase with Google credentials
             await signInToFirebase(with: result.user)
+            
+            // Update FCM token on server after successful login
+            if let fcmToken = NotificationService.shared.fcmToken {
+                NotificationService.shared.updateFCMTokenOnServer(fcmToken)
+            }
+            
             print("[GoogleSignInService] Sign-in completed successfully")
 
         } catch {

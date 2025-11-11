@@ -352,6 +352,6 @@ struct SearchView_Enhanced_Previews: PreviewProvider {
     static var previews: some View {
         SearchView_Enhanced()
             .environmentObject(ArticleViewModel())
-            .environment(\.navigationCoordinator, NavigationCoordinator())
+            .environment(\.navigationCoordinator, NavigationCoordinator.shared)
     }
 } 

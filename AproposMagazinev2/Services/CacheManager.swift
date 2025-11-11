@@ -18,11 +18,16 @@ class CacheManager: ObservableObject {
     private let articlesCacheKey = "cached_articles"
     private let imagesCacheKey = "cached_images"
     private let lastCacheUpdateKey = "last_cache_update"
+    private let topicsCacheKey = "cached_topics"
+    private let sectionsCacheKey = "cached_sections"
+    private let authorsCacheKey = "cached_authors"
+    private let starsCacheKey = "cached_stars"
     
     // Cache policies
     private let maxCacheSize: Int64 = 500 * 1024 * 1024 // 500 MB
     private let maxArticleAge: TimeInterval = 7 * 24 * 60 * 60 // 7 days
     private let maxImageAge: TimeInterval = 30 * 24 * 60 * 60 // 30 days
+    private let maxMetadataAge: TimeInterval = 30 * 24 * 60 * 60 // 30 days (topics, sections, authors, stars)
 
     // Cached decoded articles to avoid repeated decoding
     private var cachedArticles: [Article]?
@@ -73,9 +78,34 @@ class CacheManager: ObservableObject {
         )
         
         if let data = try? JSONEncoder().encode(cacheData) {
+            // Save to standard UserDefaults (for main app)
             userDefaults.set(data, forKey: articlesCacheKey)
             userDefaults.set(Date(), forKey: lastCacheUpdateKey)
             cachedArticles = articles
+            
+            // ALSO save to App Group UserDefaults (for Notification Service Extension)
+            // This allows the extension to check if articles are already published
+            if let appGroupDefaults = UserDefaults(suiteName: "group.com.aproposmagazine.app") {
+                // Create simplified cache data for extension (id, name, lastPublished, createdOn)
+                // Name is included for fallback search when article_id is missing from notifications
+                let simplifiedArticles = articles.map { article in
+                    [
+                        "id": article.id,
+                        "name": article.name ?? "",
+                        "lastPublished": article.lastPublished ?? "",
+                        "createdOn": article.createdOn ?? ""
+                    ]
+                }
+                let simplifiedCacheData: [String: Any] = [
+                    "articles": simplifiedArticles,
+                    "timestamp": Date(),
+                    "version": "1.0"
+                ]
+                if let simplifiedData = try? JSONSerialization.data(withJSONObject: simplifiedCacheData) {
+                    appGroupDefaults.set(simplifiedData, forKey: articlesCacheKey)
+                    appGroupDefaults.set(Date(), forKey: lastCacheUpdateKey)
+                }
+            }
         }
     }
     
@@ -259,6 +289,70 @@ class CacheManager: ObservableObject {
             imageCount: imageCount,
             lastUpdate: userDefaults.object(forKey: lastCacheUpdateKey) as? Date
         )
+    }
+    
+    // MARK: - Metadata Caching (Topics, Sections, Authors, Stars)
+    
+    func cacheTopics(_ topics: [Topic]) {
+        if let data = try? JSONEncoder().encode(topics) {
+            userDefaults.set(data, forKey: topicsCacheKey)
+            userDefaults.set(Date(), forKey: "\(topicsCacheKey)_timestamp")
+        }
+    }
+    
+    func getCachedTopics() -> [Topic]? {
+        guard let data = userDefaults.data(forKey: topicsCacheKey),
+              let timestamp = userDefaults.object(forKey: "\(topicsCacheKey)_timestamp") as? Date,
+              Date().timeIntervalSince(timestamp) < maxMetadataAge else {
+            return nil
+        }
+        return try? JSONDecoder().decode([Topic].self, from: data)
+    }
+    
+    func cacheSections(_ sections: [WebflowSection]) {
+        if let data = try? JSONEncoder().encode(sections) {
+            userDefaults.set(data, forKey: sectionsCacheKey)
+            userDefaults.set(Date(), forKey: "\(sectionsCacheKey)_timestamp")
+        }
+    }
+    
+    func getCachedSections() -> [WebflowSection]? {
+        guard let data = userDefaults.data(forKey: sectionsCacheKey),
+              let timestamp = userDefaults.object(forKey: "\(sectionsCacheKey)_timestamp") as? Date,
+              Date().timeIntervalSince(timestamp) < maxMetadataAge else {
+            return nil
+        }
+        return try? JSONDecoder().decode([WebflowSection].self, from: data)
+    }
+    
+    func cacheAuthors(_ authors: [Author]) {
+        if let data = try? JSONEncoder().encode(authors) {
+            userDefaults.set(data, forKey: authorsCacheKey)
+            userDefaults.set(Date(), forKey: "\(authorsCacheKey)_timestamp")
+        }
+    }
+    
+    func getCachedAuthors() -> [Author]? {
+        guard let data = userDefaults.data(forKey: authorsCacheKey),
+              let timestamp = userDefaults.object(forKey: "\(authorsCacheKey)_timestamp") as? Date,
+              Date().timeIntervalSince(timestamp) < maxMetadataAge else {
+            return nil
+        }
+        return try? JSONDecoder().decode([Author].self, from: data)
+    }
+    
+    func cacheStarsMapping(_ mapping: [String: String]) {
+        userDefaults.set(mapping, forKey: starsCacheKey)
+        userDefaults.set(Date(), forKey: "\(starsCacheKey)_timestamp")
+    }
+    
+    func getCachedStarsMapping() -> [String: String]? {
+        guard let mapping = userDefaults.dictionary(forKey: starsCacheKey) as? [String: String],
+              let timestamp = userDefaults.object(forKey: "\(starsCacheKey)_timestamp") as? Date,
+              Date().timeIntervalSince(timestamp) < maxMetadataAge else {
+            return nil
+        }
+        return mapping
     }
     
     // MARK: - Public Cache Clearing Method

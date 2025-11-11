@@ -88,7 +88,6 @@ class SecureConfig {
             return envValue
         }
         
-        logger.warning("Missing secret for \(plistKey, privacy: .public). Provide it via Keychain, Secrets.plist, or \(envKey).")
         return nil
     }
     

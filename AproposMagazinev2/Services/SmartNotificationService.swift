@@ -54,6 +54,7 @@ class SmartNotificationService: NSObject, ObservableObject {
         content.body = "Du har ikke læst i dag. Tjek de nyeste artikler!"
         content.sound = .default
         content.categoryIdentifier = "READING_REMINDER"
+        content.threadIdentifier = "reading_reminders" // Group all reading reminders
         
         // Schedule for 8 PM if user hasn't read today
         var dateComponents = DateComponents()
@@ -78,6 +79,7 @@ class SmartNotificationService: NSObject, ObservableObject {
         content.body = "Vi har fundet nye artikler baseret på dine interesser"
         content.sound = .default
         content.categoryIdentifier = "PERSONALIZED_RECOMMENDATIONS"
+        content.threadIdentifier = "personalized_recommendations" // Group all personalized recommendations
         
         // Schedule for 10 AM daily
         var dateComponents = DateComponents()
@@ -102,6 +104,7 @@ class SmartNotificationService: NSObject, ObservableObject {
         content.body = "\(festivalName) starter snart! Læs vores guide."
         content.sound = .default
         content.categoryIdentifier = "FESTIVAL_REMINDER"
+        content.threadIdentifier = "festival_reminders" // Group all festival reminders
         
         // Schedule 1 day before
         let reminderDate = date.addingTimeInterval(-24 * 60 * 60)
@@ -132,6 +135,7 @@ class SmartNotificationService: NSObject, ObservableObject {
         content.sound = .default
         content.categoryIdentifier = "BREAKING_NEWS"
         content.interruptionLevel = .timeSensitive
+        content.threadIdentifier = "breaking_news" // Group all breaking news
         
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
         let request = UNNotificationRequest(
@@ -155,6 +159,7 @@ class SmartNotificationService: NSObject, ObservableObject {
         content.body = "Se hvad du har misset denne uge"
         content.sound = .default
         content.categoryIdentifier = "WEEKLY_DIGEST"
+        content.threadIdentifier = "weekly_digest" // Group all weekly digests
         
         // Schedule for Sunday at 9 AM
         var dateComponents = DateComponents()
@@ -198,6 +203,7 @@ class SmartNotificationService: NSObject, ObservableObject {
         content.body = "Udforsk vores artikler og find din næste favorit"
         content.sound = .default
         content.categoryIdentifier = "WELCOME"
+        content.threadIdentifier = "welcome" // Group welcome notifications
         
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 3600, repeats: false) // 1 hour delay
         let request = UNNotificationRequest(identifier: "welcome", content: content, trigger: trigger)
@@ -215,6 +221,7 @@ class SmartNotificationService: NSObject, ObservableObject {
         content.body = "Tjek vores seneste artikler"
         content.sound = .default
         content.categoryIdentifier = "GENTLE_REMINDER"
+        content.threadIdentifier = "gentle_reminders" // Group all gentle reminders
         
         // Schedule for 6 PM
         var dateComponents = DateComponents()
@@ -251,6 +258,20 @@ class SmartNotificationService: NSObject, ObservableObject {
             actions: [readingReminderAction],
             intentIdentifiers: [],
             options: []
+        )
+        
+        // New article category with "Læs nu" action
+        let newArticleAction = UNNotificationAction(
+            identifier: "READ_ACTION",
+            title: "Læs nu",
+            options: [.foreground]
+        )
+        
+        let newArticleCategory = UNNotificationCategory(
+            identifier: "NEW_ARTICLE",
+            actions: [newArticleAction],
+            intentIdentifiers: [],
+            options: [.customDismissAction]
         )
         
         let personalizedAction = UNNotificationAction(
@@ -296,7 +317,8 @@ class SmartNotificationService: NSObject, ObservableObject {
             readingReminderCategory,
             personalizedCategory,
             festivalCategory,
-            breakingNewsCategory
+            breakingNewsCategory,
+            newArticleCategory
         ])
     }
     

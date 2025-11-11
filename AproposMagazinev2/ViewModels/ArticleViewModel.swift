@@ -1,6 +1,7 @@
-import Foundation
 import Combine
 import FirebaseFirestore
+import Foundation
+import OSLog
 
 @MainActor
 class ArticleViewModel: ObservableObject {
@@ -33,36 +34,31 @@ class ArticleViewModel: ObservableObject {
     private var pendingLoads: [String] = []
     
     private var notificationObserverTokens: [NSObjectProtocol] = []
+    private let logger = Logger(subsystem: "com.aproposmagazine.app", category: "ArticleViewModel")
     
     init() {
         // FirestoreService.shared and UserManager.shared are always available, so no need to check
-        
-        print("🔄 ArticleViewModel: Starting initialization...")
-        FirestoreService.shared.configurePersistenceIfNeeded()
-        print("🔄 ArticleViewModel: Firestore configured")
+        // Note: Firestore persistence is configured in AppDelegate before any Firestore operations
         
         loadFavorites()
-        print("🔄 ArticleViewModel: Favorites loaded")
         
+        // Critical: Load articles first (with cache)
         fetchArticles()
-        print("🔄 ArticleViewModel: Articles fetch started")
         
-        fetchAIRecommendations()
-        print("🔄 ArticleViewModel: AI recommendations fetch started")
+        // Load cached metadata immediately (fast)
+        loadCachedMetadata()
         
-        fetchTopics()
-        print("🔄 ArticleViewModel: Topics fetch started")
+        // Delay non-critical fetches to after initial load
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second delay
+            fetchMetadataInBackground()
+        }
         
-        fetchSections()
-        print("🔄 ArticleViewModel: Sections fetch started")
-        
-        fetchAuthors()
-        print("🔄 ArticleViewModel: Authors fetch started")
-        
-        fetchStars()
-        print("🔄 ArticleViewModel: Stars fetch started")
-        
-        print("🔄 ArticleViewModel: Initialization completed")
+        // Lazy load AI recommendations (not critical for initial load)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 second delay
+            fetchAIRecommendations()
+        }
         
         // Listen for notification navigation
         let openArticleToken = NotificationCenter.default.addObserver(
@@ -70,11 +66,24 @@ class ArticleViewModel: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard let self = self else { return }
-            if let articleId = notification.userInfo?["articleId"] as? String {
+            guard let self = self else {
+                Logger(subsystem: "com.aproposmagazine.app", category: "ArticleViewModel").warning("ArticleViewModel er nil i notification observer")
+                return
+            }
+            
+            // Try articleId first
+            if let articleId = notification.userInfo?["articleId"] as? String, !articleId.isEmpty {
                 Task { @MainActor in
                     self.navigateToArticleFromNotification(articleId: articleId)
                 }
+            }
+            // Fallback: search by article name
+            else if let articleName = notification.userInfo?["articleName"] as? String, !articleName.isEmpty {
+                Task { @MainActor in
+                    self.navigateToArticleByName(articleName: articleName)
+                }
+            } else {
+                self.logger.warning("OpenArticleFromNotification notification mangler articleId eller articleName")
             }
         }
         notificationObserverTokens.append(openArticleToken)
@@ -107,12 +116,10 @@ class ArticleViewModel: ObservableObject {
             .sink { [weak self] user in
                 guard let self = self else { return }
                 
-                // Safety check: ensure we have a valid user
                 if let user = user, !user.uid.isEmpty {
-                    print("[Sync] User authenticated, starting sync: \(user.uid)")
                     Task { await self.syncFavoritesWithFirestore() }
                 } else {
-                    print("[Sync] No valid user, skipping sync")
+                    self.logger.debug("Ingen bruger tilgængelig – springer favorit-sync over")
                 }
             }
             .store(in: &cancellables)
@@ -121,10 +128,7 @@ class ArticleViewModel: ObservableObject {
         favoritesListener = FirestoreService.shared.listenFavorites { [weak self] articles in
             guard let self = self else { return }
             // Safety check: ensure we have valid articles
-            guard !articles.isEmpty else {
-                print("ℹ️ No favorites received from Firestore")
-                return
-            }
+            guard !articles.isEmpty else { return }
             
             self.favorites = articles
             self.saveFavorites()
@@ -142,28 +146,22 @@ class ArticleViewModel: ObservableObject {
         }
         notificationObserverTokens.removeAll()
         
-        print("[ArticleViewModel] deinit: cleaned up observers and listeners")
+        logger.debug("ArticleViewModel deinitialiseret – observatører fjernet")
     }
     
-    func fetchArticles() {
+    func fetchArticles(forceRefresh: Bool = false) {
         // Safety check: ensure we're not already loading
         guard !isLoading else {
-            print("❌ Articles already loading")
+            logger.debug("Ignorerer fetchArticles – allerede i gang")
             return
         }
         
         // WebflowService.shared is always available, so no need to check
         
-        isLoading = true
-        fetchError = nil
-        // print("[DEBUG] fetchArticles: Starter fetch...")
-        
-        // Ensure shimmer shows for at least 1 second
         let startTime = Date()
         
-        // Try cache first for fast startup
-        if let cached = CacheManager.shared.getCachedArticles(), !cached.isEmpty {
-            // print("[DEBUG] fetchArticles: Found \(cached.count) cached articles")
+        // Try cache first for fast startup (unless force refresh)
+        if !forceRefresh, let cached = CacheManager.shared.getCachedArticles(), !cached.isEmpty {
             // Sort cached articles by date (newest first)
             let sortedCached = cached.sorted { article1, article2 in
                 var mutableArticle1 = article1
@@ -172,33 +170,41 @@ class ArticleViewModel: ObservableObject {
                 let date2 = mutableArticle2.createdDate ?? mutableArticle2.publishedDate ?? Date.distantPast
                 return date1 > date2
             }
-            // print("[DEBUG] fetchArticles: Setting cached articles to \(sortedCached.count) articles")
+            
+            // Show cached articles immediately (no loading state)
             self.articles = sortedCached
+            self.isLoading = false
+            
+            // Preload images for first 10 articles in background
+            CacheManager.shared.preloadImages(for: Array(sortedCached.prefix(10)))
             
             // Load favorites after articles are available
             Task { [weak self] in await self?.syncFavoritesWithFirestore() }
             
-            // Ensure minimum loading time for shimmer effect
-            let elapsed = Date().timeIntervalSince(startTime)
-            let minLoadingTime: TimeInterval = 1.0
-            let remainingTime = max(0, minLoadingTime - elapsed)
-            
-            DispatchQueue.main.asyncAfter(deadline: .now() + remainingTime) { [weak self] in
-                self?.isLoading = false
-            }
+            // Silently refresh in background (don't show loading state)
+            refreshArticlesInBackground()
         } else {
-            // No cached articles, fetch from Webflow
+            // No cached articles or force refresh - show loading state
+            isLoading = true
+            fetchError = nil
+            
             WebflowService.shared.fetchArticles { [weak self] result in
-                // Ensure minimum loading time for shimmer effect
+                guard let self = self else { return }
+                
                 let elapsed = Date().timeIntervalSince(startTime)
-                let minLoadingTime: TimeInterval = 1.0
+                // Only show minimum loading time if fetch was very fast (< 0.3s)
+                // This prevents UI flicker but doesn't slow down the app unnecessarily
+                let minLoadingTime: TimeInterval = elapsed < 0.3 ? 0.3 : 0
                 let remainingTime = max(0, minLoadingTime - elapsed)
                 
                 DispatchQueue.main.asyncAfter(deadline: .now() + remainingTime) { [weak self] in
-                    self?.isLoading = false
+                    guard let self = self else { return }
+                    self.isLoading = false
+                    
                     switch result {
                     case .success(let articles):
-                        // print("[DEBUG] fetchArticles: Fik \(articles.count) artikler")
+                        logger.debug("Hentet \(articles.count) artikler fra Webflow")
+                        
                         // Sort articles by date (newest first)
                         let sortedArticles = articles.sorted { article1, article2 in
                             var mutableArticle1 = article1
@@ -207,20 +213,63 @@ class ArticleViewModel: ObservableObject {
                             let date2 = mutableArticle2.createdDate ?? mutableArticle2.publishedDate ?? Date.distantPast
                             return date1 > date2
                         }
-                        // print("[DEBUG] fetchArticles: Setting articles to \(sortedArticles.count) articles")
-                        self?.articles = sortedArticles
+                        
+                        self.articles = sortedArticles
                         CacheManager.shared.cacheArticles(sortedArticles)
+                        
+                        // Preload images for first 10 articles in background
+                        CacheManager.shared.preloadImages(for: Array(sortedArticles.prefix(10)))
+                        
                         // Load favorites after articles are available
                         Task { [weak self] in await self?.syncFavoritesWithFirestore() }
+                        
                         if articles.isEmpty {
-                            print("[DEBUG] fetchArticles: Ingen artikler fundet!")
-                            self?.fetchError = NSError(domain: "ViewModel", code: -1, userInfo: [NSLocalizedDescriptionKey: "Ingen artikler fundet."])
+                            self.logger.warning("Webflow-returnerede ingen artikler")
+                            self.fetchError = NSError(domain: "ViewModel", code: -1, userInfo: [NSLocalizedDescriptionKey: "Ingen artikler fundet."])
                         }
                     case .failure(let error):
-                        // print("[DEBUG] fetchArticles: FEJL: \(error)")
-                        self?.fetchError = error
-                        self?.articles = []
+                        logger.error("Fejl ved hentning af artikler: \(error.localizedDescription, privacy: .public)")
+                        self.fetchError = error
+                        self.articles = []
                     }
+                }
+            }
+        }
+    }
+    
+    /// Silently refresh articles in background without showing loading state
+    private func refreshArticlesInBackground() {
+        Task { [weak self] in
+            guard let self = self else { return }
+            
+            // Wait a bit to not interfere with initial load
+            try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+            
+            WebflowService.shared.fetchArticles { [weak self] result in
+                guard let self = self else { return }
+                
+                switch result {
+                case .success(let articles):
+                    // Only update if we got articles and they're different
+                    let sortedArticles = articles.sorted { article1, article2 in
+                        var mutableArticle1 = article1
+                        var mutableArticle2 = article2
+                        let date1 = mutableArticle1.createdDate ?? mutableArticle1.publishedDate ?? Date.distantPast
+                        let date2 = mutableArticle2.createdDate ?? mutableArticle2.publishedDate ?? Date.distantPast
+                        return date1 > date2
+                    }
+                    
+                    Task { @MainActor in
+                        // Only update if article count changed or we have new articles
+                        if sortedArticles.count != self.articles.count || 
+                           sortedArticles.first?.id != self.articles.first?.id {
+                            self.logger.debug("Opdaterer artikler i baggrunden: \(sortedArticles.count) artikler")
+                            self.articles = sortedArticles
+                            CacheManager.shared.cacheArticles(sortedArticles)
+                        }
+                    }
+                case .failure(let error):
+                    self.logger.debug("Kunne ikke opdatere artikler i baggrunden: \(error.localizedDescription, privacy: .public)")
                 }
             }
         }
@@ -229,7 +278,7 @@ class ArticleViewModel: ObservableObject {
     func fetchAIRecommendations() {
         // Safety check: ensure we're not already loading
         guard !isLoadingAI else {
-            print("❌ AI recommendations already loading")
+        logger.debug("AI anbefalinger hentes allerede – ignorerer nyt kald")
             return
         }
         
@@ -240,80 +289,92 @@ class ArticleViewModel: ObservableObject {
         }
     }
     
-    func fetchTopics() {
-        // WebflowService.shared is always available, so no need to check
+    // MARK: - Metadata Loading (with caching)
+    
+    /// Load cached metadata immediately (fast)
+    private func loadCachedMetadata() {
+        // Load topics from cache
+        if let cachedTopics = CacheManager.shared.getCachedTopics() {
+            self.topics = cachedTopics
+        }
         
-        let startTime = Date()
+        // Load sections from cache
+        if let cachedSections = CacheManager.shared.getCachedSections() {
+            self.sections = cachedSections
+        }
+        
+        // Load authors from cache
+        if let cachedAuthors = CacheManager.shared.getCachedAuthors() {
+            self.authors = cachedAuthors
+        }
+        
+        // Load stars mapping from cache
+        if let cachedStars = CacheManager.shared.getCachedStarsMapping() {
+            self.starsMapping = cachedStars
+        }
+    }
+    
+    /// Fetch metadata in background and update cache
+    private func fetchMetadataInBackground() {
+        fetchTopics()
+        fetchSections()
+        fetchAuthors()
+        fetchStars()
+    }
+    
+    func fetchTopics() {
         WebflowService.shared.fetchTopics { [weak self] result in
-            // Ensure minimum loading time for shimmer effect
-            let elapsed = Date().timeIntervalSince(startTime)
-            let minLoadingTime: TimeInterval = 0.8
-            let remainingTime = max(0, minLoadingTime - elapsed)
+            guard let self = self else { return }
             
-            DispatchQueue.main.asyncAfter(deadline: .now() + remainingTime) { [weak self] in
-                switch result {
-                case .success(let topics):
-                    self?.topics = topics
-                case .failure(_):
-                    // print("[DEBUG] fetchTopics: FEJL: \(error)")
-                    break
-                }
+            switch result {
+            case .success(let topics):
+                self.topics = topics
+                CacheManager.shared.cacheTopics(topics)
+                self.logger.debug("Fetched and cached \(topics.count) topics")
+            case .failure(let error):
+                self.logger.debug("Failed to fetch topics: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
     
     func fetchSections() {
-        // WebflowService.shared is always available, so no need to check
-        
-        let startTime = Date()
         WebflowService.shared.fetchSections { [weak self] result in
-            // Ensure minimum loading time for shimmer effect
-            let elapsed = Date().timeIntervalSince(startTime)
-            let minLoadingTime: TimeInterval = 0.8
-            let remainingTime = max(0, minLoadingTime - elapsed)
+            guard let self = self else { return }
             
-            DispatchQueue.main.asyncAfter(deadline: .now() + remainingTime) { [weak self] in
-                switch result {
-                case .success(let sections):
-                    self?.sections = sections
-                    // print("[DEBUG] fetchSections: SUCCESS - Found \(sections.count) sections")
-                    // print("[DEBUG] Sections: \(sections.map { "\($0.name) (ID: \($0.id))" })")
-                case .failure(_):
-                    // print("[DEBUG] fetchSections: FEJL: \(error)")
-                    break
-                }
+            switch result {
+            case .success(let sections):
+                self.sections = sections
+                CacheManager.shared.cacheSections(sections)
+                self.logger.debug("Fetched and cached \(sections.count) sections")
+            case .failure(let error):
+                self.logger.debug("Failed to fetch sections: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
     
     func fetchAuthors() {
-        // WebflowService.shared is always available, so no need to check
-        
-        let startTime = Date()
         WebflowService.shared.fetchAuthors { [weak self] result in
-            // Ensure minimum loading time for shimmer effect
-            let elapsed = Date().timeIntervalSince(startTime)
-            let minLoadingTime: TimeInterval = 0.8
-            let remainingTime = max(0, minLoadingTime - elapsed)
+            guard let self = self else { return }
             
-            DispatchQueue.main.asyncAfter(deadline: .now() + remainingTime) { [weak self] in
-                switch result {
-                case .success(let authors):
-                    self?.authors = authors
-                case .failure(_):
-                    // print("[DEBUG] fetchAuthors: FEJL: \(error)")
-                    break
-                }
+            switch result {
+            case .success(let authors):
+                self.authors = authors
+                CacheManager.shared.cacheAuthors(authors)
+                self.logger.debug("Fetched and cached \(authors.count) authors")
+            case .failure(let error):
+                self.logger.debug("Failed to fetch authors: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
     
     func fetchStars() {
-        // WebflowService.shared is always available, so no need to check
-        
         WebflowService.shared.fetchStarsMapping { [weak self] mapping in
-            DispatchQueue.main.async {
-                self?.starsMapping = mapping
+            guard let self = self else { return }
+            
+            Task { @MainActor in
+                self.starsMapping = mapping
+                CacheManager.shared.cacheStarsMapping(mapping)
+                self.logger.debug("Fetched and cached stars mapping")
             }
         }
     }
@@ -404,7 +465,7 @@ class ArticleViewModel: ObservableObject {
                 let author = authorWrapper.toAuthor()
                 completion(.success(author))
             } catch {
-                print(String(data: data, encoding: .utf8) ?? "Invalid JSON")
+                self.logger.error("Kunne ikke dekode forfatterdata: \(error.localizedDescription, privacy: .public)")
                 completion(.failure(error))
             }
         }.resume()
@@ -425,36 +486,25 @@ class ArticleViewModel: ObservableObject {
     func loadFullArticle(with id: String) {
         // Safety check: ensure ID is not empty
         guard !id.isEmpty else {
-            print("❌ Article ID is empty")
+            logger.error("loadFullArticle kaldt med tomt ID")
             return
         }
         
-        // Safety check: ensure we have articles loaded
         guard !articles.isEmpty else {
-            print("❌ No articles loaded yet")
+            logger.debug("Ingen artikler er indlæst endnu – afventer før loadFullArticle")
             return
         }
         
-        // Safety check: avoid loading the same article multiple times or if already loading or queued
         if let existingArticle = articles.first(where: { $0.id == id }),
            existingArticle.author != nil {
-#if DEBUG
-            print("✅ Article \(id) already has author, skipping")
-#endif
             return
         }
         
         if loadingArticles.contains(id) {
-#if DEBUG
-            print("🔄 Article \(id) already being loaded, skipping")
-#endif
             return
         }
         
         if pendingLoads.contains(id) {
-#if DEBUG
-            print("🔄 Article \(id) already queued for loading, skipping")
-#endif
             return
         }
         
@@ -510,7 +560,7 @@ class ArticleViewModel: ObservableObject {
                         updatedArticle.author = author
                         // print("✅ Author fetched: \(author.name)")
                     case .failure(let error):
-                        print("❌ Failed to fetch author: \(error.localizedDescription)")
+                        self.logger.error("Kunne ikke hente forfatter: \(error.localizedDescription, privacy: .public)")
                     }
                     DispatchQueue.main.async {
                         self.fullArticle = updatedArticle
@@ -520,7 +570,7 @@ class ArticleViewModel: ObservableObject {
                 }
 
             case .failure(let error):
-                print("❌ Failed to fetch article: \(error.localizedDescription)")
+                logger.error("Kunne ikke hente artikel \(id, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 DispatchQueue.main.async {
                     self.finishLoadingArticle(id)
                 }
@@ -550,22 +600,21 @@ class ArticleViewModel: ObservableObject {
     private func updateArticleInAllArrays(_ updated: Article) {
         // Safety check: ensure we have a valid article
         guard !updated.id.isEmpty else {
-            print("❌ Cannot update article with invalid ID")
+            logger.error("Forsøgte at opdatere artikel uden ID")
             return
         }
         
         func replace(in array: inout [Article]) {
             // Safety check: ensure we have a valid article ID
             guard !updated.id.isEmpty else {
-                print("❌ Cannot replace article with invalid ID")
+                logger.error("Forsøgte at erstatte artikel uden ID")
                 return
             }
             
             if let index = array.firstIndex(where: { $0.id == updated.id }) {
                 array[index] = updated
-                // print("✅ Updated article at index \(index)")
             } else {
-                print("ℹ️ Article not found in array for replacement")
+                logger.debug("Artikel \(updated.id, privacy: .public) blev ikke fundet ved opdatering")
             }
         }
 
@@ -590,7 +639,7 @@ class ArticleViewModel: ObservableObject {
     func toggleFavorite(for article: Article) {
         // Safety check: ensure we have a valid article
         guard let name = article.name, !name.isEmpty else { 
-            print("❌ Cannot toggle favorite for invalid article")
+            logger.error("Forsøgte at togg­le favorit på artikel uden navn")
             return 
         }
         
@@ -611,11 +660,9 @@ class ArticleViewModel: ObservableObject {
             Task {
                 do {
                     try await FirestoreService.shared.toggleFavorite(article, isFavorite: !wasFavorite)
-                    print("✅ Firebase sync successful for article: \(article.name ?? "Unknown")")
+                    self.logger.debug("Favorit sync'et til Firebase for \(article.name ?? "Ukendt", privacy: .public)")
                 } catch {
-                    print("❌ Firebase sync failed: \(error.localizedDescription)")
-                    // Note: We don't revert local change for logged-in users to avoid confusion
-                    // The local change is already saved and will be synced later
+                    self.logger.error("Favorit sync-fejl: \(error.localizedDescription, privacy: .public)")
                 }
             }
             
@@ -632,14 +679,14 @@ class ArticleViewModel: ObservableObject {
                 }
             }
         } else {
-            print("ℹ️ User not logged in - favorites saved locally only")
+            logger.debug("Bruger ikke logget ind – favoritter gemt lokalt")
         }
     }
     
     private func loadFavorites() {
         // Safety check: ensure we're not already loading favorites
         guard !isLoadingFavorites else {
-            print("❌ Already loading favorites")
+            logger.debug("Ignorerer loadFavorites – allerede i gang")
             return
         }
         
@@ -658,12 +705,11 @@ class ArticleViewModel: ObservableObject {
     private func syncFavoritesWithFirestore() async {
         // Safety check: ensure we're not already syncing
         guard !isLoadingFavorites else {
-            print("❌ Already syncing favorites")
             return
         }
         
         guard UserManager.shared.currentUser != nil else {
-            print("ℹ️ No user logged in - using local favorites only")
+            logger.debug("Ingen bruger logget ind – bruger lokale favoritter")
             // For logged-out users, just ensure local favorites are loaded
             DispatchQueue.main.async { [weak self] in
                 self?.isLoadingFavorites = false
@@ -698,7 +744,7 @@ class ArticleViewModel: ObservableObject {
             DispatchQueue.main.async { [weak self] in
                 self?.favoriteError = "Kunne ikke synkronisere favoritter: \(error.localizedDescription)"
                 self?.isLoadingFavorites = false
-                print("❌ Failed to sync with Firebase: \(error.localizedDescription)")
+                self?.logger.error("Favoritsync mod Firebase fejlede: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
@@ -706,7 +752,7 @@ class ArticleViewModel: ObservableObject {
     private func reloadFavorites() {
         // Safety check: ensure we're not already syncing
         guard !isLoadingFavorites else {
-            print("❌ Already syncing favorites")
+            logger.debug("Ignorerer reloadFavorites – sync er i gang")
             return
         }
         
@@ -718,15 +764,14 @@ class ArticleViewModel: ObservableObject {
     private func saveFavorites() {
         // Safety check: ensure we have valid favorites to save
         guard !favorites.isEmpty else {
-            print("ℹ️ No favorites to save")
+            logger.debug("Ingen favoritter at gemme")
             return
         }
         
         if let data = try? JSONEncoder().encode(favorites) {
             UserDefaults.standard.set(data, forKey: favoritesKey)
-            // print("✅ Saved \(favorites.count) favorites to UserDefaults")
         } else {
-            print("❌ Failed to encode favorites")
+            logger.error("Kunne ikke serialisere favoritter til disk")
         }
     }
     
@@ -1292,11 +1337,8 @@ class ArticleViewModel: ObservableObject {
     
     /// Navigate to article from notification
     private func navigateToArticleFromNotification(articleId: String) {
-        print("📱 Navigating to article from notification: \(articleId)")
-        
         // First check if article is already loaded
         if let existingArticle = articles.first(where: { $0.id == articleId }) {
-            print("📱 Article already loaded, navigating directly")
             navigateToArticle(existingArticle)
             return
         }
@@ -1307,16 +1349,13 @@ class ArticleViewModel: ObservableObject {
     
     /// Fetch article and navigate to it
     private func fetchAndNavigateToArticle(articleId: String) {
-        print("📱 Fetching article for navigation: \(articleId)")
-        
         fetchArticle(by: articleId) { [weak self] result in
             guard let self = self else { return }
             switch result {
             case .success(let article):
-                print("📱 Article fetched successfully, navigating to: \(article.name ?? "Unknown")")
                 self.navigateToArticle(article)
             case .failure(let error):
-                print("❌ Failed to fetch article for navigation: \(error.localizedDescription)")
+                self.logger.error("Kunne ikke hente artikel \(articleId, privacy: .public) til navigation: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
@@ -1324,11 +1363,104 @@ class ArticleViewModel: ObservableObject {
     /// Navigate to article using NavigationCoordinator
     private func navigateToArticle(_ article: Article) {
         // Post notification to NavigationCoordinator
-        NotificationCenter.default.post(
-            name: NSNotification.Name("NavigateToArticle"),
-            object: nil,
-            userInfo: ["article": article]
-        )
+        // Use DispatchQueue to ensure this happens on main thread
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: NSNotification.Name("NavigateToArticle"),
+                object: nil,
+                userInfo: ["article": article]
+            )
+        }
+    }
+    
+    /// Navigate to article by name (fallback when ID is not available)
+    private func navigateToArticleByName(articleName: String) {
+        logger.info("Søger efter artikel ved navn: \(articleName, privacy: .public)")
+        
+        let searchName = articleName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        
+        // If "Ny artikel" or similar, we need to find the newest article
+        // But first, ensure we have fresh articles loaded
+        if searchName.contains("ny") || searchName.contains("new") {
+            logger.info("Notifikation omhandler 'ny artikel' - henter frisk artikel-liste og finder nyeste")
+            
+            // Force refresh articles to get the latest
+            fetchArticles()
+            
+            // Wait for articles to load, then find the newest
+            Task { @MainActor in
+                // Wait longer for articles to load from server
+                try? await Task.sleep(nanoseconds: 3_000_000_000) // 3 seconds
+                
+                // Get the newest article (most recently created/published)
+                if let newestArticle = self.articles.sorted(by: { article1, article2 in
+                    var mutableArticle1 = article1
+                    var mutableArticle2 = article2
+                    let date1 = mutableArticle1.createdDate ?? mutableArticle1.publishedDate ?? Date.distantPast
+                    let date2 = mutableArticle2.createdDate ?? mutableArticle2.publishedDate ?? Date.distantPast
+                    return date1 > date2
+                }).first {
+                    self.logger.info("Navigerer til nyeste artikel: \(newestArticle.name ?? "Ukendt", privacy: .public)")
+                    self.navigateToArticle(newestArticle)
+                    return
+                } else {
+                    self.logger.warning("Kunne ikke finde nyeste artikel efter \(self.articles.count) artikler")
+                }
+            }
+            return
+        }
+        
+        // For specific article names, try exact match first
+        if let existingArticle = articles.first(where: { 
+            let articleName = $0.name?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+            return articleName == searchName
+        }) {
+            logger.info("Artikel fundet i cache (exact match): \(existingArticle.name ?? "Ukendt", privacy: .public)")
+            navigateToArticle(existingArticle)
+            return
+        }
+        
+        // Try partial match (contains)
+        if let existingArticle = articles.first(where: { 
+            let articleName = $0.name?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+            return articleName.contains(searchName) || searchName.contains(articleName)
+        }) {
+            logger.info("Artikel fundet i cache (partial match): \(existingArticle.name ?? "Ukendt", privacy: .public)")
+            navigateToArticle(existingArticle)
+            return
+        }
+        
+        // If not found, wait a bit for articles to load, then search again
+        logger.info("Artikel ikke fundet i cache - venter på at artikler loader og søger igen")
+        Task { @MainActor in
+            // Refresh articles to ensure we have latest
+            self.fetchArticles()
+            
+            // Wait for articles to potentially load
+            try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+            
+            // Try exact match again
+            if let foundArticle = self.articles.first(where: { 
+                let articleName = $0.name?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+                return articleName == searchName
+            }) {
+                self.logger.info("Artikel fundet efter ventetid (exact match): \(foundArticle.name ?? "Ukendt", privacy: .public)")
+                self.navigateToArticle(foundArticle)
+                return
+            }
+            
+            // Try partial match again
+            if let foundArticle = self.articles.first(where: { 
+                let articleName = $0.name?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+                return articleName.contains(searchName) || searchName.contains(articleName)
+            }) {
+                self.logger.info("Artikel fundet efter ventetid (partial match): \(foundArticle.name ?? "Ukendt", privacy: .public)")
+                self.navigateToArticle(foundArticle)
+                return
+            }
+            
+            self.logger.warning("Kunne ikke finde artikel med navn: \(articleName, privacy: .public) efter \(self.articles.count) artikler")
+        }
     }
 }
 

@@ -1,0 +1,50 @@
+[
+  {
+    "version": "1.0",
+    "title": "Velkommen til Apropos Magazine",
+    "subtitle": "Din nye app til at læse og opdage artikler fra Apropos Magazine.",
+    "items": [
+      {
+        "icon": "sparkles",
+        "title": "Forbedret artikelsøgning",
+        "description": "Filtrer på kategorier og se relaterede artikler direkte i søgeresultaterne."
+      },
+      {
+        "icon": "bolt.circle",
+        "title": "Mere stabile notifikationer",
+        "description": "Vi har optimeret push-motoren, så du kun får de beskeder, der betyder noget."
+      },
+      {
+        "icon": "wand.and.stars",
+        "title": "Glas topbar",
+        "description": "Appen har fået et visuelt løft med en ny glas-topbar, der gør navigationen elegant."
+      }
+    ],
+    "ctaTitle": "Se alle ændringer",
+    "ctaURL": "https://aproposmagazine.com/changelog"
+  },
+  {
+    "version": "2.3.0",
+    "title": "Nyheder i Apropos Magazine",
+    "subtitle": "En hurtigere, mere elegant app-oplevelse med fokus på læsning.",
+    "items": [
+      {
+        "icon": "sparkles",
+        "title": "Forbedret artikelsøgning",
+        "description": "Filtrer på kategorier og se relaterede artikler direkte i søgeresultaterne."
+      },
+      {
+        "icon": "bolt.circle",
+        "title": "Mere stabile notifikationer",
+        "description": "Vi har optimeret push-motoren, så du kun får de beskeder, der betyder noget."
+      },
+      {
+        "icon": "wand.and.stars",
+        "title": "Glas topbar",
+        "description": "Appen har fået et visuelt løft med en ny glas-topbar, der gør navigationen elegant."
+      }
+    ],
+    "ctaTitle": "Se alle ændringer",
+    "ctaURL": "https://aproposmagazine.com/changelog"
+  }
+]
