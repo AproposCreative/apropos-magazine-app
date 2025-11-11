@@ -25,62 +25,51 @@ struct AuthorCardView: View {
     }
 
     var body: some View {
-        HStack(spacing: 5) {
-             if let author = author {
-                // Safety check for photo URL - photoURL is not optional but can be empty
-                if !author.photoURL.isEmpty, let url = URL(string: author.photoURL) {
-                    WebImage(url: url)
-                        .resizable()
-                        .indicator(.activity)
-                        .aspectRatio(contentMode: .fill)
-                        .frame(width: 106, height: 86)
-                } else {
-                    // Fallback image if no photo URL
-                    Image(systemName: "person.circle.fill")
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(width: 106, height: 86)
-                        .foregroundColor(.gray)
-                }
-                   
-                VStack(alignment: .leading, spacing: 4) {
-                    // Safety check for author name - name is not optional but can be empty
-                    if !author.name.isEmpty {
-                        Text(author.name)
-                            .font(.custom("SFProText-Medium", size: 20))
-                            .foregroundColor(.primary)
+        Group {
+            if let author {
+                HStack(alignment: .center, spacing: 16) {
+                    authorImage(for: author)
+                    
+                    VStack(alignment: .leading, spacing: 6) {
+                        if !author.name.isEmpty {
+                            Text(author.name)
+                                .font(.custom("SFProText-Medium", size: 20))
+                                .foregroundColor(.primary)
+                        }
+                        
+                        if !author.position.isEmpty {
+                            Text(author.position)
+                                .font(.custom("SFProText-Regular", size: 17))
+                                .foregroundColor(.secondary)
+                                .lineLimit(2)
+                        }
                     }
                     
-                    // Safety check for author position - position is not optional but can be empty
-                    if !author.position.isEmpty {
-                        Text(author.position)
-                            .font(.custom("SFProText-Regular", size: 18))
-                            .font(.subheadline)
-                            .foregroundColor(.gray)
-                            .lineLimit(2)
-                    }
-                }
-                .padding(.leading ,10)
-                Spacer()
-            } else if isLoading {
-                // Loading state
-                HStack {
-                    ProgressView()
-                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                        .frame(width: 106, height: 86)
-                        .padding(.leading , 12)
-                        .padding(.trailing , 12)
-                    
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Loading...")
-                            .font(.custom("SFProText-Medium", size: 20))
-                            .foregroundColor(.primary)
-                    }
-                    .padding(.leading ,10)
                     Spacer()
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else if isLoading {
+                HStack(alignment: .center, spacing: 16) {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.gray.opacity(0.2))
+                        .frame(width: 82, height: 82)
+                        .overlay(
+                            ProgressView()
+                                .progressViewStyle(.circular)
+                        )
+                    
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Henter forfatter…")
+                            .font(.custom("SFProText-Medium", size: 18))
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-       }
+        }
+        .padding(.vertical, 12)
         .onAppear {
             // Safety check: ensure authorID is not empty
             if !authorID.isEmpty {
@@ -92,6 +81,27 @@ struct AuthorCardView: View {
         }
         .onChange(of: viewModel.authors) { _, _ in
             resolveCachedAuthor()
+        }
+    }
+
+    @ViewBuilder
+    private func authorImage(for author: Author) -> some View {
+        if !author.photoURL.isEmpty, let url = URL(string: author.photoURL) {
+            WebImage(url: url)
+                .resizable()
+                .indicator(.activity)
+                .aspectRatio(contentMode: .fill)
+                .frame(width: 82, height: 82)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        } else {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.gray.opacity(0.2))
+                .frame(width: 82, height: 82)
+                .overlay(
+                    Image(systemName: "person.fill")
+                        .font(.system(size: 34, weight: .semibold))
+                        .foregroundColor(.gray)
+                )
         }
     }
 

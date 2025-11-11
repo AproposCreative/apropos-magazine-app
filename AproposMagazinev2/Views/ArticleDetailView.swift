@@ -21,154 +21,57 @@ struct ScrollViewHeightKey: PreferenceKey {
 // MARK: - TrailerWebView to display YouTube or raw iframe HTML
 struct TrailerWebView: UIViewRepresentable {
     let trailer: String
-    @State private var isLoaded = false
 
     func makeUIView(context: Context) -> WKWebView {
-        let config = WKWebViewConfiguration()
-        config.allowsInlineMediaPlayback = true
-        config.mediaTypesRequiringUserActionForPlayback = []
-        config.suppressesIncrementalRendering = true
-        
-        let webView = WKWebView(frame: .zero, configuration: config)
+        let configuration = WKWebViewConfiguration()
+        configuration.allowsInlineMediaPlayback = true
+        configuration.mediaTypesRequiringUserActionForPlayback = []
+        configuration.suppressesIncrementalRendering = true
+        configuration.websiteDataStore = WKWebsiteDataStore.default()
+
+        let preferences = WKWebpagePreferences()
+        preferences.allowsContentJavaScript = true
+        configuration.defaultWebpagePreferences = preferences
+
+        let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.scrollView.isScrollEnabled = false
         webView.isOpaque = false
         webView.backgroundColor = .clear
         webView.navigationDelegate = context.coordinator
-        
+        webView.customUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1"
         return webView
     }
 
     func updateUIView(_ uiView: WKWebView, context: Context) {
-        // Safety check: ensure trailer is not empty
-        guard !trailer.isEmpty else { 
-            print("🎬 TrailerWebView: Empty trailer, skipping")
-            return 
-        }
-        
+        guard !trailer.isEmpty else { return }
         let trimmed = trailer.trimmingCharacters(in: .whitespacesAndNewlines)
-        print("🎬 TrailerWebView: Loading trailer: \(trimmed.prefix(100))...")
-        
-        // Only load if not already loaded to prevent reloading
+
         if context.coordinator.lastLoadedTrailer != trimmed {
             context.coordinator.lastLoadedTrailer = trimmed
             loadTrailer(uiView: uiView, trailer: trimmed)
-        } else {
-            print("🎬 TrailerWebView: Already loaded, skipping")
         }
     }
     
     private func loadTrailer(uiView: WKWebView, trailer: String) {
-        print("🎬 TrailerWebView: Analyzing trailer content...")
-        
-        // Check for Embedly iframe first
-        if trailer.contains("embedly.com") && trailer.contains("youtube") {
-            print("🎬 TrailerWebView: Detected Embedly YouTube iframe, extracting URL")
-            if let youtubeURL = extractYouTubeURLFromEmbedly(trailer) {
-                print("🎬 TrailerWebView: Extracted YouTube URL: \(youtubeURL)")
-                
-                // Check if the extracted URL is already an embed URL
-                if youtubeURL.contains("youtube.com/embed/") {
-                    print("🎬 TrailerWebView: URL is already embed format, optimizing for quality")
-                    
-                    // Extract video ID from embed URL and create optimized embed
-                    let videoID = extractYouTubeVideoID(from: youtubeURL)
-                    if !videoID.isEmpty {
-                        let optimizedEmbedURL = "https://www.youtube.com/embed/\(videoID)?rel=0&modestbranding=1&autoplay=0&controls=1&hd=1&vq=hd720&showinfo=0&fs=1&cc_load_policy=0&iv_load_policy=3&modestbranding=1"
-                        print("🎬 TrailerWebView: Optimized embed URL: \(optimizedEmbedURL)")
-                        
-                        let embedHTML = """
-                        <html><head>
-                        <meta name='viewport' content='initial-scale=1, maximum-scale=1, user-scalable=no' />
-                        <style>
-                            html,body{margin:0;padding:0;background:transparent;overflow:hidden}
-                            iframe{width:100%;height:100%;border:0;border-radius:12px}
-                        </style>
-                        </head><body><iframe src="\(optimizedEmbedURL)" frameborder="0" allowfullscreen></iframe></body></html>
-                        """
-                        uiView.loadHTMLString(embedHTML, baseURL: nil)
-                        return
-                    } else {
-                        // Fallback to original URL if video ID extraction fails
-                        let embedHTML = """
-                        <html><head>
-                        <meta name='viewport' content='initial-scale=1, maximum-scale=1, user-scalable=no' />
-                        <style>
-                            html,body{margin:0;padding:0;background:transparent;overflow:hidden}
-                            iframe{width:100%;height:100%;border:0;border-radius:12px}
-                        </style>
-                        </head><body><iframe src="\(youtubeURL)" frameborder="0" allowfullscreen></iframe></body></html>
-                        """
-                        uiView.loadHTMLString(embedHTML, baseURL: nil)
-                        return
-                    }
-                } else {
-                    // Extract video ID from regular YouTube URL
-                    let videoID = extractYouTubeVideoID(from: youtubeURL)
-                    if !videoID.isEmpty {
-                        let embedURL = "https://www.youtube.com/embed/\(videoID)?rel=0&modestbranding=1&autoplay=0&controls=1&hd=1&vq=hd720&showinfo=0&fs=1&cc_load_policy=0&iv_load_policy=3"
-                        print("🎬 TrailerWebView: Embed URL: \(embedURL)")
-                        let embedHTML = """
-                        <html><head>
-                        <meta name='viewport' content='initial-scale=1, maximum-scale=1, user-scalable=no' />
-                        <style>
-                            html,body{margin:0;padding:0;background:transparent;overflow:hidden}
-                            iframe{width:100%;height:100%;border:0;border-radius:12px}
-                        </style>
-                        </head><body><iframe src="\(embedURL)" frameborder="0" allowfullscreen></iframe></body></html>
-                        """
-                        uiView.loadHTMLString(embedHTML, baseURL: nil)
-                        return
-                    }
-                }
-            }
-        }
-        
-        // If input looks like HTML embed, load directly
-        if trailer.lowercased().contains("<iframe") || trailer.lowercased().contains("<video") || trailer.lowercased().contains("<embed") {
-            print("🎬 TrailerWebView: Detected HTML embed, loading directly")
-            let html = """
-            <html><head>
-            <meta name='viewport' content='initial-scale=1, maximum-scale=1, user-scalable=no' />
-            <style>
-                html,body{margin:0;padding:0;background:transparent;overflow:hidden}
-                iframe,video{width:100%;height:100%;border:0;border-radius:12px}
-            </style>
-            </head><body>\(trailer)</body></html>
-            """
-            uiView.loadHTMLString(html, baseURL: nil)
+        if let videoID = candidateVideoID(from: trailer) {
+            let html = htmlEmbed(for: videoID)
+            uiView.loadHTMLString(html, baseURL: URL(string: "https://www.youtube.com"))
             return
         }
-
-        if let url = URL(string: trailer), (url.scheme?.lowercased() == "http" || url.scheme?.lowercased() == "https") {
-            if trailer.contains("youtube.com") || trailer.contains("youtu.be") {
-                print("🎬 TrailerWebView: Detected YouTube URL, converting to embed")
-                // Convert YouTube link to embed format
-                let videoID = extractYouTubeVideoID(from: trailer)
-                print("🎬 TrailerWebView: Extracted video ID: \(videoID)")
-                if !videoID.isEmpty {
-                    let embedURL = "https://www.youtube.com/embed/\(videoID)?rel=0&modestbranding=1&autoplay=0&controls=1&hd=1&vq=hd720&showinfo=0&fs=1&cc_load_policy=0&iv_load_policy=3"
-                    print("🎬 TrailerWebView: Embed URL: \(embedURL)")
-                    let embedHTML = """
-                    <html><head>
-                    <meta name='viewport' content='initial-scale=1, maximum-scale=1, user-scalable=no' />
-                    <style>
-                        html,body{margin:0;padding:0;background:transparent;overflow:hidden}
-                        iframe{width:100%;height:100%;border:0;border-radius:12px}
-                    </style>
-                    </head><body><iframe src="\(embedURL)" frameborder="0" allowfullscreen></iframe></body></html>
-                    """
-                    uiView.loadHTMLString(embedHTML, baseURL: nil)
-                } else {
-                    print("🎬 TrailerWebView: Failed to extract video ID")
-                }
-            } else {
-                print("🎬 TrailerWebView: Loading other URL directly: \(trailer)")
-                // Load other URLs directly
-                let request = URLRequest(url: url)
-                uiView.load(request)
-            }
-        } else {
-            print("🎬 TrailerWebView: Invalid URL format: \(trailer)")
+        
+        if trailer.lowercased().contains("<iframe")
+            || trailer.lowercased().contains("<video")
+            || trailer.lowercased().contains("<embed") {
+            let html = sanitizedHTML(from: trailer)
+            uiView.loadHTMLString(html, baseURL: URL(string: "https://www.youtube.com"))
+            return
+        }
+        
+        if let url = URL(string: trailer),
+           let scheme = url.scheme?.lowercased(),
+           scheme == "http" || scheme == "https" {
+            let request = URLRequest(url: url)
+            uiView.load(request)
         }
     }
     
@@ -179,87 +82,168 @@ struct TrailerWebView: UIViewRepresentable {
     class Coordinator: NSObject, WKNavigationDelegate {
         var lastLoadedTrailer: String = ""
         
-        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            print("🎬 TrailerWebView: Successfully loaded content")
+        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+            // Always call decisionHandler - this is required by WKNavigationDelegate
+            guard let url = navigationAction.request.url else {
+                decisionHandler(.allow)
+                return
+            }
+            
+            // Block about:blank navigation
+            if url.absoluteString == "about:blank" {
+                decisionHandler(.cancel)
+                return
+            }
+            
+            // Allow YouTube domains
+            if let host = url.host,
+               host.contains("youtube.com")
+                    || host.contains("youtube-nocookie.com")
+                    || host.contains("ytimg.com")
+                    || host.contains("google.com") {
+                decisionHandler(.allow)
+                return
+            }
+            
+            // Default: allow all other navigation
+            decisionHandler(.allow)
         }
         
-        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-            print("🎬 TrailerWebView: Failed to load: \(error.localizedDescription)")
-        }
-        
-        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-            print("🎬 TrailerWebView: Failed provisional navigation: \(error.localizedDescription)")
-        }
-        
-        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-            print("🎬 TrailerWebView: Started loading content")
+        func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse, decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+            if let host = navigationResponse.response.url?.host,
+               host.contains("youtube.com")
+                    || host.contains("youtube-nocookie.com")
+                    || host.contains("ytimg.com") {
+                decisionHandler(.allow)
+                return
+            }
+            decisionHandler(.allow)
         }
     }
     
-    private func extractYouTubeURLFromEmbedly(_ embedlyHTML: String) -> String? {
-        // Look for YouTube URL in Embedly iframe src
-        // Pattern: src="//cdn.embedly.com/widgets/media.html?src=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DVIDEO_ID"
+    // MARK: - Helpers
+    
+    private func candidateVideoID(from raw: String) -> String? {
+        if raw.contains("embedly.com"),
+           let url = extractYouTubeURLFromEmbedly(raw) {
+            let id = extractYouTubeVideoID(from: url)
+            if !id.isEmpty {
+                return id
+            }
+        }
+        let id = extractYouTubeVideoID(from: raw)
+        if !id.isEmpty {
+            return id
+        }
+        return nil
+    }
+    
+    private func sanitizedHTML(from raw: String) -> String {
+        var sanitized = raw
+            .replacingOccurrences(of: "src=\"//", with: "src=\"https://")
+            .replacingOccurrences(of: "src='//", with: "src='https://")
         
+        if sanitized.contains("<iframe") && !sanitized.contains("allow=") {
+            sanitized = sanitized.replacingOccurrences(
+                of: "<iframe",
+                with: "<iframe allow=\"accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture\""
+            )
+        }
+        
+        return """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no' />
+            <style>
+                * { margin: 0; padding: 0; box-sizing: border-box; }
+                html, body { width: 100%; height: 100%; overflow: hidden; background: transparent; }
+                iframe, video { width: 100%; height: 100%; border: 0; border-radius: 12px; }
+            </style>
+        </head>
+        <body>\(sanitized)</body>
+        </html>
+        """
+    }
+    
+    private func htmlEmbed(for videoID: String) -> String {
+        let embedURL = "https://www.youtube.com/embed/\(videoID)?rel=0&modestbranding=1&playsinline=1"
+        return """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no' />
+            <style>
+                * { margin: 0; padding: 0; box-sizing: border-box; }
+                html, body { width: 100%; height: 100%; overflow: hidden; background: transparent; }
+                iframe { width: 100%; height: 100%; border: 0; border-radius: 12px; }
+            </style>
+        </head>
+        <body>
+            <iframe src="\(embedURL)"
+                    frameborder="0"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowfullscreen>
+            </iframe>
+        </body>
+        </html>
+        """
+    }
+    
+    private func extractYouTubeURLFromEmbedly(_ embedlyHTML: String) -> String? {
         if let range = embedlyHTML.range(of: "src=\"//cdn.embedly.com/widgets/media.html?src=") {
             let afterSrc = String(embedlyHTML[range.upperBound...])
             if let endRange = afterSrc.range(of: "\"") {
                 let encodedURL = String(afterSrc[..<endRange.lowerBound])
-                // URL decode the encoded URL
                 if let decodedURL = encodedURL.removingPercentEncoding {
-                    print("🎬 TrailerWebView: Decoded URL: \(decodedURL)")
-                    return decodedURL
+                    return decodedURL.hasPrefix("//") ? "https:" + decodedURL : decodedURL
                 }
             }
         }
         
-        // Alternative pattern: look for youtube.com in the iframe
         if let youtubeRange = embedlyHTML.range(of: "youtube.com") {
             let beforeYoutube = String(embedlyHTML[..<youtubeRange.lowerBound])
             let afterYoutube = String(embedlyHTML[youtubeRange.lowerBound...])
-            
-            // Find the start of the URL
             if let srcRange = beforeYoutube.range(of: "src=", options: .backwards) {
                 let urlStart = String(beforeYoutube[srcRange.upperBound...])
                 let fullURL = urlStart + afterYoutube
-                
-                // Extract just the YouTube URL part
                 if let endRange = fullURL.range(of: "\"") {
                     let youtubeURL = String(fullURL[..<endRange.lowerBound])
                     if let decodedURL = youtubeURL.removingPercentEncoding {
-                        print("🎬 TrailerWebView: Alternative decoded URL: \(decodedURL)")
-                        return decodedURL
+                        return decodedURL.hasPrefix("//") ? "https:" + decodedURL : decodedURL
                     }
                 }
             }
         }
-        
         return nil
     }
     
     private func extractYouTubeVideoID(from url: String) -> String {
-        // Safety check
         guard !url.isEmpty else { return "" }
         
-        // Handle youtu.be URLs
         if url.contains("youtu.be/") {
             let components = url.components(separatedBy: "youtu.be/")
             if components.count > 1 {
-                let videoID = components[1].components(separatedBy: "?")[0]
-                return videoID.isEmpty ? "" : videoID
+                return components[1].components(separatedBy: "?")[0]
             }
         }
         
-        // Handle youtube.com URLs
         if url.contains("youtube.com/watch") {
             let components = URLComponents(string: url)
-            let videoID = components?.queryItems?.first(where: { $0.name == "v" })?.value ?? ""
-            return videoID.isEmpty ? "" : videoID
+            return components?.queryItems?.first(where: { $0.name == "v" })?.value ?? ""
+        }
+        
+        if url.contains("youtube.com/embed/") {
+            let parts = url.components(separatedBy: "youtube.com/embed/")
+            guard parts.count > 1 else { return "" }
+            let remainder = parts[1]
+            let videoID = remainder.components(separatedBy: CharacterSet(charactersIn: "?&")).first ?? ""
+            return videoID
         }
         
         return ""
     }
 }
-
 struct ArticleDetailView: View {
     var article: Article
     @Environment(\.colorScheme) var colorScheme
@@ -550,28 +534,18 @@ struct ArticleDetailView: View {
                             }
                             .padding(.top, 10)
                             .padding(.horizontal, 16)
-                            .onAppear {
-                                print("🎬 ArticleDetailView: Found trailer: \(trailer.prefix(100))...")
-                            }
-                            
                             // Pæn separator mellem trailer og tekst
                             Rectangle()
                                 .fill(Color.gray.opacity(0.3))
                                 .frame(height: 1)
                                 .padding(.top, 10)
                                 .padding(.horizontal, 16)
-                        } else {
-                            // Debug when no trailer
-                            Color.clear
-                                .onAppear {
-                                    print("🎬 ArticleDetailView: No trailer found for article: \(article.name ?? "Unknown")")
-                                }
                         }
 
                         //MARK: Author card detail view
                         if let authorID = article.authorID, !authorID.isEmpty {
                             AuthorCardView(authorID: authorID)
-                                .padding()
+                                .padding(.horizontal, 16)
                         }
                         
                         Text("Related Articles")

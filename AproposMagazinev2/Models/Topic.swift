@@ -1,6 +1,6 @@
 import Foundation
 
-struct Topic: Identifiable, Decodable, Equatable {
+struct Topic: Identifiable, Codable, Equatable {
     let id: String
     let name: String
     let description: String?
@@ -41,6 +41,18 @@ struct Topic: Identifiable, Decodable, Equatable {
         articleCount = nil // Will be calculated dynamically
         
         lowercasedName = name.lowercased()
+    }
+    
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        var fieldData = container.nestedContainer(keyedBy: FieldDataKeys.self, forKey: .fieldData)
+        try fieldData.encode(name, forKey: .name)
+        try fieldData.encodeIfPresent(description, forKey: .description)
+        try fieldData.encodeIfPresent(icon, forKey: .icon)
+        try fieldData.encodeIfPresent(color, forKey: .color)
+        try fieldData.encode(isActive, forKey: .isActive)
+        try fieldData.encodeIfPresent(sortOrder, forKey: .sortOrder)
     }
     
     // For previews
@@ -96,7 +108,7 @@ struct Topic: Identifiable, Decodable, Equatable {
 }
 
 // MARK: - WebflowSection Model for Webflow Sections Collection
-struct WebflowSection: Identifiable, Decodable, Equatable {
+struct WebflowSection: Identifiable, Codable, Equatable {
     let id: String
     let name: String
     let description: String?
@@ -137,6 +149,18 @@ struct WebflowSection: Identifiable, Decodable, Equatable {
         articleCount = nil // Will be calculated dynamically
         
         lowercasedName = name.lowercased()
+    }
+    
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        var fieldData = container.nestedContainer(keyedBy: FieldDataKeys.self, forKey: .fieldData)
+        try fieldData.encode(name, forKey: .name)
+        try fieldData.encodeIfPresent(description, forKey: .description)
+        try fieldData.encodeIfPresent(icon, forKey: .icon)
+        try fieldData.encodeIfPresent(color, forKey: .color)
+        try fieldData.encode(isActive, forKey: .isActive)
+        try fieldData.encodeIfPresent(sortOrder, forKey: .sortOrder)
     }
     
     // For previews

@@ -131,9 +131,9 @@ class WebflowService {
                    } else {
                        self.logger.warning("Feltet 'stars-1-5' blev ikke fundet – bruger default mapping.")
                       completion(Self.defaultStarsMapping)
-                  }
-                  
-              } catch {
+                   }
+                   
+               } catch {
                   self.logger.error("Fejl ved dekodning af stjernemapping: \(error.localizedDescription, privacy: .public)")
                    if let decodingError = error as? DecodingError {
                        self.logger.debug("Decoding detaljer: \(String(describing: decodingError), privacy: .public)")

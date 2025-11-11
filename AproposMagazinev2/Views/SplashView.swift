@@ -1,5 +1,6 @@
 import SwiftUI
 import AVKit
+import AVFoundation
 
 struct BootloaderView: View {
     @State private var isVideoFinished = false
@@ -10,22 +11,21 @@ struct BootloaderView: View {
         ZStack {
             if showRootView {
                 Group {
-                    ContentView() // Naviger til hovedappen
-                        .transition(.opacity)
+                ContentView() // Naviger til hovedappen
+                    .transition(.opacity)
                         .onAppear {
-                            print("✅ ContentView er nu synlig")
+                            // ContentView is now visible
                         }
                 }
             } else {
                 BootloaderVideoPlayerView(videoName: "Splash02", fileExtension: "mp4") {
-                    print("🎬 Video færdig – forsøger at vise Root View nu")
+                    // Video finished - showing root view
                     Task { @MainActor in
                         withAnimation(.easeInOut(duration: 1.0)) {
                             opacity = 0.0
                         }
                         try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 sekund
-                        print("✅ Sætter showRootView til true")
-                        showRootView = true
+                            showRootView = true
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -38,13 +38,11 @@ struct BootloaderView: View {
         .background(Color.black)
         .ignoresSafeArea(.all)
         .onAppear {
-            print("🚀 BootloaderView appeared")
             // Failsafe fallback-timer
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 4_000_000_000) // 4 sekunder
                 if !showRootView {
-                    print("⏰ Timeout – tvinger visning af rootView")
-                    showRootView = true
+                        showRootView = true
                 }
             }
         }
@@ -83,6 +81,15 @@ struct BootloaderVideoPlayerView: UIViewControllerRepresentable {
                 // Konfigurer player til fuld skærm
                 player.allowsExternalPlayback = false
                 
+                // Konfigurer audio session til at mixe med anden audio (så musikken ikke stopper)
+                do {
+                    let audioSession = AVAudioSession.sharedInstance()
+                    try audioSession.setCategory(.ambient, mode: .default, options: [.mixWithOthers])
+                    try audioSession.setActive(true)
+                } catch {
+                    print("Kunne ikke konfigurere audio session for splash video: \(error)")
+                }
+                
                 // Start afspilning automatisk
                 player.play()
                 
@@ -106,6 +113,15 @@ struct BootloaderVideoPlayerView: UIViewControllerRepresentable {
             let player = AVPlayer(url: URL(fileURLWithPath: path))
             controller.player = player
             
+            // Konfigurer audio session til at mixe med anden audio (så musikken ikke stopper)
+            do {
+                let audioSession = AVAudioSession.sharedInstance()
+                try audioSession.setCategory(.ambient, mode: .default, options: [.mixWithOthers])
+                try audioSession.setActive(true)
+            } catch {
+                print("Kunne ikke konfigurere audio session for splash video: \(error)")
+            }
+            
             // Konfigurer player til fuld skærm
             player.allowsExternalPlayback = false
             
@@ -125,7 +141,7 @@ struct BootloaderVideoPlayerView: UIViewControllerRepresentable {
         }
         
         // Fallback: Hvis videoen ikke kan loades, gå direkte til appen
-        print("⚠️ Video kunne ikke loades - går direkte til appen")
+        // Video could not be loaded - going directly to app
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             onFinished()
         }

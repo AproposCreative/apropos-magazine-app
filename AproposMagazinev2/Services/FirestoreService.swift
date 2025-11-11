@@ -6,14 +6,29 @@ import UIKit
 class FirestoreService {
     static let shared = FirestoreService()
     private lazy var db = Firestore.firestore()
+    private static var persistenceConfigured = false
     private init() {}
     
     // Enable offline persistence once per process
+    // IMPORTANT: This must be called BEFORE any Firestore operations
+    // Call this in AppDelegate.didFinishLaunchingWithOptions
     func configurePersistenceIfNeeded() {
-        let settings = db.settings
-        // Enable persistent on-disk cache with default size
+        // Only configure once per app lifecycle
+        guard !Self.persistenceConfigured else {
+            return
+        }
+        
+        // Get Firestore instance and configure settings BEFORE any operations
+        // We use Firestore.firestore() directly to get the shared instance
+        let firestore = Firestore.firestore()
+        let settings = firestore.settings
+        
+        // Configure cache settings
+        // Note: cacheSettings is not optional, so we always set it
+        // The static flag ensures we only do this once
         settings.cacheSettings = PersistentCacheSettings()
-        db.settings = settings
+        firestore.settings = settings
+        Self.persistenceConfigured = true
     }
     
     // MARK: - Test Functions

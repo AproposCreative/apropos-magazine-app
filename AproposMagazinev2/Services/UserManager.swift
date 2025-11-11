@@ -55,17 +55,14 @@ class UserManager: ObservableObject {
         // Listen for auth state changes
         authStateListener = Auth.auth().addStateDidChangeListener { [weak self] _, user in
             if let user = user, !user.uid.isEmpty {
-                self?.logger.info("Bruger autentificeret. Loader profil for \(user.uid, privacy: .public).")
                 self?.loadUserProfile(for: user)
             } else {
-                self?.logger.info("Ingen gyldig bruger. Nulstiller profil.")
                 self?.currentUser = nil
             }
         }
         
         // Also check for existing user immediately
         if let currentUser = Auth.auth().currentUser, !currentUser.uid.isEmpty {
-            logger.info("Eksisterende Firebase-bruger fundet: \(currentUser.uid, privacy: .public).")
             loadUserProfile(for: currentUser)
         }
     }
@@ -78,7 +75,6 @@ class UserManager: ObservableObject {
             return
         }
         
-        logger.debug("Henter profil for bruger \(firebaseUser.uid, privacy: .public).")
         isLoading = true
         
         Task {
@@ -88,20 +84,36 @@ class UserManager: ObservableObject {
                 
                 if document.exists {
                     do {
-                        var data = document.data() ?? [:]
+                        let data = document.data() ?? [:]
                         
-                        // Convert Firestore Timestamp to Date
-                        if let createdAt = data["createdAt"] as? Timestamp {
-                            data["createdAt"] = createdAt.dateValue()
-                        }
-                        if let lastLoginAt = data["lastLoginAt"] as? Timestamp {
-                            data["lastLoginAt"] = lastLoginAt.dateValue()
+                        // Convert all Firestore Timestamp objects to ISO8601 String for JSONSerialization
+                        let isoFormatter = ISO8601DateFormatter()
+                        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                        
+                        // Recursively convert all Timestamp objects in the dictionary
+                        func convertTimestamps(_ dict: [String: Any]) -> [String: Any] {
+                            var converted = dict
+                            for (key, value) in converted {
+                                if let timestamp = value as? Timestamp {
+                                    let date = timestamp.dateValue()
+                                    converted[key] = isoFormatter.string(from: date)
+                                } else if let nestedDict = value as? [String: Any] {
+                                    converted[key] = convertTimestamps(nestedDict)
+                                } else if let array = value as? [[String: Any]] {
+                                    converted[key] = array.map { convertTimestamps($0) }
+                                }
+                            }
+                            return converted
                         }
                         
+                        let jsonData = convertTimestamps(data)
+                        
+                        // Convert to JSON data
+                        let jsonSerialized = try JSONSerialization.data(withJSONObject: jsonData)
                         let decoder = JSONDecoder()
-                        let jsonData = try JSONSerialization.data(withJSONObject: data)
-                        let existing = try decoder.decode(UserProfile.self, from: jsonData)
-                        profile = self.merge(existing: existing, with: firebaseUser)
+                        decoder.dateDecodingStrategy = .iso8601
+                        let existing = try decoder.decode(UserProfile.self, from: jsonSerialized)
+                    profile = self.merge(existing: existing, with: firebaseUser)
                     } catch {
                         profile = UserProfile(firebaseUser: firebaseUser)
                     }
@@ -127,9 +139,9 @@ class UserManager: ObservableObject {
     }
     
     func saveUserProfile(_ profile: UserProfile) {
-        // Validate dates before saving to prevent timestamp issues
-        let now = Date()
-        let validatedProfile = UserProfile(
+            // Validate dates before saving to prevent timestamp issues
+            let now = Date()
+            let validatedProfile = UserProfile(
                 uid: profile.uid,
                 email: profile.email,
                 displayName: profile.displayName,
@@ -181,10 +193,14 @@ class UserManager: ObservableObject {
                         self?.logger.error("Fejl ved gemning af profil: \(error.localizedDescription, privacy: .public)")
                     } else {
                         self?.currentUser = validatedProfile
-                        self?.logger.debug("Profil gemt for \(profile.uid, privacy: .public).")
+                        
+                        // Update FCM token on server when user logs in
+                        if let fcmToken = NotificationService.shared.fcmToken {
+                            NotificationService.shared.updateFCMTokenOnServer(fcmToken)
+                        }
                     }
                 }
-            }
+        }
     }
     
     // MARK: - Reading History

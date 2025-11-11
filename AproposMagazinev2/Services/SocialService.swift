@@ -40,23 +40,28 @@ class SocialService: ObservableObject {
                     self?.comments = documents.compactMap { document in
                         do {
                             var data = document.data()
+                            let isoFormatter = ISO8601DateFormatter()
+                            isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
                             
-                            // Convert Firestore Timestamp to Date
+                            // Convert Firestore Timestamp to ISO8601 String for JSONSerialization
                             if let timestamp = data["timestamp"] as? Timestamp {
-                                data["timestamp"] = timestamp.dateValue()
+                                let date = timestamp.dateValue()
+                                data["timestamp"] = isoFormatter.string(from: date)
                             }
                             
                             // Convert nested replies timestamps
                             if var replies = data["replies"] as? [[String: Any]] {
                                 for i in 0..<replies.count {
                                     if let replyTimestamp = replies[i]["timestamp"] as? Timestamp {
-                                        replies[i]["timestamp"] = replyTimestamp.dateValue()
+                                        let date = replyTimestamp.dateValue()
+                                        replies[i]["timestamp"] = isoFormatter.string(from: date)
                                     }
                                 }
                                 data["replies"] = replies
                             }
                             
                             let decoder = JSONDecoder()
+                            decoder.dateDecodingStrategy = .iso8601
                             let jsonData = try JSONSerialization.data(withJSONObject: data)
                             return try decoder.decode(Comment.self, from: jsonData)
                         } catch {
@@ -110,7 +115,7 @@ class SocialService: ObservableObject {
                             self?.logger.error("Kunne ikke tilføje kommentar: \(error.localizedDescription, privacy: .public)")
                         }
                     }
-                }
+        }
     }
     
     func likeComment(_ commentId: String, in articleId: String) {

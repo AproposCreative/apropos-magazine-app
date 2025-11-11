@@ -375,25 +375,27 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
         trailer = Article.decodeTrailer(from: fieldDataContainer)
         
         // Decode thumbURL from nested container
-        if fieldDataContainer.contains(.thumb) {
-            let thumbContainer = try fieldDataContainer.nestedContainer(keyedBy: ThumbKeys.self, forKey: .thumb)
-            if let urlString = try thumbContainer.decodeIfPresent(String.self, forKey: .url) {
-                thumbURL = URL(string: urlString)
-            } else {
-                thumbURL = nil
-            }
+        let thumbAsset = (try? fieldDataContainer.decodeIfPresent(WebflowAsset.self, forKey: .thumb)) ?? nil
+        if let asset = thumbAsset,
+           let urlString = asset.url,
+           !urlString.isEmpty {
+            thumbURL = URL(string: urlString)
+        } else if let urlString = try? fieldDataContainer.decodeIfPresent(String.self, forKey: .thumb),
+                  let url = URL(string: urlString), !urlString.isEmpty {
+            thumbURL = url
         } else {
             thumbURL = nil
         }
         
-        // Decode coverURL from nested container
-        if fieldDataContainer.contains(.cover) {
-            let coverContainer = try fieldDataContainer.nestedContainer(keyedBy: CoverKeys.self, forKey: .cover)
-            if let urlString = try coverContainer.decodeIfPresent(String.self, forKey: .url) {
-                coverURL = URL(string: urlString)
-            } else {
-                coverURL = nil
-            }
+        // Decode coverURL allowing null values gracefully
+        let coverAsset = (try? fieldDataContainer.decodeIfPresent(WebflowAsset.self, forKey: .cover)) ?? nil
+        if let asset = coverAsset,
+           let urlString = asset.url,
+           !urlString.isEmpty {
+            coverURL = URL(string: urlString)
+        } else if let urlString = try? fieldDataContainer.decodeIfPresent(String.self, forKey: .cover),
+                  let url = URL(string: urlString), !urlString.isEmpty {
+            coverURL = url
         } else {
             coverURL = nil
         }

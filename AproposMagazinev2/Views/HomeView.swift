@@ -121,7 +121,6 @@ struct HomeView: View {
     private func preloadHeroArticles() {
         // Safety check: ensure articles are loaded and not loading
         guard !viewModel.articles.isEmpty && !viewModel.isLoading else {
-            print("🔄 Articles not ready for preloading")
             return
         }
         
@@ -130,7 +129,6 @@ struct HomeView: View {
         for article in heroArticles {
             // Prevent duplicate loading and memory overload
             if article.author == nil && !viewModel.loadingArticles.contains(article.id) && viewModel.fullArticle?.id != article.id {
-                print("🔄 Preloading article: \(article.name ?? "No name")")
                 viewModel.loadFullArticle(with: article.id)
             }
         }
@@ -1033,4 +1031,3 @@ private struct OnFirstAppearModifier: ViewModifier {
 
 
 // MARK: - Simple Category View (Same layout as CategoryArticlesView)
-
