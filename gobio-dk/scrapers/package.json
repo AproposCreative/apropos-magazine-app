@@ -1,0 +1,24 @@
+{
+  "name": "gobio-scrapers",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "scrape:nfbio": "tsx src/sources/nfbio.ts",
+    "scrape:vue": "tsx src/sources/vue.ts",
+    "scrape:all": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts"
+  },
+  "dependencies": {
+    "playwright": "^1.50.0",
+    "cheerio": "^1.0.0",
+    "@supabase/supabase-js": "^2.49.0",
+    "date-fns": "^4.1.0",
+    "pino": "^9.6.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "@types/node": "^22.0.0"
+  }
+}
