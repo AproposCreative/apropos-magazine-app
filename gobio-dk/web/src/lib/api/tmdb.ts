@@ -7,21 +7,34 @@ function getApiKey(): string {
   return key;
 }
 
-function headers(): HeadersInit {
-  return {
-    Authorization: `Bearer ${getApiKey()}`,
-    "Content-Type": "application/json",
-  };
+function getReadAccessToken(): string | undefined {
+  return process.env.TMDB_READ_ACCESS_TOKEN;
 }
 
 async function tmdbFetch<T>(path: string, params?: Record<string, string>): Promise<T> {
   const url = new URL(`${TMDB_BASE_URL}${path}`);
+
+  const readAccessToken = getReadAccessToken();
+  const apiKey = getApiKey();
+
+  if (!readAccessToken) {
+    url.searchParams.set("api_key", apiKey);
+  }
+
   if (params) {
     Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
   }
 
+  const headers: HeadersInit = {
+    "Content-Type": "application/json",
+  };
+
+  if (readAccessToken) {
+    headers["Authorization"] = `Bearer ${readAccessToken}`;
+  }
+
   const response = await fetch(url.toString(), {
-    headers: headers(),
+    headers,
     next: { revalidate: 3600 },
   });
 

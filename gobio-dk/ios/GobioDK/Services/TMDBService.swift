@@ -17,6 +17,7 @@ class TMDBService {
         guard var components = URLComponents(string: "\(baseURL)\(path)") else { return nil }
         
         var queryItems = params.map { URLQueryItem(name: $0.key, value: $0.value) }
+        queryItems.append(URLQueryItem(name: "api_key", value: apiKey))
         queryItems.append(URLQueryItem(name: "language", value: "da-DK"))
         queryItems.append(URLQueryItem(name: "region", value: "DK"))
         components.queryItems = queryItems
@@ -24,7 +25,6 @@ class TMDBService {
         guard let url = components.url else { return nil }
         
         var request = URLRequest(url: url)
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 15
         return request
