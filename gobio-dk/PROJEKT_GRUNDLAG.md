@@ -694,13 +694,52 @@ Hvis man bygger egne scrapers i stedet for International Showtimes API:
 
 ---
 
+## iOS App (Baseret på Apropos Magazine)
+
+iOS-appen er bygget direkte på grundlaget fra din eksisterende **Apropos Magazine** app. Følgende er genbrugt og tilpasset:
+
+### Genbrugt fra Apropos Magazine
+
+| Komponent | Tilstand | Ændringer |
+|-----------|----------|-----------|
+| **Firebase Auth** | Genbrugt 100% | Kun nyt bundle ID |
+| **Google Sign-In** | Genbrugt 100% | Ny client ID fra Firebase |
+| **Firestore Service** | Tilpasset | `favorites` → `watchlist`, nye datamodeller |
+| **Notification Service** | Tilpasset | Nye FCM topics, premiere-påmindelser |
+| **User Manager** | Tilpasset | Ny `UserProfile` med `preferredCity`, `watchlistMovieIds` |
+| **SecureConfig** | Tilpasset | TMDB API-nøgle i stedet for Webflow |
+| **Navigation Coordinator** | Tilpasset | 5 nye tabs: Film, Søg, Biografer, Watchlist, Profil |
+| **AppDelegate** | Tilpasset | Nyt URL scheme (`gobio://`), nye notification handlers |
+| **SPM Packages** | Genbrugt | firebase-ios-sdk, GoogleSignIn, SDWebImageSwiftUI |
+
+### Nyt i Gobio-appen
+
+| Komponent | Beskrivelse |
+|-----------|-------------|
+| **TMDBService** | Komplet TMDB API-klient (now playing, upcoming, search, details, trailers) |
+| **Movie model** | Film med poster, trailer, genres, ratings, premiere-dato |
+| **Cinema model** | Danske biografer organiseret efter kæde og by |
+| **Showtime model** | Spilletider med booking-URL, format (IMAX/3D) |
+| **MovieViewModel** | Film-hentning, søgning, watchlist-håndtering |
+| **HomeView** | Film-karruseller med by-vælger |
+| **MovieDetailView** | Film-detaljer med trailer, cast, spilletider |
+| **TrailerView** | YouTube-afspiller via WKWebView |
+| **WatchlistView** | Gemte film med premiere-påmindelser |
+| **CinemasView** | Biografoversigt med kæder og lokationer |
+
+Se `gobio-dk/ios/SETUP.md` for opsætningsguide.
+
+---
+
 ## Næste skridt
 
-1. **Valider idéen:** Undersøg om der er interesse (landing page + signup)
-2. **Sikr datakilde:** Tilmeld International Showtimes API trial og test dansk dækning
-3. **Start udvikling:** Begynd med Fase 1 (Foundation)
-4. **Kontakt biografer:** Send partnerskabsforslag til Nordisk Film og Vue
-5. **Domæne:** Registrer gobio.dk
+1. **Firebase:** Tilføj ny iOS-app i Firebase Console med bundle ID `dk.gobio.app`
+2. **TMDB API-nøgle:** Opret gratis konto og hent API Read Access Token
+3. **Xcode:** Opret nyt Xcode-projekt og kopier alle Swift-filer ind
+4. **Test:** Byg og kør appen i simulator
+5. **Showtimes:** Tilmeld International Showtimes API trial og test dansk dækning
+6. **Kontakt biografer:** Send partnerskabsforslag til Nordisk Film og Vue
+7. **Domæne:** Registrer gobio.dk
 
 ---
 
