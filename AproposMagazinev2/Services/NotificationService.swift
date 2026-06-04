@@ -7,7 +7,9 @@ import UserNotifications
 @MainActor
 class NotificationService: NSObject, ObservableObject {
     @Published var isAuthorized = false
+    @Published var authorizationStatusDescription = "Ukendt"
     @Published var fcmToken: String?
+    @Published var lastPushSyncSummary = "Ikke synkroniseret endnu"
     
     static let shared = NotificationService()
     
@@ -15,7 +17,7 @@ class NotificationService: NSObject, ObservableObject {
     
     private override init() {
         super.init()
-        checkAuthorizationStatus()
+        refreshAuthorizationStatus()
         
         if let existingToken = UserDefaults.standard.string(forKey: "FCMRegistrationToken") {
             fcmToken = existingToken
@@ -24,33 +26,121 @@ class NotificationService: NSObject, ObservableObject {
     
     // MARK: - Authorization
     
-    func requestAuthorization() async {
-        do {
-            let granted = try await UNUserNotificationCenter.current().requestAuthorization(
-                options: [.alert, .badge, .sound, .provisional]
-            )
-            
-            await MainActor.run {
-                self.isAuthorized = granted
-            }
-            
-            guard granted else {
-                logger.warning("Bruger afviste push-notifikationer.")
-                return
-            }
-            
-            await registerForRemoteNotifications()
-            logger.info("Push-notifikationer er autoriseret.")
-        } catch {
-            logger.error("Kunne ikke anmode om push-tilladelse: \(error.localizedDescription, privacy: .public)")
-        }
-    }
-    
-    private func checkAuthorizationStatus() {
+    func refreshAuthorizationStatus() {
         UNUserNotificationCenter.current().getNotificationSettings { settings in
             DispatchQueue.main.async {
                 self.isAuthorized = settings.authorizationStatus == .authorized
-                self.logger.debug("Notifikationsstatus opdateret til \(settings.authorizationStatus.rawValue, privacy: .public)")
+                    || settings.authorizationStatus == .provisional
+                self.authorizationStatusDescription = Self.describe(settings.authorizationStatus)
+            }
+        }
+    }
+    
+    func requestAuthorization() async -> Bool {
+        do {
+            let granted = try await UNUserNotificationCenter.current().requestAuthorization(
+                options: [.alert, .badge, .sound]
+            )
+            
+            refreshAuthorizationStatus()
+            
+            guard granted else {
+                lastPushSyncSummary = "Notifikationer er slået fra i iOS-indstillinger."
+                return false
+            }
+            
+            await registerForRemoteNotifications()
+            return true
+        } catch {
+            logger.error("Kunne ikke anmode om push-tilladelse: \(error.localizedDescription, privacy: .public)")
+            lastPushSyncSummary = "Kunne ikke anmode om tilladelse."
+            return false
+        }
+    }
+    
+    func activateArticlePushNotifications(
+        preferences: NotificationPreferences,
+        selectedCategoryIds: [String],
+        allCategoryIds: [String]
+    ) async {
+        persistArticleNotificationSettings(
+            preferences: preferences,
+            selectedCategoryIds: selectedCategoryIds
+        )
+        
+        guard articleNotificationsEnabled(
+            preferences: preferences,
+            selectedCategoryIds: selectedCategoryIds
+        ) else {
+            updateArticleCategorySubscriptions(
+                preferences: preferences,
+                selectedCategoryIds: selectedCategoryIds,
+                allCategoryIds: allCategoryIds
+            )
+            lastPushSyncSummary = "Artikel-notifikationer er slået fra."
+            return
+        }
+        
+        let authorized = isAuthorized ? true : await requestAuthorization()
+        guard authorized else { return }
+        
+        await registerForRemoteNotifications()
+        updateArticleCategorySubscriptions(
+            preferences: preferences,
+            selectedCategoryIds: selectedCategoryIds,
+            allCategoryIds: allCategoryIds
+        )
+        
+        if fcmToken == nil {
+            lastPushSyncSummary = "Push aktiveret. Afventer FCM-token…"
+        }
+    }
+    
+    private static func describe(_ status: UNAuthorizationStatus) -> String {
+        switch status {
+        case .authorized: return "Tilladt"
+        case .denied: return "Afslået"
+        case .notDetermined: return "Ikke valgt endnu"
+        case .provisional: return "Foreløbig tilladelse"
+        case .ephemeral: return "Midlertidig tilladelse"
+        @unknown default: return "Ukendt"
+        }
+    }
+    
+    // MARK: - First Launch Onboarding
+    
+    private static let onboardingCompletedKey = "notification_onboarding_completed_v1"
+    
+    func shouldPresentOnboarding() async -> Bool {
+        guard !UserDefaults.standard.bool(forKey: Self.onboardingCompletedKey) else {
+            return false
+        }
+        
+        let settings = await currentNotificationSettings()
+        return settings.authorizationStatus == .notDetermined
+    }
+    
+    func markOnboardingCompleted() {
+        UserDefaults.standard.set(true, forKey: Self.onboardingCompletedKey)
+    }
+    
+    func completeOnboarding(allowNotifications: Bool, allCategoryIds: [String]) async {
+        markOnboardingCompleted()
+        
+        var preferences = NotificationPreferences()
+        preferences.newArticles = allowNotifications
+        
+        await activateArticlePushNotifications(
+            preferences: preferences,
+            selectedCategoryIds: [],
+            allCategoryIds: allCategoryIds
+        )
+    }
+    
+    private func currentNotificationSettings() async -> UNNotificationSettings {
+        await withCheckedContinuation { continuation in
+            UNUserNotificationCenter.current().getNotificationSettings { settings in
+                continuation.resume(returning: settings)
             }
         }
     }
@@ -109,34 +199,112 @@ class NotificationService: NSObject, ObservableObject {
             return
         }
         
-        URLSession.shared.dataTask(with: request) { _, response, error in
+        URLSession.shared.dataTask(with: request) { _, _, error in
             if let error {
                 self.logger.error("Fejl ved afsendelse af FCM token til backend: \(error.localizedDescription, privacy: .public)")
                 return
-            }
-            
-            if let httpResponse = response as? HTTPURLResponse {
-                self.logger.info("FCM backend svarede med status \(httpResponse.statusCode, privacy: .public).")
             }
         }.resume()
     }
     
     // MARK: - Topic Subscriptions
     
+    private enum StorageKey {
+        static let preferences = "article_notification_preferences_v1"
+        static let categoryIds = "article_notification_category_ids_v1"
+    }
+    
+    func articleNotificationsEnabled(
+        preferences: NotificationPreferences,
+        selectedCategoryIds: [String]
+    ) -> Bool {
+        if !selectedCategoryIds.isEmpty {
+            return true
+        }
+        return preferences.newArticles
+    }
+    
+    func persistArticleNotificationSettings(
+        preferences: NotificationPreferences,
+        selectedCategoryIds: [String]
+    ) {
+        if let data = try? JSONEncoder().encode(preferences) {
+            UserDefaults.standard.set(data, forKey: StorageKey.preferences)
+        }
+        UserDefaults.standard.set(selectedCategoryIds, forKey: StorageKey.categoryIds)
+    }
+    
+    func loadPersistedArticleNotificationSettings() -> (NotificationPreferences, [String]) {
+        let preferences: NotificationPreferences
+        if let data = UserDefaults.standard.data(forKey: StorageKey.preferences),
+           let decoded = try? JSONDecoder().decode(NotificationPreferences.self, from: data) {
+            preferences = decoded
+        } else if let user = UserManager.shared.currentUser {
+            preferences = user.notificationPreferences
+        } else {
+            preferences = NotificationPreferences()
+        }
+        
+        let categoryIds = UserDefaults.standard.stringArray(forKey: StorageKey.categoryIds)
+            ?? UserManager.shared.currentUser?.favoriteCategories
+            ?? []
+        
+        return (preferences, categoryIds)
+    }
+    
+    func syncPersistedArticleNotificationSubscriptions(allCategoryIds: [String] = []) {
+        refreshAuthorizationStatus()
+        guard isAuthorized else {
+            lastPushSyncSummary = "Push kræver tilladelse i iOS-indstillinger."
+            return
+        }
+        
+        let (preferences, categoryIds) = loadPersistedArticleNotificationSettings()
+        updateArticleCategorySubscriptions(
+            preferences: preferences,
+            selectedCategoryIds: categoryIds,
+            allCategoryIds: allCategoryIds
+        )
+        toggleTopic(preferences.festivalReminders, topic: "festival_reminders")
+        toggleTopic(preferences.breakingNews, topic: "breaking_news")
+        toggleTopic(preferences.weeklyDigest, topic: "weekly_digest")
+    }
+    
+    func bootstrapPushNotifications(allCategoryIds: [String] = []) async {
+        refreshAuthorizationStatus()
+        guard isAuthorized else { return }
+        
+        await registerForRemoteNotifications()
+        
+        if UserDefaults.standard.data(forKey: StorageKey.preferences) == nil,
+           let user = UserManager.shared.currentUser {
+            persistArticleNotificationSettings(
+                preferences: user.notificationPreferences,
+                selectedCategoryIds: user.favoriteCategories
+            )
+        }
+        
+        syncPersistedArticleNotificationSubscriptions(allCategoryIds: allCategoryIds)
+    }
+    
     func subscribeToTopics(for user: UserProfile) {
-        Messaging.messaging().subscribe(toTopic: "all_users")
-        
-        for categoryId in user.favoriteCategories {
-            Messaging.messaging().subscribe(toTopic: topicIdentifier(prefix: "category", rawValue: categoryId))
-        }
-        
-        for authorId in user.favoriteAuthors {
-            Messaging.messaging().subscribe(toTopic: topicIdentifier(prefix: "author", rawValue: authorId))
-        }
+        persistArticleNotificationSettings(
+            preferences: user.notificationPreferences,
+            selectedCategoryIds: user.favoriteCategories
+        )
+        syncArticleTopicSubscriptions(
+            preferences: user.notificationPreferences,
+            selectedCategoryIds: user.favoriteCategories
+        )
+        toggleTopic(user.notificationPreferences.festivalReminders, topic: "festival_reminders")
+        toggleTopic(user.notificationPreferences.breakingNews, topic: "breaking_news")
+        toggleTopic(user.notificationPreferences.weeklyDigest, topic: "weekly_digest")
     }
     
     func unsubscribeFromTopics(for user: UserProfile) {
         Messaging.messaging().unsubscribe(fromTopic: "all_users")
+        Messaging.messaging().unsubscribe(fromTopic: "new_articles")
+        Messaging.messaging().unsubscribe(fromTopic: "new_podcasts")
         
         for categoryId in user.favoriteCategories {
             Messaging.messaging().unsubscribe(fromTopic: topicIdentifier(prefix: "category", rawValue: categoryId))
@@ -144,6 +312,26 @@ class NotificationService: NSObject, ObservableObject {
         
         for authorId in user.favoriteAuthors {
             Messaging.messaging().unsubscribe(fromTopic: topicIdentifier(prefix: "author", rawValue: authorId))
+        }
+        
+        toggleTopic(false, topic: "festival_reminders")
+        toggleTopic(false, topic: "breaking_news")
+        toggleTopic(false, topic: "weekly_digest")
+    }
+    
+    func unsubscribeFromAllArticleTopics(allCategoryIds: [String] = []) {
+        Messaging.messaging().unsubscribe(fromTopic: "all_users")
+        Messaging.messaging().unsubscribe(fromTopic: "new_articles")
+        Messaging.messaging().unsubscribe(fromTopic: "new_podcasts")
+        
+        for categoryId in allCategoryIds {
+            Messaging.messaging().unsubscribe(fromTopic: topicIdentifier(prefix: "category", rawValue: categoryId))
+        }
+        
+        if let storedCategoryIds = UserDefaults.standard.stringArray(forKey: StorageKey.categoryIds) {
+            for categoryId in storedCategoryIds {
+                Messaging.messaging().unsubscribe(fromTopic: topicIdentifier(prefix: "category", rawValue: categoryId))
+            }
         }
     }
     
@@ -194,19 +382,101 @@ class NotificationService: NSObject, ObservableObject {
     // MARK: - Notification Preferences
     
     func updateNotificationPreferences(_ preferences: NotificationPreferences) {
-        guard UserManager.shared.currentUser != nil else { return }
-        
-        toggleTopic(preferences.newArticles, topic: "new_articles")
+        let (_, categoryIds) = loadPersistedArticleNotificationSettings()
+        syncArticleTopicSubscriptions(
+            preferences: preferences,
+            selectedCategoryIds: categoryIds
+        )
         toggleTopic(preferences.festivalReminders, topic: "festival_reminders")
         toggleTopic(preferences.breakingNews, topic: "breaking_news")
         toggleTopic(preferences.weeklyDigest, topic: "weekly_digest")
     }
+
+    func updateArticleCategorySubscriptions(
+        preferences: NotificationPreferences,
+        selectedCategoryIds: [String],
+        allCategoryIds: [String]
+    ) {
+        syncArticleTopicSubscriptions(
+            preferences: preferences,
+            selectedCategoryIds: selectedCategoryIds,
+            allCategoryIds: allCategoryIds
+        )
+    }
     
     private func toggleTopic(_ isEnabled: Bool, topic: String) {
         if isEnabled {
-            Messaging.messaging().subscribe(toTopic: topic)
+            Messaging.messaging().subscribe(toTopic: topic) { error in
+                if let error {
+                    self.logger.error("Fejl ved abonnement på \(topic, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                }
+            }
         } else {
-            Messaging.messaging().unsubscribe(fromTopic: topic)
+            Messaging.messaging().unsubscribe(fromTopic: topic) { error in
+                if let error {
+                    self.logger.error("Fejl ved afmelding af \(topic, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                }
+            }
+        }
+    }
+
+    private func subscribeToTopic(_ topic: String) {
+        Messaging.messaging().subscribe(toTopic: topic) { error in
+            if let error {
+                self.logger.error("Fejl ved abonnement på \(topic, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                Task { @MainActor in
+                    self.lastPushSyncSummary = "Kunne ikke tilmelde \(topic)."
+                }
+            } else {
+                Task { @MainActor in
+                    self.lastPushSyncSummary = "Tilmeldt push for nye artikler."
+                    AppDiagnostics.breadcrumb("push_subscribed_\(topic)")
+                }
+            }
+        }
+    }
+
+    private func unsubscribeFromTopic(_ topic: String) {
+        Messaging.messaging().unsubscribe(fromTopic: topic) { error in
+            if let error {
+                self.logger.error("Fejl ved afmelding af \(topic, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
+    private func syncArticleTopicSubscriptions(
+        preferences: NotificationPreferences,
+        selectedCategoryIds: [String],
+        allCategoryIds: [String] = []
+    ) {
+        let selectedCategoryTopics = Set(selectedCategoryIds.map {
+            topicIdentifier(prefix: "category", rawValue: $0)
+        })
+        let articlesEnabled = articleNotificationsEnabled(
+            preferences: preferences,
+            selectedCategoryIds: selectedCategoryIds
+        )
+        
+        guard articlesEnabled else {
+            unsubscribeFromAllArticleTopics(allCategoryIds: allCategoryIds)
+            lastPushSyncSummary = "Artikel-notifikationer er slået fra."
+            return
+        }
+        
+        subscribeToTopic("new_podcasts")
+        
+        if preferences.newArticles && selectedCategoryTopics.isEmpty {
+            subscribeToTopic("new_articles")
+        } else {
+            unsubscribeFromTopic("new_articles")
+        }
+
+        for topic in selectedCategoryTopics {
+            subscribeToTopic(topic)
+        }
+
+        for categoryId in allCategoryIds where !selectedCategoryIds.contains(categoryId) {
+            unsubscribeFromTopic(topicIdentifier(prefix: "category", rawValue: categoryId))
         }
     }
     
@@ -229,8 +499,10 @@ class NotificationService: NSObject, ObservableObject {
             "article_id": article.id
         ]
         
-        // Add thumbnail URL if available (for NotificationServiceExtension)
-        if let thumbnailURL = article.thumbURL {
+        // Add mobile image URL first so rich notifications use the lightweight image when available.
+        if let mobileImageURL = article.mobileImageURL {
+            userInfo["thumbnail_url"] = mobileImageURL.absoluteString
+        } else if let thumbnailURL = article.thumbURL {
             userInfo["thumbnail_url"] = thumbnailURL.absoluteString
         }
         
@@ -251,102 +523,72 @@ class NotificationService: NSObject, ObservableObject {
         UNUserNotificationCenter.current().add(request) { error in
             if let error {
                 self.logger.error("Fejl ved afsendelse af artikelnotifikation: \(error.localizedDescription, privacy: .public)")
-            } else {
-                self.logger.info("Artikelnotifikation planlagt: \(article.name ?? "Ukendt", privacy: .public)")
             }
         }
     }
     
     // MARK: - Test Local Notification
     
-    func sendTestLocalNotification() {
+    func sendTestLocalNotification(delay: TimeInterval = 2) {
         let content = UNMutableNotificationContent()
-        content.title = "Test Notification"
-        content.body = "This is a test notification from Apropos Magazine"
+        content.title = "Apropos Magazine"
+        content.body = "Test-notifikation — push virker!"
         content.sound = .default
         content.badge = 1
-        content.threadIdentifier = "test_notifications" // Group test notifications
+        content.threadIdentifier = "test_notifications"
         
         content.userInfo = [
             "type": "test",
             "article_id": "test_123"
         ]
         
-        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 2, repeats: false)
-        let request = UNNotificationRequest(identifier: "test_notification", content: content, trigger: trigger)
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: max(1, delay), repeats: false)
+        let request = UNNotificationRequest(
+            identifier: "test_notification_\(UUID().uuidString)",
+            content: content,
+            trigger: trigger
+        )
         
         UNUserNotificationCenter.current().add(request) { error in
             if let error {
                 self.logger.error("Fejl ved afsendelse af testnotifikation: \(error.localizedDescription, privacy: .public)")
             } else {
-                self.logger.info("Testnotifikation planlagt.")
+                self.logger.info("Testnotifikation planlagt om \(delay, privacy: .public)s")
             }
         }
+    }
+    
+    func sendTestLocalNotificationAfterAuthorization(delay: TimeInterval = 2) async {
+        let authorized = isAuthorized ? true : await requestAuthorization()
+        guard authorized else { return }
+        sendTestLocalNotification(delay: delay)
     }
     
     // MARK: - Comprehensive Debug
     
     func debugNotificationSystem() {
-        logger.info("=== Notifikationsdiagnostik start ===")
-        logger.info("FCM token: \(self.fcmToken ?? "nil", privacy: .public)")
-        logger.info("Autoriseret: \(self.isAuthorized)")
-        
-        if let user = UserManager.shared.currentUser {
-            logger.info("Aktuel bruger: \(user.uid, privacy: .public)")
-            logger.debug("Notifikationspræferencer: \(String(describing: user.notificationPreferences), privacy: .public)")
-        } else {
-            logger.info("Ingen bruger er logget ind.")
-        }
-        
-        UNUserNotificationCenter.current().getNotificationSettings { settings in
-            self.logger.info("Notifikationsindstillinger: autorisation=\(settings.authorizationStatus.rawValue, privacy: .public)")
-        }
-        
-        UNUserNotificationCenter.current().getPendingNotificationRequests { requests in
-            self.logger.info("Planlagte notifikationer: \(requests.count)")
-            for request in requests {
-                self.logger.debug("Planlagt: \(request.identifier, privacy: .public) – \(request.content.title, privacy: .public)")
-            }
-        }
-        
-        UNUserNotificationCenter.current().getDeliveredNotifications { notifications in
-            self.logger.info("Leverede notifikationer: \(notifications.count)")
-            for notification in notifications {
-                self.logger.debug("Leveret: \(notification.request.identifier, privacy: .public) – \(notification.request.content.title, privacy: .public)")
-            }
-        }
-        
         if UserManager.shared.currentUser != nil {
             Messaging.messaging().subscribe(toTopic: "new_articles") { error in
                 if let error {
                     self.logger.error("Fejl ved abonnement på 'new_articles': \(error.localizedDescription, privacy: .public)")
-                } else {
-                    self.logger.info("Abonnerede på 'new_articles'.")
                 }
             }
             
             Messaging.messaging().subscribe(toTopic: "all_users") { error in
                 if let error {
                     self.logger.error("Fejl ved abonnement på 'all_users': \(error.localizedDescription, privacy: .public)")
-                } else {
-                    self.logger.info("Abonnerede på 'all_users'.")
                 }
             }
         }
-        
-        logger.info("=== Notifikationsdiagnostik slut ===")
     }
     
     func forceSubscribeToNewArticles() {
-        logger.info("Tvinger abonnement på 'new_articles'.")
         Messaging.messaging().subscribe(toTopic: "new_articles") { error in
             if let error {
                 self.logger.error("Fejl ved abonnement på 'new_articles': \(error.localizedDescription, privacy: .public)")
                 return
             }
-            
-            self.logger.info("Abonnerede på 'new_articles'.")
-            
+
             Task {
                 let token = await MainActor.run { self.fcmToken }
                 if let token {

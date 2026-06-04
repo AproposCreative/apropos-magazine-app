@@ -196,75 +196,130 @@ struct SettingsView: View {
     @ObservedObject private var themeManager = ThemeManager.shared
     
     // State for settings
-    @State private var pushNotificationsEnabled = true
-    @State private var emailUpdatesEnabled = false
-    @State private var showReadingHistory = false
-    @State private var showSavedArticles = false
-    @State private var showReadingTime = false
+    @State private var notificationPreferences = NotificationPreferences()
+    @State private var selectedNotificationCategoryIds: Set<String> = []
     @State private var showDarkModeOptions = false
-    @State private var showCacheOptions = false
     @State private var showHelpSupport = false
     @State private var showContactUs = false
+    @State private var showLoginSheet = false
+    
+    private var articleNotificationsEnabled: Bool {
+        notificationService.articleNotificationsEnabled(
+            preferences: notificationPreferences,
+            selectedCategoryIds: Array(selectedNotificationCategoryIds)
+        )
+    }
     
     var body: some View {
         NavigationView {
             List {
                 // Account Section
                 Section {
-                    HStack {
-                        AsyncImage(url: URL(string: userManager.currentUser?.photoURL ?? "")) { image in
-                            image
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                        } placeholder: {
-                            Image(systemName: "person.circle.fill")
-                                .font(.system(size: 50))
-                                .foregroundColor(.blue)
+                    Button {
+                        if userManager.currentUser == nil {
+                            showLoginSheet = true
                         }
-                        .frame(width: 50, height: 50)
-                        .clipShape(Circle())
-                        
-                        VStack(alignment: .leading) {
-                            Text(userManager.currentUser?.displayName ?? "User")
-                                .font(.headline)
-                            Text(userManager.currentUser?.email ?? "")
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
+                    } label: {
+                        HStack {
+                            accountAvatar
+                            
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(accountTitle)
+                                    .font(.headline)
+                                    .foregroundColor(.primary)
+                                if let subtitle = accountSubtitle {
+                                    Text(subtitle)
+                                        .font(.subheadline)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            
+                            Spacer()
+                            
+                            if userManager.currentUser == nil {
+                                Image(systemName: "chevron.right")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundColor(.secondary)
+                            }
                         }
-                        
-                        Spacer()
-                    }
-                    .padding(.vertical, 8)
-                }
-                
-                // Reading Settings
-                Section("Reading") {
-                    Button(action: {
-                        showReadingHistory = true
-                    }) {
-                        SettingsRow(icon: "book.fill", title: "Reading History", subtitle: "View your reading history")
+                        .padding(.vertical, 8)
                     }
                     .buttonStyle(PlainButtonStyle())
-                    
-                    Button(action: {
-                        showSavedArticles = true
-                    }) {
-                        SettingsRow(icon: "bookmark.fill", title: "Saved Articles", subtitle: "\(viewModel.favorites.count) articles")
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                    
-                    Button(action: {
-                        showReadingTime = true
-                    }) {
-                        SettingsRow(icon: "clock.fill", title: "Reading Time", subtitle: "Track your reading habits")
-                    }
-                    .buttonStyle(PlainButtonStyle())
+                    .disabled(userManager.currentUser != nil)
                 }
                 
                 // Notifications
-                Section("Notifications") {
-                    ToggleRow(icon: "bell.fill", title: "Push Notifications", isOn: $pushNotificationsEnabled)
-                    ToggleRow(icon: "envelope.fill", title: "Email Updates", isOn: $emailUpdatesEnabled)
+                Section("Notifikationer") {
+                    Toggle(isOn: Binding(
+                        get: { articleNotificationsEnabled },
+                        set: { isEnabled in
+                            if isEnabled {
+                                if selectedNotificationCategoryIds.isEmpty {
+                                    notificationPreferences.newArticles = true
+                                }
+                            } else {
+                                notificationPreferences.newArticles = false
+                                selectedNotificationCategoryIds.removeAll()
+                            }
+                            saveNotificationChoices()
+                        }
+                    )) {
+                        Text("Artikel-notifikationer")
+                    }
+
+                    if articleNotificationsEnabled {
+                        Toggle(isOn: Binding(
+                            get: { notificationPreferences.newArticles && selectedNotificationCategoryIds.isEmpty },
+                            set: { isEnabled in
+                                notificationPreferences.newArticles = isEnabled
+                                if isEnabled {
+                                    selectedNotificationCategoryIds.removeAll()
+                                }
+                                saveNotificationChoices()
+                            }
+                        )) {
+                            Text("Alle nye artikler")
+                        }
+
+                        if !viewModel.topics.isEmpty {
+                            ForEach(viewModel.topics.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) { topic in
+                                Toggle(isOn: Binding(
+                                    get: { selectedNotificationCategoryIds.contains(topic.id) },
+                                    set: { isEnabled in
+                                        if isEnabled {
+                                            selectedNotificationCategoryIds.insert(topic.id)
+                                            notificationPreferences.newArticles = false
+                                        } else {
+                                            selectedNotificationCategoryIds.remove(topic.id)
+                                        }
+                                        saveNotificationChoices()
+                                    }
+                                )) {
+                                    Text(topic.name)
+                                }
+                            }
+                        } else {
+                            Text("Kategorier indlæses...")
+                                .foregroundColor(.secondary)
+                        }
+
+                        Text("Vælg enten alle nye artikler eller specifikke kategorier.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    } else {
+                        Text("Du modtager ikke push, når nye artikler publiceres.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Button {
+                        Task {
+                            await applyNotificationChoices()
+                            await notificationService.sendTestLocalNotificationAfterAuthorization(delay: 2)
+                        }
+                    } label: {
+                        Label("Test notifikation på denne enhed", systemImage: "bell.badge")
+                    }
                 }
                 
                 // App Settings
@@ -272,18 +327,11 @@ struct SettingsView: View {
                     Button(action: {
                         showDarkModeOptions = true
                     }) {
-                        SettingsRow(icon: themeManager.currentTheme.icon, title: "Theme", subtitle: themeManager.currentTheme.displayName)
+                        SettingsRow(icon: themeManager.currentTheme.icon, title: "Tema", subtitle: themeManager.currentTheme.displayName)
                     }
                     .buttonStyle(PlainButtonStyle())
                     
-                    SettingsRow(icon: "wifi", title: "Offline Reading", subtitle: offlineManager.isOnline ? "Online" : "Offline")
-                    
-                    Button(action: {
-                        showCacheOptions = true
-                    }) {
-                        SettingsRow(icon: "trash.fill", title: "Clear Cache", subtitle: "Free up space")
-                    }
-                    .buttonStyle(PlainButtonStyle())
+                    SettingsRow(icon: "wifi", title: "Offline læsning", subtitle: offlineManager.isOnline ? "Online" : "Offline")
                 }
                 
                 // Support
@@ -291,81 +339,147 @@ struct SettingsView: View {
                     Button(action: {
                         showHelpSupport = true
                     }) {
-                        SettingsRow(icon: "questionmark.circle.fill", title: "Help & Support")
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                    
-                    Button(action: {
-                        // Open App Store rating
-                        if let url = URL(string: "https://apps.apple.com/app/id123456789") {
-                            UIApplication.shared.open(url)
-                        }
-                    }) {
-                        SettingsRow(icon: "star.fill", title: "Rate App")
+                        SettingsRow(icon: "questionmark.circle.fill", title: "Hjælp og support")
                     }
                     .buttonStyle(PlainButtonStyle())
                     
                     Button(action: {
                         showContactUs = true
                     }) {
-                        SettingsRow(icon: "envelope.fill", title: "Contact Us")
+                        SettingsRow(icon: "envelope.fill", title: "Kontakt os")
                     }
                     .buttonStyle(PlainButtonStyle())
                 }
                 
                 // Account Actions
-                Section {
-                    Button(action: {
-                        // Sign out action
-                        do {
-                            try AuthService.shared.signOut()
-                            dismiss()
-                        } catch {
-                            print("Sign out error: \(error)")
-                        }
-                    }) {
-                        HStack {
-                            Image(systemName: "arrow.right.square.fill")
-                                .foregroundColor(.red)
-                            Text("Sign Out")
-                                .foregroundColor(.red)
+                if userManager.currentUser != nil {
+                    Section {
+                        Button(action: {
+                            GoogleSignInService.shared.signOut()
+                            do {
+                                try AuthService.shared.signOut()
+                            } catch {
+                            }
+                        }) {
+                            HStack {
+                                Image(systemName: "arrow.right.square.fill")
+                                    .foregroundColor(.red)
+                                Text("Log ud")
+                                    .foregroundColor(.red)
+                            }
                         }
                     }
                 }
             }
-            .navigationTitle("Settings")
+            .navigationTitle("Indstillinger")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
+                    Button("Færdig") {
                         dismiss()
                     }
                 }
             }
         }
-        .sheet(isPresented: $showReadingHistory) {
-            ReadingHistoryView()
-        }
-        .sheet(isPresented: $showSavedArticles) {
-            NavigationView {
-                FavoritesView()
-                    .environmentObject(viewModel)
+        .onAppear {
+            loadNotificationChoices()
+            notificationService.refreshAuthorizationStatus()
+            Task {
+                await applyNotificationChoices()
             }
-        }
-        .sheet(isPresented: $showReadingTime) {
-            ReadingTimeView()
         }
         .sheet(isPresented: $showDarkModeOptions) {
             DarkModeOptionsView()
-        }
-        .sheet(isPresented: $showCacheOptions) {
-            CacheOptionsView()
         }
         .sheet(isPresented: $showHelpSupport) {
             HelpSupportView()
         }
         .sheet(isPresented: $showContactUs) {
             ContactUsView()
+        }
+        .sheet(isPresented: $showLoginSheet) {
+            LoginSheetView(isPresented: $showLoginSheet)
+        }
+    }
+
+    @ViewBuilder
+    private var accountAvatar: some View {
+        if let photoURL = userManager.currentUser?.photoURL,
+           !photoURL.isEmpty,
+           let url = URL(string: photoURL) {
+            AsyncImage(url: url) { image in
+                image
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } placeholder: {
+                Image(systemName: "person.circle.fill")
+                    .font(.system(size: 50))
+                    .foregroundColor(.blue)
+            }
+            .frame(width: 50, height: 50)
+            .clipShape(Circle())
+        } else if userManager.currentUser != nil {
+            Image(systemName: "person.circle.fill")
+                .font(.system(size: 50))
+                .foregroundColor(.blue)
+                .frame(width: 50, height: 50)
+                .clipShape(Circle())
+        } else {
+            Image("DefaultProfileAvatar")
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: 50, height: 50)
+                .clipShape(Circle())
+        }
+    }
+
+    private var accountTitle: String {
+        userManager.currentUser?.displayName ?? "Log ind eller opret en bruger"
+    }
+
+    private var accountSubtitle: String? {
+        if let email = userManager.currentUser?.email, !email.isEmpty {
+            return email
+        }
+        if userManager.currentUser == nil {
+            return "Synk dine gemte artikler på tværs af enheder"
+        }
+        return nil
+    }
+
+    private func loadNotificationChoices() {
+        if let user = userManager.currentUser {
+            notificationPreferences = user.notificationPreferences
+            selectedNotificationCategoryIds = Set(user.favoriteCategories)
+        } else {
+            let (preferences, categoryIds) = notificationService.loadPersistedArticleNotificationSettings()
+            notificationPreferences = preferences
+            selectedNotificationCategoryIds = Set(categoryIds)
+        }
+    }
+
+    private func applyNotificationChoices() async {
+        if var user = userManager.currentUser {
+            user.notificationPreferences = notificationPreferences
+            user.favoriteCategories = Array(selectedNotificationCategoryIds)
+            userManager.saveUserProfile(user)
+        }
+
+        await notificationService.activateArticlePushNotifications(
+            preferences: notificationPreferences,
+            selectedCategoryIds: Array(selectedNotificationCategoryIds),
+            allCategoryIds: viewModel.topics.map(\.id)
+        )
+    }
+
+    private func saveNotificationChoices() {
+        notificationService.persistArticleNotificationSettings(
+            preferences: notificationPreferences,
+            selectedCategoryIds: Array(selectedNotificationCategoryIds)
+        )
+
+        Task {
+            await applyNotificationChoices()
         }
     }
 }
@@ -455,11 +569,11 @@ struct ReadingHistoryView: View {
                     }
                 }
             }
-            .navigationTitle("Reading History")
+            .navigationTitle("Læsehistorik")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
+                    Button("Færdig") {
                         dismiss()
                     }
                 }
@@ -477,27 +591,27 @@ struct ReadingTimeView: View {
                 VStack(spacing: 8) {
                     Text("📚")
                         .font(.system(size: 60))
-                    Text("Reading Statistics")
+                    Text("Læseoverblik")
                         .font(.title2)
                         .fontWeight(.semibold)
                 }
                 
                 VStack(spacing: 16) {
-                    ReadingStatCard(title: "Total Reading Time", value: "24h 32m", icon: "clock.fill")
-                    ReadingStatCard(title: "Articles Read", value: "47", icon: "book.fill")
-                    ReadingStatCard(title: "Average per Article", value: "31m", icon: "timer")
-                    ReadingStatCard(title: "This Week", value: "8h 15m", icon: "calendar")
+                    ReadingStatCard(title: "Samlet læsetid", value: "24t 32m", icon: "clock.fill")
+                    ReadingStatCard(title: "Læste artikler", value: "47", icon: "book.fill")
+                    ReadingStatCard(title: "Gennemsnit pr. artikel", value: "31m", icon: "timer")
+                    ReadingStatCard(title: "Denne uge", value: "8t 15m", icon: "calendar")
                 }
                 .padding(.horizontal)
                 
                 Spacer()
             }
             .padding()
-            .navigationTitle("Reading Time")
+            .navigationTitle("Læsetid")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
+                    Button("Færdig") {
                         dismiss()
                     }
                 }
@@ -566,11 +680,11 @@ struct DarkModeOptionsView: View {
                     .buttonStyle(PlainButtonStyle())
                 }
             }
-            .navigationTitle("Theme")
+            .navigationTitle("Tema")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
+                    Button("Færdig") {
                         dismiss()
                     }
                 }
@@ -590,14 +704,14 @@ struct CacheOptionsView: View {
                 VStack(spacing: 8) {
                     Text("🗂️")
                         .font(.system(size: 60))
-                    Text("Cache Management")
+                    Text("Cache")
                         .font(.title2)
                         .fontWeight(.semibold)
                 }
                 
                 VStack(spacing: 16) {
                     HStack {
-                        Text("Cache Size:")
+                        Text("Cache-størrelse:")
                             .font(.headline)
                         Spacer()
                         Text(cacheSize)
@@ -618,7 +732,7 @@ struct CacheOptionsView: View {
                             } else {
                                 Image(systemName: "trash.fill")
                             }
-                            Text(isClearing ? "Clearing..." : "Clear Cache")
+                            Text(isClearing ? "Rydder..." : "Ryd cache")
                         }
                         .frame(maxWidth: .infinity)
                         .padding()
@@ -637,7 +751,7 @@ struct CacheOptionsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
+                    Button("Færdig") {
                         dismiss()
                     }
                 }
@@ -661,10 +775,10 @@ struct HelpSupportView: View {
     var body: some View {
         NavigationView {
             List {
-                Section("Frequently Asked Questions") {
-                    HelpRow(title: "How do I save articles?", subtitle: "Tap the bookmark icon on any article")
-                    HelpRow(title: "Can I read offline?", subtitle: "Yes, saved articles are available offline")
-                    HelpRow(title: "How do I change notifications?", subtitle: "Go to Settings > Notifications")
+                Section("Ofte stillede spørgsmål") {
+                    HelpRow(title: "Hvordan gemmer jeg artikler?", subtitle: "Tryk på bogmærkeikonet på en artikel")
+                    HelpRow(title: "Kan jeg læse offline?", subtitle: "Ja, gemte artikler er tilgængelige offline")
+                    HelpRow(title: "Hvordan ændrer jeg notifikationer?", subtitle: "Gå til Indstillinger > Notifikationer")
                 }
                 
                 Section("Contact Support") {
@@ -673,16 +787,16 @@ struct HelpSupportView: View {
                             UIApplication.shared.open(url)
                         }
                     }) {
-                        HelpRow(title: "Email Support", subtitle: "support@aproposmagazine.com")
+                        HelpRow(title: "E-mail support", subtitle: "support@aproposmagazine.com")
                     }
                     .buttonStyle(PlainButtonStyle())
                 }
             }
-            .navigationTitle("Help & Support")
+            .navigationTitle("Hjælp og support")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
+                    Button("Færdig") {
                         dismiss()
                     }
                 }
@@ -718,7 +832,7 @@ struct ContactUsView: View {
                 VStack(spacing: 8) {
                     Text("📧")
                         .font(.system(size: 60))
-                    Text("Contact Us")
+                    Text("Kontakt os")
                         .font(.title2)
                         .fontWeight(.semibold)
                 }
@@ -757,11 +871,11 @@ struct ContactUsView: View {
                 Spacer()
             }
             .padding()
-            .navigationTitle("Contact Us")
+            .navigationTitle("Kontakt os")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
+                    Button("Færdig") {
                         dismiss()
                     }
                 }
@@ -777,6 +891,65 @@ struct ContactUsView: View {
             message = ""
             dismiss()
         }
+    }
+}
+
+// MARK: - Login Sheet
+
+struct LoginSheetView: View {
+    @Binding var isPresented: Bool
+    @ObservedObject private var userManager = UserManager.shared
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 24) {
+                Spacer()
+
+                Image("DefaultProfileAvatar")
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 88, height: 88)
+                    .clipShape(Circle())
+
+                VStack(spacing: 12) {
+                    Text("Log ind")
+                        .font(.title2.bold())
+
+                    Text("Log ind for at gemme artikler og synkronisere på tværs af dine enheder.")
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 8)
+                }
+
+                Spacer()
+
+                GoogleSignInButton()
+                    .padding(.horizontal, 24)
+
+                Button("Annuller") {
+                    dismiss()
+                }
+                .foregroundStyle(.secondary)
+                .padding(.bottom, 24)
+            }
+            .padding(.top, 24)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Luk") {
+                        dismiss()
+                    }
+                }
+            }
+            .onChange(of: userManager.currentUser?.uid) { _, newValue in
+                if newValue != nil {
+                    isPresented = false
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
     }
 }
 

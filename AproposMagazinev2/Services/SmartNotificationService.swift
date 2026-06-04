@@ -22,13 +22,13 @@ class SmartNotificationService: NSObject, ObservableObject {
     // MARK: - Authorization
     
     func requestAuthorization() async {
-        await notificationService.requestAuthorization()
+        let authorized = await notificationService.requestAuthorization()
         
         await MainActor.run {
-            self.isAuthorized = self.notificationService.isAuthorized
+            self.isAuthorized = authorized
         }
         
-        if isAuthorized {
+        if authorized {
             HapticManager.shared.success()
         } else {
             logger.warning("Push-autorisation blev ikke givet.")

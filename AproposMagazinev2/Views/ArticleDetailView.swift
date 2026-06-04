@@ -3,6 +3,38 @@ import SDWebImageSwiftUI
 import UIKit
 import WebKit
 
+private struct ArticleStarRatingView: View {
+    let rating: Int
+    let maxRating: Int
+    @Environment(\.colorScheme) private var colorScheme
+
+    init(rating: Int, maxRating: Int = 6) {
+        self.rating = max(0, min(rating, maxRating))
+        self.maxRating = maxRating
+    }
+
+    private var filledColor: Color {
+        colorScheme == .dark ? .white : Color.black.opacity(0.92)
+    }
+
+    private var emptyColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.22) : Color.black.opacity(0.14)
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(1...maxRating, id: \.self) { index in
+                Image(systemName: "star.fill")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(index <= rating ? filledColor : emptyColor)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(rating) ud af \(maxRating) stjerner")
+    }
+}
+
 struct ContentHeightKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
@@ -89,9 +121,9 @@ struct TrailerWebView: UIViewRepresentable {
                 return
             }
             
-            // Block about:blank navigation
+            // WebKit uses about:blank internally when loading inline HTML.
             if url.absoluteString == "about:blank" {
-                decisionHandler(.cancel)
+                decisionHandler(.allow)
                 return
             }
             
@@ -257,57 +289,32 @@ struct ArticleDetailView: View {
     }
     var relatedArticles: [Article] = []
     @EnvironmentObject var viewModel: ArticleViewModel
+    private let podcastPlayerManager = PodcastPlayerManager.shared
     // @Environment(\.navigateToHome) private var navigateToHome
     @State private var htmlHeight: CGFloat = 100
     @State private var didLoadFullArticle = false
+    @State private var shouldRenderHeavyContent = false
+    @State private var shouldShowRelatedArticles = false
     @State private var showShareSheet = false
     @State private var shareURL: URL?
-    @State private var scrollOffset: CGFloat = 0
+    @State private var showGlassTopBar = false
     @State private var intelligentRelatedArticles: [Article] = []
+    @State private var displayCategories: [String] = []
     
-    private var progress: CGFloat {
-        // 0 → 1 når man har scrollet 5 pixels (meget responsiv effekt)
-        let threshold: CGFloat = 5
-        let p = min(max(scrollOffset / threshold, 0), 1)
-        return p // direkte progress
-    }
+    private var progress: CGFloat { showGlassTopBar ? 1 : 0 }
     let optionId = "b9a5ef043f1f58db54c41ed6fe3e746e"
     
     // Computed property for intelligent related articles
     private var bestRelatedArticles: [Article] {
-        if !intelligentRelatedArticles.isEmpty {
-            return Array(intelligentRelatedArticles.prefix(3))
-        }
-        // Fallback to simple category-based filtering
-        guard !viewModel.articles.isEmpty else {
-            return []
-        }
-        
-        return viewModel.articles
-            .filter { $0.id != article.id }
-            .filter { relatedArticle in
-                // Same category/topic
-                if let articleTopic = article.topicID,
-                   let relatedTopic = relatedArticle.topicID,
-                   articleTopic == relatedTopic {
-                    return true
-                }
-                // Same author
-                if let articleAuthor = article.authorID,
-                   let relatedAuthor = relatedArticle.authorID,
-                   articleAuthor == relatedAuthor {
-                    return true
-                }
-                // Similar topics
-                let articleTopics = Set(article.topicsIDs ?? [])
-                let relatedTopics = Set(relatedArticle.topicsIDs ?? [])
-                if !articleTopics.intersection(relatedTopics).isEmpty {
-                    return true
-                }
-                return false
-            }
-            .prefix(3)
-            .map { $0 }
+        Array(intelligentRelatedArticles.prefix(3))
+    }
+
+    private var latestPodcastEpisode: PodcastEpisode? {
+        PodcastRepository.shared.episode(for: resolvedArticle)
+    }
+    
+    private var resolvedArticle: Article {
+        viewModel.articles.first(where: { $0.id == article.id }) ?? article
     }
     
     var body: some View {
@@ -393,8 +400,12 @@ struct ArticleDetailView: View {
                     Color.clear
                         .frame(height: 0.1)
                         .onChange(of: geo.frame(in: .named("scroll")).minY) { _, newValue in
-                            // newValue is negative when scrolling down, so we make it positive
-                            scrollOffset = max(0, -newValue)
+                            let shouldShow = newValue < -16
+                            if shouldShow != showGlassTopBar {
+                                withAnimation(.easeOut(duration: 0.16)) {
+                                    showGlassTopBar = shouldShow
+                                }
+                            }
                         }
                 }
                 .frame(height: 0.1)
@@ -404,7 +415,7 @@ struct ArticleDetailView: View {
                     Spacer().frame(height: 50)
                     
                     // ✅ All your content - Dynamic categories from CMS
-                    Text(viewModel.categories(for: article).joined(separator: " | "))
+                    Text(displayCategories.joined(separator: " | "))
                         .font(.custom("SFProText-Semibold", size: 15))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
@@ -412,7 +423,7 @@ struct ArticleDetailView: View {
                         .frame(maxWidth: .infinity, alignment: .center)
                     
                     // Safety check for article name
-                    if let articleName = article.name, !articleName.isEmpty {
+                    if let articleName = resolvedArticle.name, !articleName.isEmpty {
                         Text(articleName)
                             .font(.custom("SFProText-Bold", size: 34).bold())
                             .lineSpacing(4) // Reduced from 8 to 4 for even tighter spacing
@@ -422,7 +433,7 @@ struct ArticleDetailView: View {
                             .padding(.horizontal)
                     }
                     
-                    if let subtitle = article.subtitle, !subtitle.isEmpty {
+                    if let subtitle = resolvedArticle.subtitle, !subtitle.isEmpty {
                         Text(subtitle)
                             .font(.custom("SFProText-Medium", size: 18))
                             .foregroundColor(textColor)
@@ -432,15 +443,8 @@ struct ArticleDetailView: View {
                     }
                     
                     // Only show stars if there's a rating
-                    if let rating = article.stjerne, rating > 0 {
-                        HStack(spacing: 1.5) {
-                            ForEach(0..<6) { index in
-                                Image(index < rating ? "DarkStar" : "DimStar")
-                                    .resizable()
-                                    .frame(width: 18, height: 18)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .center)
+                    if let rating = resolvedArticle.stjerne, rating > 0 {
+                        ArticleStarRatingView(rating: rating, maxRating: 6)
                         .padding(.top, -5)
                     }
 
@@ -448,7 +452,7 @@ struct ArticleDetailView: View {
                     VStack(spacing: 8) {
                         HStack(spacing: 8) {
                             // Show author if available
-                            if let authorName = article.author?.name, !authorName.isEmpty {
+                            if let authorName = resolvedArticle.author?.name, !authorName.isEmpty {
                                 Text(authorName)
                                     .font(.caption.weight(.semibold))
                                     .foregroundColor(.white)
@@ -460,7 +464,7 @@ struct ArticleDetailView: View {
                             }
 
                             // Display real category names from the article
-                            ForEach(viewModel.categories(for: article), id: \.self) { category in
+                            ForEach(displayCategories, id: \.self) { category in
                                 if !category.isEmpty {
                                     Text(category.uppercased())
                                         .font(.caption.weight(.semibold))
@@ -477,27 +481,61 @@ struct ArticleDetailView: View {
                     }
                     .padding(.top, 5)
 
+                    if let episode = latestPodcastEpisode {
+                        HStack {
+                            Spacer()
+                            Button {
+                                openPodcast(for: episode)
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "headphones")
+                                        .font(.caption.weight(.semibold))
+                                    Text("Lyt til artiklen")
+                                        .font(.caption.weight(.semibold))
+                                        .textCase(.uppercase)
+                                }
+                                .foregroundColor(.white)
+                                .frame(height: 28)
+                                .padding(.horizontal, 12)
+                                .background(Color(hex: "#262626"))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .stroke(Color.white.opacity(0.18), lineWidth: 0.6)
+                                )
+                                .cornerRadius(10)
+                                .shadow(color: .black.opacity(colorScheme == .dark ? 0.3 : 0.15), radius: 6, x: 0, y: 3)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                            Spacer()
+                        }
+                        .padding(.top, 2)
+                    }
+
                     Spacer()
 
                     // Safety check for thumbnail URL
-                    var mutableArticle = article
+                    var mutableArticle = resolvedArticle
                     let thumbnailURL = mutableArticle.thumbnailURL
-                    if !thumbnailURL.isEmpty,
-                       let url = URL(string: thumbnailURL),
-                       UIApplication.shared.canOpenURL(url) {
-                        WebImage(url: url, options: [.retryFailed, .refreshCached, .avoidAutoSetImage])
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(maxWidth: .infinity, minHeight: 200, maxHeight: 320)
-                            .clipped()
-                    }
+                    ZStack {
+                        ArticleImagePlaceholder(showShimmer: true, cornerRadius: 14)
 
-                    if let imageCaption = article.intro, !imageCaption.isEmpty {
+                        if let url = URL(string: thumbnailURL), !thumbnailURL.isEmpty {
+                            WebImage(url: url, options: [.retryFailed, .refreshCached])
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 220, maxHeight: 340)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .padding(.horizontal, 16)
+
+                    if let imageCaption = resolvedArticle.intro, !imageCaption.isEmpty {
                         Text(imageCaption)
                             .font(.custom("SFProText-Medium", size: 20))
                             .foregroundColor(textColor)
                             .kerning(-0.43)
-                            .padding(.horizontal)
+                            .lineSpacing(6)
+                            .padding(.horizontal, 16)
                             .multilineTextAlignment(.leading)
                     }
                     
@@ -516,16 +554,13 @@ struct ArticleDetailView: View {
                     .padding(.horizontal)
                     .padding(.bottom, 20)
                     
-                    if let content = article.content, !content.isEmpty {
+                    if shouldRenderHeavyContent, let content = resolvedArticle.content, !content.isEmpty {
                         HTMLTextView(html: content, dynamicHeight: $htmlHeight)
-                            .frame(height: max(htmlHeight, 1200)) // Øget minimum højde for at sikre scrolling
+                            .frame(height: max(htmlHeight, 240))
                             .padding(.horizontal, 16)
                             .padding(.bottom, 10)
-                            
-                            
 
-                        // Trailer / Video after content if present
-                        if let trailer = article.trailer, !trailer.isEmpty {
+                        if let trailer = resolvedArticle.trailer, !trailer.isEmpty {
                             LazyVStack {
                                 TrailerWebView(trailer: trailer)
                                     .frame(height: 220)
@@ -534,7 +569,6 @@ struct ArticleDetailView: View {
                             }
                             .padding(.top, 10)
                             .padding(.horizontal, 16)
-                            // Pæn separator mellem trailer og tekst
                             Rectangle()
                                 .fill(Color.gray.opacity(0.3))
                                 .frame(height: 1)
@@ -542,20 +576,25 @@ struct ArticleDetailView: View {
                                 .padding(.horizontal, 16)
                         }
 
-                        //MARK: Author card detail view
-                        if let authorID = article.authorID, !authorID.isEmpty {
+                        if let authorID = resolvedArticle.authorID, !authorID.isEmpty {
                             AuthorCardView(authorID: authorID)
                                 .padding(.horizontal, 16)
                         }
-                        
-                        Text("Related Articles")
+                    } else if !shouldRenderHeavyContent {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 32)
+                    }
+
+                    if shouldShowRelatedArticles && !bestRelatedArticles.isEmpty {
+                        Text("Læs også")
                             .foregroundColor(Color("SerialNumberColorBOX"))
                             .font(.custom("SFProDisplay-Bold", size: 25))
                             .padding(.leading, 16)
                             .padding(.bottom, 0)
 
                         ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 16) {
+                            HStack(alignment: .top, spacing: 16) {
                                 ForEach(bestRelatedArticles, id: \.id) { article in
                                     RelatedArticleCard(article: article)
                                 }
@@ -580,27 +619,45 @@ struct ArticleDetailView: View {
                 ActivityView(activityItems: [shareText, url])
             }
         }
-        .onAppear {
+        .task(id: article.id) {
+            shouldRenderHeavyContent = false
+            shouldShowRelatedArticles = false
+            htmlHeight = 240
+            
+            let resolvedCategories = viewModel.categories(for: resolvedArticle)
+            displayCategories = resolvedCategories.isEmpty ? ["Generelt"] : resolvedCategories
+            
+            if let articleURL = URL(string: "https://aproposmagazine.com/article/\(article.id)") {
+                shareURL = articleURL
+            }
+            
             if !didLoadFullArticle {
                 didLoadFullArticle = true
                 viewModel.loadFullArticle(with: article.id)
             }
             
-            // Set up share URL for the article
-            if let articleURL = URL(string: "https://aproposmagazine.com/article/\(article.id)") {
-                shareURL = articleURL
-            }
+            await Task.yield()
+            shouldRenderHeavyContent = true
             
-            // Generate intelligent related articles
-            DispatchQueue.main.async {
-                generateIntelligentRelatedArticles()
-            }
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            generateIntelligentRelatedArticles()
+            shouldShowRelatedArticles = true
+        }
+        .onChange(of: viewModel.topics.count) { _, _ in
+            let refreshedCategories = viewModel.categories(for: resolvedArticle)
+            displayCategories = refreshedCategories.isEmpty ? ["Generelt"] : refreshedCategories
+        }
+        .onChange(of: viewModel.articles.count) { _, _ in
+            generateIntelligentRelatedArticles()
         }
     }
 }
 
 // MARK: - Helper Functions
 extension ArticleDetailView {
+    private func openPodcast(for episode: PodcastEpisode) {
+        podcastPlayerManager.play(episode: episode)
+    }
     
     // Generate intelligent related articles using RecommendationEngine
     private func generateIntelligentRelatedArticles() {
@@ -612,16 +669,14 @@ extension ArticleDetailView {
         
         // Temporarily use only category-based filtering until RecommendationEngine is fixed
         let relatedArticles = viewModel.articles
-            .filter { $0.id != article.id }
+            .filter { $0.id != resolvedArticle.id }
             .filter { relatedArticle in
-                // Same category/topic
-                if let articleTopic = article.topicID,
+                if let articleTopic = resolvedArticle.topicID,
                    let relatedTopic = relatedArticle.topicID,
                    articleTopic == relatedTopic {
                     return true
                 }
-                // Same author
-                if let articleAuthor = article.authorID,
+                if let articleAuthor = resolvedArticle.authorID,
                    let relatedAuthor = relatedArticle.authorID,
                    articleAuthor == relatedAuthor {
                     return true
@@ -635,37 +690,37 @@ extension ArticleDetailView {
     
     // Helper function to create rich share text
     private func createRichShareText() -> String {
-        var shareText = "📰 \(article.name ?? "Artikel")"
+        var shareText = "📰 \(resolvedArticle.name ?? "Artikel")"
         
         // Add subtitle if available
-        if let subtitle = article.subtitle {
+        if let subtitle = resolvedArticle.subtitle {
             shareText += "\n\n\(subtitle)"
         }
         
         // Add intro if available (truncated for better preview)
-        if let intro = article.intro {
+        if let intro = resolvedArticle.intro {
             let truncatedIntro = intro.count > 150 ? String(intro.prefix(150)) + "..." : intro
             shareText += "\n\n\(truncatedIntro)"
         }
         
         // Add author if available
-        if let authorName = article.author?.name {
+        if let authorName = resolvedArticle.author?.name {
             shareText += "\n\n👤 Af: \(authorName)"
         }
         
         // Add rating if available
-        if let stjerne = article.stjerne {
+        if let stjerne = resolvedArticle.stjerne {
             shareText += "\n\n⭐ \(stjerne)"
         }
         
         // Add categories
-        let categories = viewModel.categories(for: article)
+        let categories = viewModel.categories(for: resolvedArticle)
         if !categories.isEmpty {
             shareText += "\n\n🏷️ \(categories.joined(separator: ", "))"
         }
         
         // Add location if available
-        if let location = article.location {
+        if let location = resolvedArticle.location {
             shareText += "\n\n📍 \(location)"
         }
         
@@ -685,23 +740,36 @@ struct RelatedArticleCard: View {
     var body: some View {
         NavigationLink(value: article) {
             VStack(alignment: .leading, spacing: 8) {
-                if let imageURL = article.thumbURL ?? article.coverURL {
-                    WebImage(url: imageURL)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(width: 200, height: 120)
-                        .clipped()
-                }
+                relatedImage
                 
                 Text(article.name ?? "")
                     .font(.custom("SFProText-Bold", size: 14))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
+                    .frame(width: 200, height: 40, alignment: .topLeading)
             }
-            .frame(width: 200)
+            .frame(width: 200, alignment: .topLeading)
         }
         .buttonStyle(PlainButtonStyle())
+    }
+
+    @ViewBuilder
+    private var relatedImage: some View {
+        var mutableArticle = article
+        let thumbnailURL = mutableArticle.thumbnailURL
+
+        ZStack {
+            ArticleImagePlaceholder(showShimmer: true, cornerRadius: 8)
+
+            if let imageURL = URL(string: thumbnailURL), !thumbnailURL.isEmpty {
+                WebImage(url: imageURL, options: [.retryFailed, .scaleDownLargeImages])
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            }
+        }
+        .frame(width: 200, height: 120)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 

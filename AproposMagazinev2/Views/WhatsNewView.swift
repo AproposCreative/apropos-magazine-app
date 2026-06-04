@@ -47,12 +47,12 @@ struct WhatsNewView: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(spacing: 16) {
-                Text("Velkommen til Apropos Magazine")
+                Text("Hvad er nyt")
                     .font(.system(.largeTitle, weight: .bold))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 12)
                 
-                Text("Her er alle de nye features og forbedringer")
+                Text(sortedEntries.first?.subtitle ?? "Her er de seneste forbedringer i appen")
                     .font(.system(.subheadline, weight: .medium))
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
@@ -124,15 +124,29 @@ private struct WhatsNewVersionSection: View {
 
 private struct WhatsNewRow: View {
     let item: WhatsNewItem
+    @Environment(\.colorScheme) private var colorScheme
+    
+    private var resolvedSymbolName: String {
+        guard UIImage(systemName: item.icon) != nil else { return "sparkles" }
+        return item.icon
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
-            Image(systemName: item.icon)
-                .font(.system(size: 26, weight: .semibold))
-                .frame(width: 44, height: 44)
-                .background(Color.accentColor.opacity(0.15))
-                .foregroundStyle(Color.accentColor)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            ZStack {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.06))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                    )
+                
+                Image(systemName: resolvedSymbolName)
+                    .font(.system(size: 22, weight: .semibold))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(colorScheme == .dark ? Color.white : Color.black.opacity(0.85))
+            }
+            .frame(width: 44, height: 44)
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(item.title)

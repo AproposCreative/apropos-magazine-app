@@ -24,7 +24,6 @@ struct SwipeBackConfiguration {
     static let excludedViews: Set<String> = [
         "HomeView",
         "FavoritesView", 
-        "ProfileView",
         "CategoriesView"
     ]
 }

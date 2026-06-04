@@ -5,7 +5,7 @@ import GoogleSignIn
 import UIKit
 import OSLog
 import SwiftUI
-import AVFoundation
+import SDWebImage
 
 @objc final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate, MessagingDelegate {
     
@@ -16,64 +16,67 @@ import AVFoundation
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
 
-        // Configure audio session to mix with other audio (don't stop music)
-        do {
-            let audioSession = AVAudioSession.sharedInstance()
-            try audioSession.setCategory(.ambient, mode: .default, options: [.mixWithOthers])
-            try audioSession.setActive(true)
-        } catch {
-            logger.error("Kunne ikke konfigurere audio session: \(error.localizedDescription, privacy: .public)")
-        }
-        
-        // Ensure Firebase is configured
-        if FirebaseApp.app() == nil {
-            FirebaseApp.configure()
-        }
-        
-        // Configure Firestore persistence BEFORE any Firestore operations
-        // This must be done before any Firestore instance is used
+        FirebaseConfiguration.shared.setLoggerLevel(.min)
+        FirebaseApp.configure()
+        // Must be configured before any Firestore usage in the process.
         FirestoreService.shared.configurePersistenceIfNeeded()
-        
+        FeatureFlags.registerDefaults()
+        configureGlobalImageCaching()
+        application.beginReceivingRemoteControlEvents()
+        AppDiagnostics.breadcrumb("app_launch")
+
         // Set up notification delegate
         UNUserNotificationCenter.current().delegate = self
-        
-        // Setup notification categories (including NEW_ARTICLE for rich notifications)
-        SmartNotificationService.shared.setupNotificationCategories()
-        
-        // Request notification permissions with a longer delay to ensure app is fully loaded
+
+        // Configure Google Sign-In
+        GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: "817066738308-q8pdk1q5b9t9ugopjh67i2n2lau9k3sm.apps.googleusercontent.com")
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            SmartNotificationService.shared.setupNotificationCategories()
+            Messaging.messaging().isAutoInitEnabled = true
+            Messaging.messaging().delegate = self
+        }
+
+        // Register only if the user has already granted permission. The prompt is shown from Settings.
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-            // First check current authorization status
             UNUserNotificationCenter.current().getNotificationSettings { settings in
-                // Only request if not already authorized
-                if settings.authorizationStatus == .notDetermined {
-                    UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound, .provisional]) { granted, error in
-                        DispatchQueue.main.async {
-                            if granted {
-                                application.registerForRemoteNotifications()
-                            } else {
-                                if let error {
-                                    self.logger.error("Notifikationstilladelse afvist: \(error.localizedDescription, privacy: .public)")
-                                }
-                            }
-                        }
+                let authorized = settings.authorizationStatus == .authorized
+                    || settings.authorizationStatus == .provisional
+                guard authorized else { return }
+                
+                DispatchQueue.main.async {
+                    application.registerForRemoteNotifications()
+                    Task { @MainActor in
+                        await NotificationService.shared.bootstrapPushNotifications()
                     }
-                } else if settings.authorizationStatus == .authorized {
-                    DispatchQueue.main.async {
-                        application.registerForRemoteNotifications()
-                    }
-                } else if settings.authorizationStatus == .denied {
-                    // Don't try to register for remote notifications if denied
                 }
             }
         }
 
-        // Set up FCM delegate
-        Messaging.messaging().delegate = self
-        
-        // Configure Google Sign-In
-        GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: "817066738308-q8pdk1q5b9t9ugopjh67i2n2lau9k3sm.apps.googleusercontent.com")
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-TriggerTestNotification") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) {
+                Task { @MainActor in
+                    await NotificationService.shared.sendTestLocalNotificationAfterAuthorization(delay: 2)
+                }
+            }
+        }
+        #endif
 
         return true
+    }
+
+    private func configureGlobalImageCaching() {
+        let cacheConfig = SDImageCache.shared.config
+        cacheConfig.maxMemoryCost = 60 * 1024 * 1024
+        cacheConfig.maxDiskSize = 350 * 1024 * 1024
+        cacheConfig.maxDiskAge = 30 * 24 * 60 * 60
+        cacheConfig.shouldUseWeakMemoryCache = true
+
+        let downloaderConfig = SDWebImageDownloader.shared.config
+        downloaderConfig.maxConcurrentDownloads = 4
+        downloaderConfig.executionOrder = .lifoExecutionOrder
+        downloaderConfig.downloadTimeout = 15
     }
 
     // APNs token -> FCM
@@ -91,6 +94,7 @@ import AVFoundation
                 // Update the NotificationService
                 DispatchQueue.main.async {
                     NotificationService.shared.fcmToken = token
+                    NotificationService.shared.syncPersistedArticleNotificationSubscriptions()
                     
                     // Update token on server if user is logged in
                     if UserManager.shared.currentUser != nil {
@@ -116,6 +120,7 @@ import AVFoundation
             // Update NotificationService
             DispatchQueue.main.async {
                 NotificationService.shared.fcmToken = token
+                NotificationService.shared.syncPersistedArticleNotificationSubscriptions()
                 
                 // Update token on server if user is logged in
                 if UserManager.shared.currentUser != nil {
@@ -128,10 +133,6 @@ import AVFoundation
     // Handle notification when app is in foreground
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
-        logger.debug("Notifikation i forgrund: \(notification.request.content.title, privacy: .public)")
-        logger.debug("Indhold: \(notification.request.content.body, privacy: .public)")
-        logger.debug("userInfo: \(notification.request.content.userInfo, privacy: .public)")
-        
         // Check if this is a duplicate notification for an already published article
         let userInfo = notification.request.content.userInfo
         
@@ -146,7 +147,6 @@ import AVFoundation
         // If we have an article_id, check if article is already published
         if let articleId = articleId {
             if await isArticleAlreadyPublished(articleId: articleId) {
-                logger.info("Ignorerer notifikation - artikel \(articleId, privacy: .public) er allerede udgivet")
                 return [] // Don't show notification
             }
         }
@@ -208,12 +208,10 @@ import AVFoundation
                     )
                 }
             } else {
-                logger.warning("Action notifikation mangler article_id eller article_slug i userInfo. userInfo: \(userInfo, privacy: .public)")
             }
             
         case "VIEW_RECOMMENDATIONS":
             // "Se anbefalinger" action - navigate to recommendations
-            logger.info("Åbner anbefalinger fra action")
             await MainActor.run {
                 NotificationCenter.default.post(
                     name: NSNotification.Name("NavigateToRecommendations"),
@@ -224,7 +222,6 @@ import AVFoundation
         case "VIEW_FESTIVAL_GUIDE":
             // "Se guide" action - navigate to festival guide
             if let festivalId = userInfo["festival_id"] as? String {
-                logger.info("Åbner festival guide fra action: \(festivalId, privacy: .public)")
                 await MainActor.run {
                     NotificationCenter.default.post(
                         name: NSNotification.Name("NavigateToFestivalGuide"),
@@ -274,12 +271,11 @@ import AVFoundation
                     )
                 }
             } else {
-                logger.warning("Notifikation mangler article_id, article_slug og article_name i userInfo. userInfo: \(userInfo, privacy: .public)")
             }
             
         default:
             // Other actions or dismissed
-            logger.debug("Notifikation håndteret med action: \(actionIdentifier, privacy: .public)")
+            break
         }
     }
     
@@ -292,8 +288,6 @@ import AVFoundation
         
         // Handle deep links (aproposmagazine://)
         if url.scheme == "aproposmagazine" || url.host == "aproposmagazine.com" {
-            logger.info("Deep link modtaget: \(url.absoluteString, privacy: .public)")
-            
             // Post notification to handle deep link
             // NavigationCoordinator will pick this up in ContentView
             DispatchQueue.main.async {
@@ -311,48 +305,44 @@ import AVFoundation
     
     // MARK: - Application Lifecycle
     func applicationDidEnterBackground(_ application: UIApplication) {
-        logger.debug("App entered background.")
+        AppDiagnostics.breadcrumb("app_background")
     }
     
     func applicationWillEnterForeground(_ application: UIApplication) {
-        logger.debug("App will enter foreground.")
+        AppDiagnostics.breadcrumb("app_foreground")
+        Task { @MainActor in
+            await NotificationService.shared.bootstrapPushNotifications()
+            await PodcastRepository.shared.refreshManifest()
+        }
     }
     
     func applicationDidBecomeActive(_ application: UIApplication) {
-        logger.debug("App blev aktiv.")
     }
     
     func applicationWillResignActive(_ application: UIApplication) {
-        logger.debug("App vil blive inaktiv.")
     }
     
     func applicationWillTerminate(_ application: UIApplication) {
-        logger.debug("App terminerer.")
     }
     
     // MARK: - Additional UIApplicationDelegate Methods for Full Conformance
     
     func application(_ application: UIApplication, configurationForConnecting connectingSceneSession: UISceneSession, options: UIScene.ConnectionOptions) -> UISceneConfiguration {
-        logger.debug("Konfigurerer ny scene session.")
-        return UISceneConfiguration(name: "Default Configuration", sessionRole: connectingSceneSession.role)
+        return UISceneConfiguration(name: nil, sessionRole: connectingSceneSession.role)
     }
     
     func application(_ application: UIApplication, didDiscardSceneSessions sceneSessions: Set<UISceneSession>) {
-        logger.debug("Scene session kasseret.")
     }
     
     func application(_ application: UIApplication, performActionFor shortcutItem: UIApplicationShortcutItem, completionHandler: @escaping (Bool) -> Void) {
-        logger.debug("Udfører genvejs-handling: \(shortcutItem.type, privacy: .public)")
         completionHandler(true)
     }
     
     func application(_ application: UIApplication, continue userActivity: NSUserActivity, restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void) -> Bool {
-        logger.debug("Fortsætter user activity: \(userActivity.activityType, privacy: .public)")
         return true
     }
     
     func application(_ application: UIApplication, didUpdate userActivity: NSUserActivity) {
-        logger.debug("Opdaterede user activity: \(userActivity.activityType, privacy: .public)")
     }
     
     func application(_ application: UIApplication, didFailToContinueUserActivityWithType userActivityType: String, error: Error) {
@@ -360,8 +350,6 @@ import AVFoundation
     }
     
     func application(_ application: UIApplication, performFetchWithCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
-        logger.debug("Background fetch startet")
-        
         // Refresh articles in background
         WebflowService.shared.fetchArticles { [weak self] result in
             guard let self = self else {
@@ -374,10 +362,8 @@ import AVFoundation
                 if !articles.isEmpty {
                     // Cache the articles
                     CacheManager.shared.cacheArticles(articles)
-                    self.logger.debug("Background fetch: Opdateret \(articles.count) artikler")
                     completionHandler(.newData)
                 } else {
-                    self.logger.debug("Background fetch: Ingen nye artikler")
                     completionHandler(.noData)
                 }
             case .failure(let error):
@@ -388,7 +374,6 @@ import AVFoundation
     }
     
     func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String, completionHandler: @escaping () -> Void) {
-        logger.debug("Håndterer baggrunds-URL-session: \(identifier, privacy: .public)")
         completionHandler()
     }
 }

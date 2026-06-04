@@ -88,4 +88,3 @@ Følg `QUICK_FIX_GUIDE.md` for at fixe problemet:
 ---
 
 **TL;DR:** Vi oprettede filer udenfor Xcode før vi havde oprettet extension target. Xcode tilføjede dem automatisk til main target, hvilket skabte konflikter. Løsning: Fjern filerne fra forkerte targets i Xcode.
-

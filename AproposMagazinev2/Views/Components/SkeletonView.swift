@@ -84,7 +84,7 @@ struct HeroCardSkeleton: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             // Hero image skeleton
-            SkeletonView(width: nil, height: height, cornerRadius: 12)
+            SkeletonView(width: nil, height: height, cornerRadius: 0)
             
             // Hero title skeleton
             VStack(alignment: .leading, spacing: 8) {
@@ -179,6 +179,7 @@ struct FullPageSkeleton: View {
                 HeroCardSkeleton(height: 300)
                 
                 // Sections skeleton
+                SectionSkeleton(title: "Podcast", itemCount: 3, isHorizontal: false)
                 SectionSkeleton(title: "Anbefalet", itemCount: 6)
                 SectionSkeleton(title: "Anmeldelser", itemCount: 6)
                 SectionSkeleton(title: "Populært", itemCount: 6)

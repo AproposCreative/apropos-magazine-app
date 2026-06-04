@@ -11,12 +11,15 @@ import Shimmer
 
 struct HomeView: View {
     @EnvironmentObject var viewModel: ArticleViewModel
+    @ObservedObject private var podcastRepository = PodcastRepository.shared
+    private let podcastPlayerManager = PodcastPlayerManager.shared
     @Environment(\.navigationCoordinator) private var navigationCoordinator
     // Temporarily removed RecommendationEngine to fix crash
     // @EnvironmentObject var recommendationEngine: RecommendationEngine
     @State private var selectedHero = 0
     @State private var didLoad = false
-    @State private var scrollOffset: CGFloat = 0
+    @State private var showGlassTopBar = false
+    @State private var topSafeAreaInset: CGFloat = 0
     @Environment(\.colorScheme) var colorScheme
     
     init() {
@@ -24,23 +27,28 @@ struct HomeView: View {
     }
     
     private var progress: CGFloat {
-        // 0 → 1 når man har scrollet 5 pixels (meget responsiv effekt)
-        let threshold: CGFloat = 5
-        let p = min(max(scrollOffset / threshold, 0), 1)
-        return p // direkte progress
+        showGlassTopBar ? 1 : 0
     }
     
-    private func starImageName(for index: Int, rating: Int) -> String {
-        let isFilled = index < rating
-        if colorScheme == .dark {
-            return isFilled ? "DarkStar" : "DimStar"
-        } else {
-            return isFilled ? "DimStar" : "DarkStar"
-        }
-    }
-
     private var heroHeight: CGFloat {
         UIScreen.main.bounds.height * 0.7
+    }
+
+    private var recommendedArticles: [Article] {
+        if viewModel.section.count > 1 {
+            return viewModel.section
+        }
+
+        let fallback = viewModel.allSectionArticles.isEmpty ? viewModel.articles : viewModel.allSectionArticles
+        return Array(fallback.prefix(6))
+    }
+
+    private var podcastPairs: [PodcastArticlePair] {
+        PodcastRepository.shared.latestPodcastPairsIncludingPending(from: viewModel.articles, limit: 2)
+    }
+
+    private var allPodcastPairs: [PodcastArticlePair] {
+        PodcastRepository.shared.latestPodcastPairsIncludingPending(from: viewModel.articles, limit: 100)
     }
 
     var body: some View {
@@ -48,20 +56,18 @@ struct HomeView: View {
             // ✅ GLAS-TOPBAR (indhold placeret inden i glass effekt)
             ZStack(alignment: .top) {
                 // 👇 Glass overlay bag ved alt
-                if progress > 0.01 {
+                if showGlassTopBar {
                     Rectangle()
                         .fill(.ultraThinMaterial)
-                        .opacity(progress) // 🔧 START MED 0% OG BLIVER 100% HURTIGT
-                        .frame(height: 104) // 60 + 44 for safe area
+                        .opacity(progress)
+                        .frame(height: topSafeAreaInset + 60)
                         .ignoresSafeArea(edges: .top)
                 }
                 
                 // 👇 Topbar-indhold placeret INDEN i glass effekt - ALTID synligt
                 VStack(spacing: 0) {
-                    // Safe area spacer
-                    Rectangle()
-                        .fill(Color.clear)
-                        .frame(height: 44)
+                    Color.clear
+                        .frame(height: topSafeAreaInset)
                     
                     HStack {
                         Spacer()
@@ -84,34 +90,83 @@ struct HomeView: View {
             .zIndex(1)
             .ignoresSafeArea(edges: .top)
             
-            ScrollView {
-                // Scroll tracking - TOP-PROBE som første barn
-                GeometryReader { geo in
-                    Color.clear
-                        .frame(height: 0.1)
-                        .onChange(of: geo.frame(in: .named("homeScroll")).minY) { _, newValue in
-                            // newValue is negative when scrolling down, so we make it positive
-                            scrollOffset = max(0, -newValue)
-                        }
-                }
-                .frame(height: 0.1)
-                
-                VStack(alignment: .leading) {
-                    if viewModel.isLoading {
-                        FullPageSkeleton()
-                    } else {
-                        contentBody
+            ScrollViewReader { scrollProxy in
+                ScrollView {
+                    // Scroll tracking - TOP-PROBE som første barn
+                    GeometryReader { geo in
+                        Color.clear
+                            .onChange(of: geo.frame(in: .named("homeScroll")).minY) { _, newValue in
+                                let shouldShow = newValue < -16
+                                if shouldShow != showGlassTopBar {
+                                    withAnimation(.easeOut(duration: 0.16)) {
+                                        showGlassTopBar = shouldShow
+                                    }
+                                }
+                            }
                     }
+                    .frame(height: 0)
+                    .id("homeScrollTop")
+
+                    VStack(alignment: .leading) {
+                        if viewModel.isLoading {
+                            FullPageSkeleton()
+                                .padding(.top, -topSafeAreaInset)
+                        } else if viewModel.fetchError != nil && viewModel.articles.isEmpty {
+                            EmptyStateView(
+                                icon: "exclamationmark.triangle.fill",
+                                title: "Kunne ikke hente artikler",
+                                subtitle: "Tjek forbindelsen, eller prøv at opdatere igen.",
+                                actionTitle: "Prøv igen"
+                            ) {
+                                viewModel.fetchArticles(forceRefresh: true)
+                            }
+                            .padding(.top, 160)
+                            .padding(.horizontal, 16)
+                        } else {
+                            contentBody
+                        }
+                    }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .scrollHomeToTop)) { _ in
+                    withAnimation(.easeOut(duration: 0.25)) {
+                        scrollProxy.scrollTo("homeScrollTop", anchor: .top)
+                    }
+                    showGlassTopBar = false
                 }
             }
             .coordinateSpace(name: "homeScroll")
-            .ignoresSafeArea(.container, edges: .top)
+            .scrollContentBackground(.hidden)
+            .contentMargins(.top, 0, for: .scrollContent)
+            .safeAreaPadding(.top, 0)
+            .ignoresSafeArea(edges: .top)
+            .refreshable {
+                async let articles: Void = viewModel.refreshArticles()
+                async let podcasts: Void = podcastRepository.refreshManifest(force: true)
+                _ = await (articles, podcasts)
+            }
         }
+        .background {
+            GeometryReader { geometry in
+                Color.clear
+                    .onAppear {
+                        topSafeAreaInset = geometry.safeAreaInsets.top
+                    }
+                    .onChange(of: geometry.safeAreaInsets.top) { _, newValue in
+                        topSafeAreaInset = newValue
+                    }
+            }
+        }
+        .toolbar(.hidden, for: .navigationBar)
+        .toolbarBackground(.hidden, for: .navigationBar)
         .id("homeTop")
         .onAppear {
             if !didLoad {
                 didLoad = true
                 preloadHeroArticles()
+                preloadVisibleHomeImages()
+            }
+            Task {
+                await podcastRepository.refreshManifest()
             }
         }
     }
@@ -123,15 +178,23 @@ struct HomeView: View {
         guard !viewModel.articles.isEmpty && !viewModel.isLoading else {
             return
         }
-        
-        // Only pre-load the first 2 hero articles to prevent overload
-        let heroArticles = Array(viewModel.articles.prefix(2))
-        for article in heroArticles {
-            // Prevent duplicate loading and memory overload
-            if article.author == nil && !viewModel.loadingArticles.contains(article.id) && viewModel.fullArticle?.id != article.id {
-                viewModel.loadFullArticle(with: article.id)
-            }
+
+        // Keep launch smooth: warm only the first hero image.
+        CacheManager.shared.preloadImages(for: Array(viewModel.heroArticles.prefix(1)))
+    }
+
+    private func preloadVisibleHomeImages() {
+        guard !viewModel.articles.isEmpty && !viewModel.isLoading else {
+            return
         }
+
+        let likelyVisible = Array(
+            viewModel.heroArticles.prefix(2)
+            + podcastPairs.prefix(2).map(\.article)
+            + recommendedArticles.prefix(4)
+        )
+
+        CacheManager.shared.preloadImages(for: likelyVisible)
     }
     
     private var shimmerPlaceholder: some View {
@@ -151,7 +214,6 @@ struct HomeView: View {
                             Color.clear
                         ])
                     )
-                    .padding(.top, -5) // Match hero section positioning
                 
                 // Hero title shimmer
                 VStack(alignment: .leading, spacing: 8) {
@@ -245,59 +307,55 @@ struct HomeView: View {
 
 
     private var contentBody: some View {
-        VStack(alignment: .leading) {
-            
-            // Debug info or empty state
-            if viewModel.articles.isEmpty {
-                VStack(spacing: 20) {
-                    Spacer()
-                    Image(systemName: "doc.text.magnifyingglass")
-                        .font(.system(size: 60))
-                        .foregroundColor(.secondary)
-                    
-                    Text("Ingen artikler")
-                        .font(.title2)
-                        .fontWeight(.semibold)
-                    
-                    if viewModel.isLoading {
-                        ProgressView()
-                            .padding()
-                    } else {
-                        VStack(spacing: 8) {
-                            Text("Artikler bliver indlæst...")
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                            
-                            if let error = viewModel.fetchError {
-                                Text("Fejl: \(error.localizedDescription)")
-                                    .font(.caption)
-                                    .foregroundColor(.red)
-                                    .padding()
-                            }
-                        }
-                    }
-                    Spacer()
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding()
-            }
-            
+        VStack(alignment: .leading, spacing: 0) {
             if !viewModel.articles.isEmpty {
                 HeroSwipeBar(
-                    articles: Array(viewModel.articles.prefix(5)),
+                    articles: viewModel.heroArticles,
                     selectedHero: $selectedHero,
                     heroHeight: heroHeight,
                     onFavorite: { article in
                         viewModel.toggleFavorite(for: article)
                     }
                 )
-                .padding(.top, -5) // Move hero section 5 pixels up to remove gap
+                .padding(.top, -topSafeAreaInset)
             }
 
-            if !viewModel.section.isEmpty {
+            if !podcastPairs.isEmpty {
+                PodcastSectionView(
+                    pairs: podcastPairs,
+                    allPairs: allPodcastPairs,
+                    authorProvider: { article in
+                        if let resolvedAuthor = viewModel.author(for: article)?.name,
+                           !resolvedAuthor.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            return resolvedAuthor
+                        }
+                        if let embeddedAuthor = article.author?.name,
+                           !embeddedAuthor.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            return embeddedAuthor
+                        }
+                        if let hostName = PodcastRepository.shared.episodeMetadata(for: article)?.hosts.first,
+                           !hostName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            return hostName
+                        }
+                        return "Lyt til artiklen"
+                    },
+                    categoriesProvider: { article in
+                        viewModel.categories(for: article)
+                    },
+                    onOpenArticle: { article in
+                        navigationCoordinator.navigateToArticle(article, in: .home)
+                    },
+                    onPlayEpisode: { episode in
+                        podcastPlayerManager.play(episode: episode)
+                    }
+                )
+                .padding(.top, 20)
+            }
+
+            if !recommendedArticles.isEmpty {
                 ArticleSectionView(
                     title: "Anbefalet til dig",
-                    articles: viewModel.section, istopic: false
+                    articles: recommendedArticles, istopic: false
                 )
                 .padding(.top, 20)
             }
@@ -341,37 +399,8 @@ struct HomeView: View {
                 )
                 .padding(.top, 40)
             }
-
-
-            if !viewModel.articles.isEmpty {
-                Text("Alle artikler")
-                    .foregroundColor(.primary)
-                    .font(.system(size: 25, weight: .bold, design: .default))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 60)
-                    .padding(.leading, 16)
-
-                VStack(spacing: 8) {
-                    ForEach(Array(viewModel.articles.prefix(8).enumerated()), id: \.element.id) { index, article in
-                        ReviewRowView(index: index + 1, article: article)
-                    }
-                }
-                .padding(.top, 16)
-                .background(Color("AppGray"))
-                .cornerRadius(12)
-                .padding(.horizontal, 16)
-                
-                // Oprindelig liste med 8 artikler
-                VStack(spacing: 0) {
-                    ForEach(Array(viewModel.articles.prefix(8)), id: \.id) { article in
-                        ArticleStaticCell(article: article)
-                        Divider()
-                    }
-                }
-                .padding(.top, 20)
-            }
-
-            Spacer(minLength: 32)
+            Color.clear
+                .frame(height: 56)
         }
     }
 
@@ -396,7 +425,7 @@ struct HeroSwipeBar: View {
             // Swipable Cards with enhanced snapping
             TabView(selection: $selectedHero) {
                 ForEach(Array(articles.enumerated()), id: \.0) { (index, article) in
-                    NavigationLink(destination: ArticleDetailView(article: article)) {
+                    NavigationLink(value: article) {
                         HeroCardView(
                             article: article,
                             height: heroHeight,
@@ -447,31 +476,14 @@ struct HeroSwipeBar: View {
         }
         .frame(height: heroHeight)
         .onAppear {
-            // Only pre-load the first 2 hero articles to prevent overload
-            let articlesToPreload = Array(articles.prefix(2))
-            for article in articlesToPreload {
-                // Prevent duplicate loading and memory overload
-                if article.author == nil && !viewModel.loadingArticles.contains(article.id) && viewModel.fullArticle?.id != article.id {
-                    viewModel.loadFullArticle(with: article.id)
-                }
-            }
+            CacheManager.shared.preloadImages(for: Array(articles.prefix(2)))
         }
     }
     
     // MARK: - Pre-loading Methods
     
     private func preloadAdjacentArticles(currentIndex: Int) {
-        // Only pre-load the current article to prevent overload
-        let indicesToLoad = [currentIndex]
-        
-        for index in indicesToLoad {
-            guard index >= 0 && index < articles.count else { continue }
-            let article = articles[index]
-            // Prevent duplicate loading and memory overload
-            if article.author == nil && !viewModel.loadingArticles.contains(article.id) && viewModel.fullArticle?.id != article.id {
-                viewModel.loadFullArticle(with: article.id)
-            }
-        }
+        // Keep hero swipe smooth by avoiding article detail preloading here.
     }
 }
 
@@ -485,7 +497,8 @@ struct HeroSwipeBar: View {
 struct HeroCardView: View {
     let article: Article
     let height: CGFloat
-    @State private var didLoad = false
+    @State private var imageFailed = false
+    @State private var heroImageIndex = 0
     @Binding var selectedHero: Int
     @EnvironmentObject var viewModel: ArticleViewModel
     @Environment(\.colorScheme) var colorScheme
@@ -515,31 +528,76 @@ struct HeroCardView: View {
         return categories.isEmpty ? ["Generelt"] : categories
     }
     
-    private func starImageName(for index: Int, rating: Int) -> String {
-        let isFilled = index < rating
-        if colorScheme == .dark {
-            return isFilled ? "DarkStar" : "DimStar"
-        } else {
-            return isFilled ? "DimStar" : "DarkStar"
+    private var filledStarColor: Color {
+        colorScheme == .dark ? .white : Color.black.opacity(0.92)
+    }
+
+    private var emptyStarColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.24) : Color.black.opacity(0.14)
+    }
+
+    private var heroImageCandidates: [URL] {
+        var candidates: [URL] = []
+        if let thumb = article.thumbURL { candidates.append(thumb) }
+        if let cover = article.coverURL { candidates.append(cover) }
+        // Last-resort fallback so hero never appears blank if large assets are missing.
+        if let mobile = article.mobileImageURL { candidates.append(mobile) }
+
+        var mutableArticle = article
+        let fallbackURLString = mutableArticle.thumbnailURL
+        if !fallbackURLString.isEmpty, let parsed = safeURL(from: fallbackURLString) {
+            candidates.append(parsed)
         }
+
+        var unique: [URL] = []
+        var seen = Set<String>()
+        for url in candidates {
+            if seen.insert(url.absoluteString).inserted {
+                unique.append(url)
+            }
+        }
+        return unique
+    }
+
+    private var heroImageURL: URL? {
+        guard heroImageCandidates.indices.contains(heroImageIndex) else { return nil }
+        return heroImageCandidates[heroImageIndex]
+    }
+
+    private func safeURL(from raw: String) -> URL? {
+        if let url = URL(string: raw) {
+            return url
+        }
+        let encoded = raw.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? raw
+        return URL(string: encoded)
     }
 
     var body: some View {
         ZStack(alignment: .top) {
-            var mutableArticle = article
-            WebImage(url: URL(string: mutableArticle.thumbnailURL), options: [.retryFailed, .refreshCached])
-                .onSuccess { _, _, _ in
-                   
-                }
-                .onFailure { error in
-                    print("Image failed: \(error.localizedDescription)")
-                }
-                          .resizable()
-                          .aspectRatio(contentMode: .fill)
-                          .frame(width: UIScreen.main.bounds.width, height: height)
-                          .clipped()
-                         
-                          
+            ArticleImagePlaceholder(showShimmer: !imageFailed, cornerRadius: 0)
+                .frame(width: UIScreen.main.bounds.width, height: height)
+
+            if !imageFailed {
+                WebImage(url: heroImageURL, options: [.retryFailed, .continueInBackground, .scaleDownLargeImages])
+                    .resizable()
+                    .onSuccess { _, _, _ in
+                        imageFailed = false
+                    }
+                    .onFailure { _ in
+                        let nextIndex = heroImageIndex + 1
+                        if heroImageCandidates.indices.contains(nextIndex) {
+                            heroImageIndex = nextIndex
+                            imageFailed = false
+                        } else {
+                            imageFailed = true
+                        }
+                    }
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: UIScreen.main.bounds.width, height: height)
+                    .clipped()
+                    .opacity(1)
+            }
+
             // Gradient Overlay
             LinearGradient(
                 gradient: Gradient(colors: [
@@ -579,10 +637,10 @@ struct HeroCardView: View {
                     // Rating (if available)
                     if let rating = article.stjerne, rating > 0 {
                         HStack(spacing: 6) {
-                            ForEach(0..<6) { index in
-                                Image(starImageName(for: index, rating: rating))
-                                    .resizable()
-                                    .frame(width: 18, height: 18)
+                            ForEach(1...6, id: \.self) { index in
+                                Image(systemName: "star.fill")
+                                    .font(.system(size: 18, weight: .semibold))
+                                    .foregroundStyle(index <= rating ? filledStarColor : emptyStarColor)
                             }
                         }
                         .padding(.horizontal, 40)
@@ -615,7 +673,7 @@ struct HeroCardView: View {
                     HStack {
                         Spacer()
                         HStack(spacing: 16) {
-                            NavigationLink(destination: ArticleDetailView(article: article)) {
+                            NavigationLink(value: article) {
                                 HStack {
                                     Text("Læs nu")
                                 }
@@ -667,13 +725,14 @@ struct HeroCardView: View {
         .cornerRadius(0)
         .shadow(radius: 10)
         .padding(.horizontal, 0)
-        .ignoresSafeArea(.container, edges: .top)
+        .ignoresSafeArea(edges: .top)
         .contentShape(Rectangle())
         .onFirstAppear {
-            // Prevent duplicate loading and memory overload
-            if article.author == nil && !viewModel.loadingArticles.contains(article.id) && viewModel.fullArticle?.id != article.id {
-                viewModel.loadFullArticle(with: article.id)
-            }
+            // No eager detail fetch here; keeps first-scroll smooth.
+        }
+        .onChange(of: article.id) { _, _ in
+            heroImageIndex = 0
+            imageFailed = false
         }
     }
 }
@@ -699,7 +758,8 @@ import SwiftUI
             let isSection = title == "Musik" || title == "Kultur" || title == "Serier & Film"
             let cardWidth: CGFloat = isSection ? 270 : 173
             let cardHeight: CGFloat = isSection ? 310 : 96
-            let sectionHeight: CGFloat = isSection ? 415 : 160
+            // Keep full card + text visible to avoid clipping in Home sections.
+            let sectionHeight: CGFloat = isSection ? (cardHeight + 150) : (cardHeight + 120)
 
             VStack(alignment: .leading, spacing: 16) {
                 titleBar
@@ -707,7 +767,10 @@ import SwiftUI
             }
         }
         
+        @ViewBuilder
         private var titleBar: some View {
+            let allArticles = getAllArticlesForTitle()
+
             HStack {
                 Text(title)
                     .font(.system(size: 25, weight: .bold, design: .default))
@@ -717,13 +780,15 @@ import SwiftUI
 
                 Spacer()
                 
-                NavigationLink(destination: SimpleCategoryView(title: title, articles: getAllArticlesForTitle())) {
-                    Text("Se alle")
-                        .font(.subheadline)
-                        .fontWeight(.medium)
-                        .foregroundColor(.secondary)
+                if allArticles.count > articles.count {
+                    NavigationLink(destination: SimpleCategoryView(title: title, articles: allArticles)) {
+                        Text("Se alle")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(PlainButtonStyle())
                 }
-                .buttonStyle(PlainButtonStyle())
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 14)
@@ -750,9 +815,9 @@ import SwiftUI
         
         private func articleScrollView(spacing: CGFloat, cardWidth: CGFloat, cardHeight: CGFloat, isSection: Bool, sectionHeight: CGFloat) -> some View {
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: spacing) {
+                LazyHStack(alignment: .top, spacing: spacing) {
                     ForEach(Array(articles.enumerated()), id: \.element.id) { index, article in
-                        NavigationLink(destination: ArticleDetailView(article: article)) {
+                        NavigationLink(value: article) {
                             ArticleCardView_Enhanced(
                                 article: article,
                                 isFavorite: viewModel.favorites.contains(article),
@@ -763,15 +828,9 @@ import SwiftUI
                                 viewModel.toggleFavorite(for: article)
                             }
                             .frame(width: cardWidth)
-                            .frame(maxHeight: .infinity, alignment: .top)
+                            .frame(height: sectionHeight - 8, alignment: .top)
                         }
                         .buttonStyle(PlainButtonStyle())
-                        .onAppear {
-                            // Prevent duplicate loading and memory overload
-                            if article.author == nil && !viewModel.loadingArticles.contains(article.id) && viewModel.fullArticle?.id != article.id {
-                                viewModel.loadFullArticle(with: article.id)
-                            }
-                        }
                     }
                 }
                 .padding(.leading, 16) // Align with title padding
@@ -813,7 +872,7 @@ struct SimpleCategoryView: View {
                 // Artikelliste
                 VStack(spacing: 0) {
                     ForEach(articles) { article in
-                        NavigationLink(destination: ArticleDetailView(article: article)) {
+                        NavigationLink(value: article) {
                             ArticleRowCompact(article: article)
                         }
                         .buttonStyle(PlainButtonStyle())
@@ -863,7 +922,7 @@ struct ReviewRowView: View {
     let article: Article
 
     var body: some View {
-        NavigationLink(destination: ArticleDetailView(article: article)) {
+        NavigationLink(value: article) {
             
             HStack(alignment: .top, spacing: 12) {
                 Text("\(index)")
@@ -895,8 +954,9 @@ struct ReviewRowView: View {
 
 struct ArticleStaticCell: View {
     let article: Article
-    var hasRoundedImage: Bool = false  // 🔧 Default to false
+    var hasRoundedImage: Bool = true
     @EnvironmentObject var viewModel: ArticleViewModel
+    @State private var imageLoaded = false
 
     // Get categories for this article
     private var articleCategories: [String] {
@@ -922,22 +982,32 @@ struct ArticleStaticCell: View {
     }
 
     var body: some View {
-        NavigationLink(destination: ArticleDetailView(article: article)) {
+        NavigationLink(value: article) {
             // Prevents default blue arrow/highlight
             VStack(spacing: 0) {
                 HStack(alignment: .top, spacing: 16) {
                     // Thumbnail
                     var mutableArticle = article
-                    AsyncImage(url: URL(string: mutableArticle.thumbnailURL)) { image in
-                        image
-                            .resizable()
-                            .scaledToFill()
-                    } placeholder: {
-                        Color.gray.opacity(0.3)
+                    ZStack {
+                        ArticleImagePlaceholder(showShimmer: !imageLoaded, cornerRadius: hasRoundedImage ? 8 : 0)
+
+                        AsyncImage(url: URL(string: mutableArticle.thumbnailURL)) { phase in
+                            if let image = phase.image {
+                                image
+                                    .resizable()
+                                    .scaledToFill()
+                                    .onAppear {
+                                        imageLoaded = true
+                                    }
+                            }
+                        }
                     }
                     .frame(width: 100, height: 100)
                     .clipped()
-                    .cornerRadius(hasRoundedImage ? 8 : 0) // ✅ Conditional rounding
+                    .cornerRadius(hasRoundedImage ? 8 : 0)
+                    .onChange(of: article.id) { _, _ in
+                        imageLoaded = false
+                    }
                     
                     // Title & Category
                     VStack(alignment: .leading, spacing: 6) {

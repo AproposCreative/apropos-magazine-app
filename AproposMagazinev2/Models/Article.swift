@@ -70,6 +70,7 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
     let topicID: String?
     let topicsIDs: [String]?
     let authorID: String?
+    let mobileImageURL: URL?
     let thumbURL: URL?
     let coverURL: URL?
     let location: String?
@@ -153,6 +154,46 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
             return nil
         }
     }
+
+    var feedSortDate: Date {
+        var mutableArticle = self
+        return Article.parseEditorialDate(date) ?? mutableArticle.publishedDate ?? mutableArticle.createdDate ?? Date.distantPast
+    }
+
+    private static func parseEditorialDate(_ rawDate: String?) -> Date? {
+        guard let rawDate else { return nil }
+        let value = rawDate.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return nil }
+
+        if let date = ISO8601DateFormatter().date(from: value) {
+            return date
+        }
+
+        let formats = [
+            "yyyy-MM-dd",
+            "yyyy-MM-dd HH:mm:ss",
+            "dd.MM.yyyy",
+            "d.M.yyyy",
+            "dd/MM/yyyy",
+            "d/M/yyyy",
+            "d. MMMM yyyy",
+            "dd. MMMM yyyy",
+            "d. MMM yyyy",
+            "dd. MMM yyyy"
+        ]
+
+        for format in formats {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "da_DK")
+            formatter.calendar = Calendar(identifier: .gregorian)
+            formatter.dateFormat = format
+            if let date = formatter.date(from: value) {
+                return date
+            }
+        }
+
+        return nil
+    }
     
     enum FieldDataKeys: String, CodingKey {
         case name
@@ -170,6 +211,7 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
         case topicID = "topic"
         case topicsIDs = "topics-multi-ref"
         case authorID = "author"
+        case mobileImage = "mobile-image"
         case thumb
         case cover
         case location
@@ -234,8 +276,11 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
             if let cached = _thumbnailURLCache {
                 return cached
             }
-            // Priority: thumbURL > coverURL > first image src in content > empty string
-            
+            // Priority: mobile image > thumb > cover > first image in content.
+            if let mobileImageURL = mobileImageURL {
+                _thumbnailURLCache = mobileImageURL.absoluteString
+                return _thumbnailURLCache!
+            }
             if let thumbURL = thumbURL {
                 _thumbnailURLCache = thumbURL.absoluteString
                 return _thumbnailURLCache!
@@ -295,6 +340,7 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
         hasher.combine(topicID)
         hasher.combine(topicsIDs)
         hasher.combine(authorID)
+        hasher.combine(mobileImageURL)
         hasher.combine(thumbURL)
         hasher.combine(coverURL)
         hasher.combine(location)
@@ -331,6 +377,11 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
         try fieldData.encodeIfPresent(subtitle, forKey: .subtitle)
         try fieldData.encodeIfPresent(date, forKey: .date)
         try fieldData.encodeIfPresent(featured, forKey: .featured)
+        // Encode mobile image as nested container if present
+        if let mobileImageURL = mobileImageURL {
+            var mobileImageContainer = fieldData.nestedContainer(keyedBy: ThumbKeys.self, forKey: .mobileImage)
+            try mobileImageContainer.encodeIfPresent(mobileImageURL, forKey: .url)
+        }
         // Encode thumbURL as nested container if present
         if let thumbURL = thumbURL {
             var thumbContainer = fieldData.nestedContainer(keyedBy: ThumbKeys.self, forKey: .thumb)
@@ -373,6 +424,19 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
         
         // Decode trailer from one of multiple possible keys, prefer videoTrailer, then trailerAlt, then videoTrailerRaw, videoURL, videoLink
         trailer = Article.decodeTrailer(from: fieldDataContainer)
+
+        // Decode Webflow's mobile-optimized image field first. It is used for thumbnails and article hero images on iOS.
+        let mobileImageAsset = (try? fieldDataContainer.decodeIfPresent(WebflowAsset.self, forKey: .mobileImage)) ?? nil
+        if let asset = mobileImageAsset,
+           let urlString = asset.url,
+           !urlString.isEmpty {
+            mobileImageURL = URL(string: urlString)
+        } else if let urlString = try? fieldDataContainer.decodeIfPresent(String.self, forKey: .mobileImage),
+                  let url = URL(string: urlString), !urlString.isEmpty {
+            mobileImageURL = url
+        } else {
+            mobileImageURL = nil
+        }
         
         // Decode thumbURL from nested container
         let thumbAsset = (try? fieldDataContainer.decodeIfPresent(WebflowAsset.self, forKey: .thumb)) ?? nil
@@ -419,6 +483,7 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
         topicID: String,
         topicsIDs: [String]? = nil,
         authorID: String? = nil,
+        mobileImageURL: URL? = nil,
         thumbURL: URL? = nil,
         coverURL: URL? = nil,
         location: String? = nil,
@@ -439,6 +504,7 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
         self.topicID = topicID
         self.topicsIDs = topicsIDs
         self.authorID = authorID
+        self.mobileImageURL = mobileImageURL
         self.thumbURL = thumbURL
         self.coverURL = coverURL
         self.location = location

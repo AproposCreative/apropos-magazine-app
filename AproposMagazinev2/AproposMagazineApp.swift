@@ -1,20 +1,14 @@
-import FirebaseCore
-import OSLog
 import SwiftUI
 
 @main
 struct AproposMagazinev2App: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    private static let logger = Logger(subsystem: "com.aproposmagazine.app", category: "AproposMagazinev2App")
-    
-    init() {
-        // Configure Firebase as early as possible
-        FirebaseApp.configure()
-    }
-    
+    @StateObject private var viewModel = ArticleViewModel()
+
     var body: some Scene {
         WindowGroup {
             BootloaderView()
+                .environmentObject(viewModel)
         }
     }
 }

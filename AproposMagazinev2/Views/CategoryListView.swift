@@ -73,6 +73,10 @@ struct CategoryListView: View {
                 }
             }
             .background(Color(.systemBackground))
+            .navigationDestination(for: Article.self) { article in
+                ArticleDetailView(article: article)
+                    .environmentObject(viewModel)
+            }
         }
         .navigationViewStyle(StackNavigationViewStyle())
     }
@@ -140,7 +144,7 @@ struct CategoryListView: View {
             GridItem(.flexible(), spacing: 20)
         ], spacing: 20) {
             ForEach(paginationManager.articles, id: \.id) { article in
-                NavigationLink(destination: ArticleDetailView(article: article)) {
+                NavigationLink(value: article) {
                     ImprovedGridArticleCard(article: article)
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -159,7 +163,7 @@ struct CategoryListView: View {
     private var listLayout: some View {
         LazyVStack(spacing: 16) {
             ForEach(paginationManager.articles, id: \.id) { article in
-                NavigationLink(destination: ArticleDetailView(article: article)) {
+                NavigationLink(value: article) {
                     ListArticleCard(article: article)
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -178,7 +182,7 @@ struct CategoryListView: View {
     private var masonryLayout: some View {
         LazyVStack(spacing: 16) {
             ForEach(Array(paginationManager.articles.enumerated()), id: \.element.id) { index, article in
-                NavigationLink(destination: ArticleDetailView(article: article)) {
+                NavigationLink(value: article) {
                     MasonryArticleCard(article: article, index: index)
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -231,8 +235,7 @@ struct GridArticleCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             // Image
-            var mutableArticle = article
-            WebImage(url: URL(string: mutableArticle.thumbnailURL))
+            WebImage(url: article.listThumbnailURL)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
                 .frame(height: 200)
@@ -258,9 +261,7 @@ struct GridArticleCard: View {
                 if let rating = article.stjerne, rating > 0 {
                     HStack(spacing: 4) {
                         ForEach(0..<6) { index in
-                            Image(index < rating ? 
-                                (colorScheme == .dark ? "DarkStar" : "DimStar") : 
-                                (colorScheme == .dark ? "DimStar" : "DarkStar"))
+                            Image(index < rating ? "DarkStar" : "DimStar")
                                 .resizable()
                                 .frame(width: 12, height: 12)
                         }
@@ -312,8 +313,7 @@ struct ListArticleCard: View {
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
             // Image
-            var mutableArticle = article
-            WebImage(url: URL(string: mutableArticle.thumbnailURL))
+            WebImage(url: article.listThumbnailURL)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
                 .frame(width: 120, height: 120)
@@ -339,9 +339,7 @@ struct ListArticleCard: View {
                 if let rating = article.stjerne, rating > 0 {
                     HStack(spacing: 4) {
                         ForEach(0..<6) { index in
-                            Image(index < rating ? 
-                                (colorScheme == .dark ? "DarkStar" : "DimStar") : 
-                                (colorScheme == .dark ? "DimStar" : "DarkStar"))
+                            Image(index < rating ? "DarkStar" : "DimStar")
                                 .resizable()
                                 .frame(width: 14, height: 14)
                         }
@@ -404,8 +402,7 @@ struct MasonryArticleCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             // Image with varying height
-            var mutableArticle = article
-            WebImage(url: URL(string: mutableArticle.thumbnailURL))
+            WebImage(url: article.listThumbnailURL)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
                 .frame(height: imageHeight)
@@ -431,9 +428,7 @@ struct MasonryArticleCard: View {
                 if let rating = article.stjerne, rating > 0 {
                     HStack(spacing: 4) {
                         ForEach(0..<6) { index in
-                            Image(index < rating ? 
-                                (colorScheme == .dark ? "DarkStar" : "DimStar") : 
-                                (colorScheme == .dark ? "DimStar" : "DarkStar"))
+                            Image(index < rating ? "DarkStar" : "DimStar")
                                 .resizable()
                                 .frame(width: 12, height: 12)
                         }
@@ -484,8 +479,7 @@ struct ImprovedGridArticleCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             // Image
-            var mutableArticle = article
-            WebImage(url: URL(string: mutableArticle.thumbnailURL))
+            WebImage(url: article.listThumbnailURL)
                 .resizable()
                 .aspectRatio(16/9, contentMode: .fill)
                 .frame(height: 120)

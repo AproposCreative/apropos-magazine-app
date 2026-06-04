@@ -11,12 +11,13 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject private var navigationCoordinator = NavigationCoordinator.shared
-    @StateObject private var viewModel = ArticleViewModel()
+    @EnvironmentObject var viewModel: ArticleViewModel
     @StateObject private var themeManager = ThemeManager.shared
+    @StateObject private var podcastPlayerManager = PodcastPlayerManager.shared
     // Temporarily removed RecommendationEngine to fix crash
     // @StateObject private var recommendationEngine = RecommendationEngine.shared
     @State private var showWhatsNew = false
-    @State private var whatsNewEntries: [WhatsNewEntry] = []
+    @State private var showNotificationOnboarding = false
     
     init() {
         // Listen for deep link notifications
@@ -30,86 +31,111 @@ struct ContentView: View {
         }
     }
     
+    private var tabSelection: Binding<Tab> {
+        Binding(
+            get: { navigationCoordinator.selectedTab },
+            set: { newTab in
+                if newTab == .home {
+                    navigationCoordinator.navigateToHomeRoot()
+                } else {
+                    navigationCoordinator.selectedTab = newTab
+                }
+            }
+        )
+    }
+    
     var body: some View {
-        TabView(selection: $navigationCoordinator.selectedTab) {
-            // Home Tab
-            NavigationStack(path: navigationCoordinator.path(for: .home)) { 
-                HomeView()
-                    .environmentObject(viewModel)
-                    .navigationDestination(for: Article.self) { article in
-                        ArticleDetailView(article: article)
-                            .environmentObject(viewModel)
-                    }
-                    .navigationDestination(for: AppRoute.self) { route in
-                        destinationView(for: route)
-                    }
+        ZStack(alignment: .bottom) {
+            TabView(selection: tabSelection) {
+                // Home Tab
+                NavigationStack(path: navigationCoordinator.path(for: .home)) {
+                    HomeView()
+                        .environmentObject(viewModel)
+                        .navigationDestination(for: Article.self) { article in
+                            ArticleDetailView(article: article)
+                                .environmentObject(viewModel)
+                        }
+                        .navigationDestination(for: AppRoute.self) { route in
+                            destinationView(for: route)
+                        }
+                }
+                .id(navigationCoordinator.homeStackID)
+                .background(InteractivePopGestureEnabler())
+                .tabItem { Label("Hjem", systemImage: "house.fill") }
+                .tag(Tab.home)
+                
+                // Search Tab
+                NavigationStack(path: navigationCoordinator.path(for: .search)) {
+                    SearchView_Enhanced()
+                        .environmentObject(viewModel)
+                        .navigationDestination(for: Article.self) { article in
+                            ArticleDetailView(article: article)
+                                .environmentObject(viewModel)
+                        }
+                        .navigationDestination(for: AppRoute.self) { route in
+                            destinationView(for: route)
+                        }
+                }
+                .background(InteractivePopGestureEnabler())
+                .tabItem { Label("Artikler", systemImage: "doc.text") }
+                .tag(Tab.search)
+                
+                // Categories Tab
+                NavigationStack(path: navigationCoordinator.path(for: .categories)) {
+                    CategoriesView()
+                        .environmentObject(viewModel)
+                        .environmentObject(navigationCoordinator)
+                        .navigationDestination(for: Article.self) { article in
+                            ArticleDetailView(article: article)
+                                .environmentObject(viewModel)
+                        }
+                        .navigationDestination(for: AppRoute.self) { route in
+                            destinationView(for: route)
+                        }
+                }
+                .background(InteractivePopGestureEnabler())
+                .tabItem { Label("Kategorier", systemImage: "square.grid.2x2.fill") }
+                .tag(Tab.categories)
+                
+                // Favorites Tab
+                NavigationStack(path: navigationCoordinator.path(for: .favorites)) {
+                    FavoritesView()
+                        .environmentObject(viewModel)
+                        .navigationDestination(for: Article.self) { article in
+                            ArticleDetailView(article: article)
+                                .environmentObject(viewModel)
+                        }
+                        .navigationDestination(for: AppRoute.self) { route in
+                            destinationView(for: route)
+                        }
+                }
+                .background(InteractivePopGestureEnabler())
+                .tabItem { Label("Min side", systemImage: "person.crop.circle") }
+                .tag(Tab.favorites)
             }
-            .tabItem { Label("Hjem", systemImage: "house.fill") }
-            .tag(Tab.home)
+            .background(
+                TabBarSelectionHandler(homeTabIndex: 0) {
+                    navigationCoordinator.navigateToHomeRoot()
+                }
+            )
+            .safeAreaInset(edge: .bottom) {
+                if podcastPlayerManager.hasActiveEpisode {
+                    Color.clear
+                        .frame(height: 62)
+                }
+            }
             
-            // Search Tab
-            NavigationStack(path: navigationCoordinator.path(for: .search)) {
-                SearchView_Enhanced()
-                    .environmentObject(viewModel)
-                    .navigationDestination(for: Article.self) { article in
-                        ArticleDetailView(article: article)
-                            .environmentObject(viewModel)
-                    }
-                    .navigationDestination(for: AppRoute.self) { route in
-                        destinationView(for: route)
-                    }
+            if podcastPlayerManager.hasActiveEpisode {
+                PodcastMiniPlayerBar()
+                    .environmentObject(podcastPlayerManager)
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 88)
+                    .zIndex(2)
             }
-            .tabItem { Label("Artikler", systemImage: "doc.text") }
-            .tag(Tab.search)
-            
-            // Categories Tab
-            NavigationStack(path: navigationCoordinator.path(for: .categories)) {
-                CategoriesView()
-                    .environmentObject(viewModel)
-                    .environmentObject(navigationCoordinator)
-                    .navigationDestination(for: Article.self) { article in
-                        ArticleDetailView(article: article)
-                            .environmentObject(viewModel)
-                    }
-                    .navigationDestination(for: AppRoute.self) { route in
-                        destinationView(for: route)
-                    }
-            }
-            .tabItem { Label("Kategorier", systemImage: "square.grid.2x2.fill") }
-            .tag(Tab.categories)
-            
-            // Favorites Tab
-            NavigationStack(path: navigationCoordinator.path(for: .favorites)) {
-                FavoritesView()
-                    .environmentObject(viewModel)
-                    .navigationDestination(for: Article.self) { article in
-                        ArticleDetailView(article: article)
-                            .environmentObject(viewModel)
-                    }
-                    .navigationDestination(for: AppRoute.self) { route in
-                        destinationView(for: route)
-                    }
-            }
-            .tabItem { Label("Gemt", systemImage: "bookmark.fill") }
-            .tag(Tab.favorites)
-            
-            // Profile Tab
-            NavigationStack(path: navigationCoordinator.path(for: .profile)) {
-                ProfileView_NewDesign()
-                    .environmentObject(viewModel)
-                    .navigationDestination(for: Article.self) { article in
-                        ArticleDetailView(article: article)
-                            .environmentObject(viewModel)
-                    }
-                    .navigationDestination(for: AppRoute.self) { route in
-                        destinationView(for: route)
-                    }
-            }
-            .tabItem { Label("Profil", systemImage: "person.fill") }
-            .tag(Tab.profile)
         }
         .accentColor(.primary) // Use primary color for active tabs (black in light mode, white in dark mode)
         .environmentObject(viewModel)
+        .environmentObject(podcastPlayerManager)
         .environment(\.navigationCoordinator, navigationCoordinator)
         .onAppear {
             // Set tab bar appearance with glass effect from backup
@@ -135,8 +161,6 @@ struct ContentView: View {
         .environmentObject(viewModel)
         .preferredColorScheme(themeManager.currentTheme.colorScheme)
         .onAppear {
-            // TabView appeared
-            
             // Handle pending deep links
             if let deepLink = navigationCoordinator.pendingDeepLink {
                 navigationCoordinator.handleDeepLink(deepLink)
@@ -156,43 +180,60 @@ struct ContentView: View {
                 }
             }
             
+            Task { @MainActor in
+                await PodcastRepository.shared.refreshManifest()
+            }
+            
             // Check for What's New after a short delay to ensure view is fully visible
             // This prevents the sheet from appearing before ContentView is ready
             Task { @MainActor in
                 // Wait a bit for ContentView to be fully visible after splash screen
                 try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
                 
-                if !showWhatsNew && whatsNewEntries.isEmpty {
+                if !showWhatsNew {
                     let shouldShow = WhatsNewManager.shared.shouldShowWhatsNew()
-                    print("🔍 [ContentView] shouldShowWhatsNew: \(shouldShow)")
-                    
+
                     if shouldShow {
-                        let allEntries = WhatsNewManager.shared.getAllEntries()
-                        print("🔍 [ContentView] Found \(allEntries.count) What's New entries")
-                        whatsNewEntries = allEntries
                         showWhatsNew = true
-                        print("✅ [ContentView] Showing What's New sheet")
                     } else {
-                        print("⚠️ [ContentView] What's New should not be shown (already seen or no entries)")
+                        await presentNotificationOnboardingIfNeeded()
                     }
-                } else {
-                    print("⚠️ [ContentView] What's New already shown or entries already loaded")
                 }
             }
         }
         .sheet(isPresented: $showWhatsNew) {
-            WhatsNewView(entries: whatsNewEntries) {
-                // Mark ALL entries as seen (so they won't show again)
-                // This ensures users see What's New for each update, but only once per version
-                for entry in whatsNewEntries {
-                    WhatsNewManager.shared.markEntryAsSeen(entry)
+            WhatsNewView(entries: WhatsNewManager.shared.entriesForDisplay()) {
+                if let newest = WhatsNewManager.shared.entriesForDisplay().first {
+                    WhatsNewManager.shared.markEntryAsSeen(newest)
                 }
                 showWhatsNew = false
+                Task { @MainActor in
+                    await presentNotificationOnboardingIfNeeded()
+                }
             }
             .interactiveDismissDisabled()
         }
+        .sheet(isPresented: $showNotificationOnboarding) {
+            NotificationOnboardingView {
+                showNotificationOnboarding = false
+            }
+            .environmentObject(viewModel)
+        }
+        .sheet(isPresented: $podcastPlayerManager.isFullPlayerPresented) {
+            PodcastAudioPlayerSheet()
+                .environmentObject(viewModel)
+                .environmentObject(podcastPlayerManager)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.hidden)
+        }
     }
 
+    @MainActor
+    private func presentNotificationOnboardingIfNeeded() async {
+        guard !showNotificationOnboarding else { return }
+        guard await NotificationService.shared.shouldPresentOnboarding() else { return }
+        showNotificationOnboarding = true
+    }
     
     // MARK: - Navigation Destination Views
     
@@ -208,9 +249,6 @@ struct ContentView: View {
                 .environmentObject(navigationCoordinator)
         case .favorites:
             FavoritesView()
-        case .profile:
-            ProfileView_NewDesign()
-                .environmentObject(viewModel)
         case .article(let article):
             ArticleDetailView(article: article)
                 .environmentObject(viewModel)
@@ -234,15 +272,13 @@ struct HomeContainer: View {
                 .environmentObject(viewModel)
                 .id("homeTop")
         }
-        .onAppear {
-            print("🏠 HomeContainer vises nu")
-        }
     }
 }
 
 struct ContentView_Previews: PreviewProvider {
     static var previews: some View {
         ContentView()
+            .environmentObject(ArticleViewModel())
     }
 }
 

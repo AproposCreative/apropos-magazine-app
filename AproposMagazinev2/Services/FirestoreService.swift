@@ -42,10 +42,8 @@ class FirestoreService {
                 "message": "Connection test successful",
                 "device": UIDevice.current.name
             ])
-            print("✅ Firestore connection test successful")
             return true
         } catch {
-            print("❌ Firestore connection test failed: \(error)")
             return false
         }
     }
@@ -59,14 +57,11 @@ class FirestoreService {
             if let data = document.data() {
                 let message = data["message"] as? String ?? "No message"
                 // Safely handle timestamp - skip timestamp processing to avoid crashes
-                print("✅ Firestore read test successful: \(message)")
                 return "Read successful: \(message)"
             } else {
-                print("❌ Firestore read test failed: Document doesn't exist")
                 return "Document doesn't exist"
             }
         } catch {
-            print("❌ Firestore read test failed: \(error)")
             return "Read failed: \(error.localizedDescription)"
         }
     }
@@ -88,10 +83,8 @@ class FirestoreService {
             
             let userRef = db.collection("users").document("test-user-123")
             try await userRef.setData(testUserData)
-            print("✅ Test user created successfully")
             return true
         } catch {
-            print("❌ Failed to create test user: \(error)")
             return false
         }
     }
@@ -105,14 +98,11 @@ class FirestoreService {
             if let data = document.data() {
                 let name = data["name"] as? String ?? "Unknown"
                 let email = data["email"] as? String ?? "No email"
-                print("✅ Test user read successful: \(name) (\(email))")
                 return "User: \(name) (\(email))"
             } else {
-                print("❌ Test user doesn't exist")
                 return "Test user doesn't exist"
             }
         } catch {
-            print("❌ Failed to read test user: \(error)")
             return "Read failed: \(error.localizedDescription)"
         }
     }
@@ -131,6 +121,7 @@ class FirestoreService {
                 "slug": article.slug ?? "",
                 "intro": article.intro ?? "",
                 "content": article.content ?? "",
+                "mobileImageURL": article.mobileImageURL?.absoluteString ?? "",
                 "thumbURL": article.thumbURL?.absoluteString ?? "",
                 "coverURL": article.coverURL?.absoluteString ?? "",
                 "stjerne": article.stjerne ?? 0,
@@ -171,6 +162,7 @@ class FirestoreService {
                 topicID: data["topicID"] as? String ?? "",
                 topicsIDs: data["topicsIDs"] as? [String],
                 authorID: data["authorID"] as? String,
+                mobileImageURL: URL(string: data["mobileImageURL"] as? String ?? ""),
                 thumbURL: URL(string: data["thumbURL"] as? String ?? ""),
                 coverURL: URL(string: data["coverURL"] as? String ?? ""),
                 location: data["location"] as? String,
@@ -202,6 +194,7 @@ class FirestoreService {
                     topicID: data["topicID"] as? String ?? "",
                     topicsIDs: data["topicsIDs"] as? [String],
                     authorID: data["authorID"] as? String,
+                    mobileImageURL: URL(string: data["mobileImageURL"] as? String ?? ""),
                     thumbURL: URL(string: data["thumbURL"] as? String ?? ""),
                     coverURL: URL(string: data["coverURL"] as? String ?? ""),
                     location: data["location"] as? String,

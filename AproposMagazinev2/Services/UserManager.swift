@@ -57,6 +57,9 @@ class UserManager: ObservableObject {
             if let user = user, !user.uid.isEmpty {
                 self?.loadUserProfile(for: user)
             } else {
+                if let previousUser = self?.currentUser {
+                    NotificationService.shared.unsubscribeFromTopics(for: previousUser)
+                }
                 self?.currentUser = nil
             }
         }
@@ -122,6 +125,8 @@ class UserManager: ObservableObject {
                 }
                 
                 await MainActor.run {
+                    self.currentUser = profile
+                    NotificationService.shared.subscribeToTopics(for: profile)
                     self.saveUserProfile(profile)
                     self.isLoading = false
                 }
@@ -131,6 +136,8 @@ class UserManager: ObservableObject {
                 
                 await MainActor.run {
                     self.errorMessage = "Kunne ikke hente brugerprofil."
+                    self.currentUser = fallbackProfile
+                    NotificationService.shared.subscribeToTopics(for: fallbackProfile)
                     self.saveUserProfile(fallbackProfile)
                     self.isLoading = false
                 }

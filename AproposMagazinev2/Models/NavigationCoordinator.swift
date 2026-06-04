@@ -18,7 +18,6 @@ enum AppRoute: Hashable, Codable {
     case search
     case categories
     case favorites
-    case profile
     case article(Article)
     case categoryDetail(String) // category name
 }
@@ -28,8 +27,7 @@ enum Tab: String, CaseIterable, Identifiable, Codable {
     case home = "Hjem"
     case search = "Artikler"
     case categories = "Kategorier"
-    case favorites = "Gemt"
-    case profile = "Profil"
+    case favorites = "Min side"
     
     var id: String { self.rawValue }
     
@@ -38,8 +36,7 @@ enum Tab: String, CaseIterable, Identifiable, Codable {
         case .home: return "house.fill"
         case .search: return "doc.text.fill"
         case .categories: return "square.grid.2x2.fill"
-        case .favorites: return "bookmark.fill"
-        case .profile: return "person.fill"
+        case .favorites: return "person.crop.circle"
         }
     }
 }
@@ -59,10 +56,10 @@ class NavigationCoordinator: ObservableObject {
     @Published var searchPath = NavigationPath()
     @Published var categoriesPath = NavigationPath()
     @Published var favoritesPath = NavigationPath()
-    @Published var profilePath = NavigationPath()
     
     // Deep linking support
     @Published var pendingDeepLink: URL?
+    @Published private(set) var homeStackID = UUID()
     
     private let logger = Logger(subsystem: "com.aproposmagazine.app", category: "NavigationCoordinator")
     
@@ -73,7 +70,8 @@ class NavigationCoordinator: ObservableObject {
             forName: NSNotification.Name("NavigateToArticle"),
             object: nil,
             queue: .main
-        ) { [unowned self] notification in
+        ) { [weak self] notification in
+            guard let self = self else { return }
             if let article = notification.userInfo?["article"] as? Article {
                 Task { @MainActor in
                     // Switch to home tab first
@@ -120,11 +118,6 @@ class NavigationCoordinator: ObservableObject {
                 get: { self.favoritesPath },
                 set: { self.favoritesPath = $0 }
             )
-        case .profile:
-            return Binding(
-                get: { self.profilePath },
-                set: { self.profilePath = $0 }
-            )
         }
     }
     
@@ -132,7 +125,19 @@ class NavigationCoordinator: ObservableObject {
     
     /// Navigate to a specific tab
     func navigateToTab(_ tab: Tab) {
+        if tab == .home {
+            navigateToHomeRoot()
+            return
+        }
         selectedTab = tab
+    }
+
+    /// Switch to home tab and reset its navigation stack to the root feed.
+    func navigateToHomeRoot() {
+        selectedTab = .home
+        goToRoot(in: .home)
+        homeStackID = UUID()
+        NotificationCenter.default.post(name: .scrollHomeToTop, object: nil)
     }
     
     /// Navigate to an article within a specific tab's navigation stack
@@ -146,8 +151,6 @@ class NavigationCoordinator: ObservableObject {
             categoriesPath.append(article)
         case .favorites:
             favoritesPath.append(article)
-        case .profile:
-            profilePath.append(article)
         }
     }
     
@@ -163,8 +166,6 @@ class NavigationCoordinator: ObservableObject {
             categoriesPath.append(route)
         case .favorites:
             favoritesPath.append(route)
-        case .profile:
-            profilePath.append(route)
         }
     }
     
@@ -179,8 +180,6 @@ class NavigationCoordinator: ObservableObject {
             if !categoriesPath.isEmpty { categoriesPath.removeLast() }
         case .favorites:
             if !favoritesPath.isEmpty { favoritesPath.removeLast() }
-        case .profile:
-            if !profilePath.isEmpty { profilePath.removeLast() }
         }
     }
     
@@ -195,8 +194,6 @@ class NavigationCoordinator: ObservableObject {
             categoriesPath = NavigationPath()
         case .favorites:
             favoritesPath = NavigationPath()
-        case .profile:
-            profilePath = NavigationPath()
         }
     }
     

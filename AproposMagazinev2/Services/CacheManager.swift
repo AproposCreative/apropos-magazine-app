@@ -35,10 +35,18 @@ class CacheManager: ObservableObject {
     private init() {
         // Get cache directory
         let paths = fileManager.urls(for: .cachesDirectory, in: .userDomainMask)
-        cacheDirectory = paths[0].appendingPathComponent("AproposMagazine")
+        if let aproposCacheDir = paths.first?.appendingPathComponent("AproposMagazine") {
+            cacheDirectory = aproposCacheDir
+        } else {
+            // Fallback to temporary directory if cachesDirectory is not found
+            cacheDirectory = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("AproposMagazine")
+        }
         
         // Create cache directory if it doesn't exist
-        try? fileManager.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+        do {
+            try fileManager.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+        } catch {
+        }
         
         Task {
             await updateCacheSize()
@@ -55,14 +63,15 @@ class CacheManager: ObservableObject {
     
     deinit {
         NotificationCenter.default.removeObserver(self)
-        print("[CacheManager] Deinitialized and cleaned up memory.")
     }
     
     @objc private func handleMemoryWarning() {
         // When memory warning is received, update cache size and perform cleanup if needed
         Task { @MainActor in
             await self.updateCacheSize()
-            if let size = Int64(cacheSize.components(separatedBy: CharacterSet.decimalDigits.inverted).joined()), size > maxCacheSize {
+            // Extract digits safely from cacheSize string for comparison
+            let digitsOnly = cacheSize.components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
+            if let size = Int64(digitsOnly), size > maxCacheSize {
                 self.cleanupCache()
             }
         }
@@ -76,44 +85,60 @@ class CacheManager: ObservableObject {
             timestamp: Date(),
             version: "1.0"
         )
-        
-        if let data = try? JSONEncoder().encode(cacheData) {
+
+        do {
+            let data = try JSONEncoder().encode(cacheData)
+
             // Save to standard UserDefaults (for main app)
             userDefaults.set(data, forKey: articlesCacheKey)
             userDefaults.set(Date(), forKey: lastCacheUpdateKey)
             cachedArticles = articles
-            
+
             // ALSO save to App Group UserDefaults (for Notification Service Extension)
             // This allows the extension to check if articles are already published
-            if let appGroupDefaults = UserDefaults(suiteName: "group.com.aproposmagazine.app") {
-                // Create simplified cache data for extension (id, name, lastPublished, createdOn)
-                // Name is included for fallback search when article_id is missing from notifications
-                let simplifiedArticles = articles.map { article in
-                    [
-                        "id": article.id,
-                        "name": article.name ?? "",
-                        "lastPublished": article.lastPublished ?? "",
-                        "createdOn": article.createdOn ?? ""
-                    ]
-                }
-                let simplifiedCacheData: [String: Any] = [
-                    "articles": simplifiedArticles,
-                    "timestamp": Date(),
-                    "version": "1.0"
-                ]
-                if let simplifiedData = try? JSONSerialization.data(withJSONObject: simplifiedCacheData) {
-                    appGroupDefaults.set(simplifiedData, forKey: articlesCacheKey)
-                    appGroupDefaults.set(Date(), forKey: lastCacheUpdateKey)
-                }
+            guard let appGroupDefaults = UserDefaults(suiteName: "group.com.aproposmagazine.app") else {
+                return
             }
+
+            // Create simplified cache data for extension (id, name, lastPublished, createdOn)
+            // Name is included for fallback search when article_id is missing from notifications
+            let simplifiedArticles = articles.map { article -> [String: String] in
+                [
+                    "id": article.id,
+                    "name": article.name ?? "",
+                    "lastPublished": article.lastPublished ?? "",
+                    "createdOn": article.createdOn ?? ""
+                ]
+            }
+            let simplifiedCacheData: [String: Any] = [
+                "articles": simplifiedArticles,
+                "timestamp": Date().timeIntervalSince1970,
+                "version": "1.0"
+            ]
+
+            do {
+                guard JSONSerialization.isValidJSONObject(simplifiedCacheData) else {
+                    return
+                }
+                let simplifiedData = try JSONSerialization.data(withJSONObject: simplifiedCacheData)
+                appGroupDefaults.set(simplifiedData, forKey: articlesCacheKey)
+                appGroupDefaults.set(Date(), forKey: lastCacheUpdateKey)
+            } catch {
+            }
+
+        } catch {
         }
     }
     
     func getCachedArticles() -> [Article]? {
+        // Return cached articles if available and valid
         if let cached = cachedArticles {
-            // Check if cache is still valid
-            if let data = userDefaults.data(forKey: articlesCacheKey),
-               let cacheData = try? JSONDecoder().decode(CacheData.self, from: data) {
+            guard let data = userDefaults.data(forKey: articlesCacheKey) else {
+                clearArticlesCache()
+                return nil
+            }
+            do {
+                let cacheData = try JSONDecoder().decode(CacheData.self, from: data)
                 let age = Date().timeIntervalSince(cacheData.timestamp)
                 if age < maxArticleAge {
                     return cached
@@ -121,27 +146,30 @@ class CacheManager: ObservableObject {
                     clearArticlesCache()
                     return nil
                 }
-            } else {
-                // Data missing or corrupted, clear cache and return nil
+            } catch {
                 clearArticlesCache()
                 return nil
             }
         }
         
-        guard let data = userDefaults.data(forKey: articlesCacheKey),
-              let cacheData = try? JSONDecoder().decode(CacheData.self, from: data) else {
+        // Attempt to load from UserDefaults if no cached articles in memory
+        guard let data = userDefaults.data(forKey: articlesCacheKey) else {
             return nil
         }
         
-        // Check if cache is still valid
-        let age = Date().timeIntervalSince(cacheData.timestamp)
-        guard age < maxArticleAge else {
+        do {
+            let cacheData = try JSONDecoder().decode(CacheData.self, from: data)
+            let age = Date().timeIntervalSince(cacheData.timestamp)
+            guard age < maxArticleAge else {
+                clearArticlesCache()
+                return nil
+            }
+            cachedArticles = cacheData.articles
+            return cacheData.articles
+        } catch {
             clearArticlesCache()
             return nil
         }
-        
-        cachedArticles = cacheData.articles
-        return cacheData.articles
     }
     
     func clearArticlesCache() {
@@ -153,18 +181,24 @@ class CacheManager: ObservableObject {
     // MARK: - Image Caching
     
     func cacheImage(_ image: UIImage, for url: URL) {
-        let imageData = image.jpegData(compressionQuality: 0.8)
+        guard let imageData = image.jpegData(compressionQuality: 0.8) else {
+            return
+        }
         let fileName = url.lastPathComponent
         let fileURL = cacheDirectory.appendingPathComponent(fileName)
         
-        try? imageData?.write(to: fileURL)
+        do {
+            try imageData.write(to: fileURL)
+        } catch {
+            return
+        }
         
-        // Update cache metadata
+        // Update cache metadata safely
         var cachedImages = getCachedImageURLs()
         if !cachedImages.contains(url.absoluteString) {
             cachedImages.append(url.absoluteString)
+            userDefaults.set(cachedImages, forKey: imagesCacheKey)
         }
-        userDefaults.set(cachedImages, forKey: imagesCacheKey)
         
         Task {
             await updateCacheSize()
@@ -175,22 +209,35 @@ class CacheManager: ObservableObject {
         let fileName = url.lastPathComponent
         let fileURL = cacheDirectory.appendingPathComponent(fileName)
         
-        guard let imageData = try? Data(contentsOf: fileURL) else {
+        guard fileManager.fileExists(atPath: fileURL.path) else {
             return nil
         }
         
-        return UIImage(data: imageData)
+        do {
+            let imageData = try Data(contentsOf: fileURL)
+            guard let image = UIImage(data: imageData) else {
+                return nil
+            }
+            return image
+        } catch {
+            return nil
+        }
     }
     
     func getCachedImageURLs() -> [String] {
-        return userDefaults.stringArray(forKey: imagesCacheKey) ?? []
+        guard let urls = userDefaults.stringArray(forKey: imagesCacheKey) else {
+            return []
+        }
+        return urls
     }
     
     // MARK: - Smart Cache Management
     
     func updateCacheSize() async {
         let size = await calculateCacheSize()
-        cacheSize = ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
+        await MainActor.run {
+            cacheSize = ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
+        }
         
         // Auto-cleanup if cache is too large
         if size > maxCacheSize {
@@ -199,7 +246,9 @@ class CacheManager: ObservableObject {
     }
     
     func cleanupCache() {
-        isClearingCache = true
+        Task { @MainActor in
+            isClearingCache = true
+        }
         
         Task {
             await performCacheCleanup()
@@ -208,7 +257,9 @@ class CacheManager: ObservableObject {
             SDImageCache.shared.clearMemory()
             await SDImageCache.shared.clearDiskOnCompletion()
             
-            self.isClearingCache = false
+            await MainActor.run {
+                self.isClearingCache = false
+            }
             await self.updateCacheSize()
         }
     }
@@ -219,22 +270,31 @@ class CacheManager: ObservableObject {
         let cutoffDate = Date().addingTimeInterval(-maxImageAge)
         
         for urlString in cachedURLs {
-            guard let url = URL(string: urlString) else { continue }
+            guard let url = URL(string: urlString) else {
+                continue
+            }
             let fileName = url.lastPathComponent
             let fileURL = cacheDirectory.appendingPathComponent(fileName)
             
-            if let attributes = try? fileManager.attributesOfItem(atPath: fileURL.path),
-               let creationDate = attributes[.creationDate] as? Date,
-               creationDate < cutoffDate {
-                try? fileManager.removeItem(at: fileURL)
+            do {
+                let attributes = try fileManager.attributesOfItem(atPath: fileURL.path)
+                if let creationDate = attributes[.creationDate] as? Date, creationDate < cutoffDate {
+                    try fileManager.removeItem(at: fileURL)
+                }
+            } catch {
+                continue
             }
         }
         
-        // Remove old articles cache
-        if let data = userDefaults.data(forKey: articlesCacheKey),
-           let cacheData = try? JSONDecoder().decode(CacheData.self, from: data) {
-            let age = Date().timeIntervalSince(cacheData.timestamp)
-            if age > maxArticleAge {
+        // Remove old articles cache if expired
+        if let data = userDefaults.data(forKey: articlesCacheKey) {
+            do {
+                let cacheData = try JSONDecoder().decode(CacheData.self, from: data)
+                let age = Date().timeIntervalSince(cacheData.timestamp)
+                if age > maxArticleAge {
+                    clearArticlesCache()
+                }
+            } catch {
                 clearArticlesCache()
             }
         }
@@ -247,13 +307,16 @@ class CacheManager: ObservableObject {
             // contentsOfDirectory is synchronous; no await needed
             let contents = try fileManager.contentsOfDirectory(at: cacheDirectory, includingPropertiesForKeys: [.fileSizeKey])
             for url in contents {
-                if let resourceValues = try? url.resourceValues(forKeys: [.fileSizeKey]),
-                   let fileSize = resourceValues.fileSize {
-                    size += Int64(fileSize)
+                do {
+                    let resourceValues = try url.resourceValues(forKeys: [.fileSizeKey])
+                    if let fileSize = resourceValues.fileSize {
+                        size += Int64(fileSize)
+                    }
+                } catch {
+                    continue
                 }
             }
         } catch {
-            print("Error calculating cache size: \(error)")
         }
         
         return size
@@ -263,15 +326,26 @@ class CacheManager: ObservableObject {
     
     func preloadImages(for articles: [Article]) {
         DispatchQueue.global(qos: .utility).async {
-            for article in articles.prefix(10) { // Preload first 10 articles
+            var urls: [URL] = []
+            var seen = Set<String>()
+
+            for article in articles.prefix(FeatureFlags.homeImagePreloadLimit) {
                 var mutableArticle = article
-                if let url = URL(string: mutableArticle.thumbnailURL) {
-                    SDWebImageManager.shared.loadImage(
-                        with: url,
-                        options: [.preloadAllFrames, .refreshCached],
-                        progress: nil
-                    ) { _, _, _, _, _, _ in }
+                guard let url = URL(string: mutableArticle.thumbnailURL),
+                      !url.absoluteString.isEmpty else {
+                    continue
                 }
+                if seen.insert(url.absoluteString).inserted {
+                    urls.append(url)
+                }
+            }
+
+            for url in urls {
+                SDWebImageManager.shared.loadImage(
+                    with: url,
+                    options: [.scaleDownLargeImages, .continueInBackground, .queryMemoryData],
+                    progress: nil
+                ) { _, _, _, _, _, _ in }
             }
         }
     }
@@ -294,9 +368,11 @@ class CacheManager: ObservableObject {
     // MARK: - Metadata Caching (Topics, Sections, Authors, Stars)
     
     func cacheTopics(_ topics: [Topic]) {
-        if let data = try? JSONEncoder().encode(topics) {
+        do {
+            let data = try JSONEncoder().encode(topics)
             userDefaults.set(data, forKey: topicsCacheKey)
             userDefaults.set(Date(), forKey: "\(topicsCacheKey)_timestamp")
+        } catch {
         }
     }
     
@@ -306,13 +382,19 @@ class CacheManager: ObservableObject {
               Date().timeIntervalSince(timestamp) < maxMetadataAge else {
             return nil
         }
-        return try? JSONDecoder().decode([Topic].self, from: data)
+        do {
+            return try JSONDecoder().decode([Topic].self, from: data)
+        } catch {
+            return nil
+        }
     }
     
     func cacheSections(_ sections: [WebflowSection]) {
-        if let data = try? JSONEncoder().encode(sections) {
+        do {
+            let data = try JSONEncoder().encode(sections)
             userDefaults.set(data, forKey: sectionsCacheKey)
             userDefaults.set(Date(), forKey: "\(sectionsCacheKey)_timestamp")
+        } catch {
         }
     }
     
@@ -322,13 +404,19 @@ class CacheManager: ObservableObject {
               Date().timeIntervalSince(timestamp) < maxMetadataAge else {
             return nil
         }
-        return try? JSONDecoder().decode([WebflowSection].self, from: data)
+        do {
+            return try JSONDecoder().decode([WebflowSection].self, from: data)
+        } catch {
+            return nil
+        }
     }
     
     func cacheAuthors(_ authors: [Author]) {
-        if let data = try? JSONEncoder().encode(authors) {
+        do {
+            let data = try JSONEncoder().encode(authors)
             userDefaults.set(data, forKey: authorsCacheKey)
             userDefaults.set(Date(), forKey: "\(authorsCacheKey)_timestamp")
+        } catch {
         }
     }
     
@@ -338,7 +426,11 @@ class CacheManager: ObservableObject {
               Date().timeIntervalSince(timestamp) < maxMetadataAge else {
             return nil
         }
-        return try? JSONDecoder().decode([Author].self, from: data)
+        do {
+            return try JSONDecoder().decode([Author].self, from: data)
+        } catch {
+            return nil
+        }
     }
     
     func cacheStarsMapping(_ mapping: [String: String]) {
@@ -360,16 +452,23 @@ class CacheManager: ObservableObject {
     /// Clears all cache including articles, images, and SDWebImage caches.
     /// Prints debug statement upon completion.
     func clearAllCache() {
-        isClearingCache = true
+        Task { @MainActor in
+            isClearingCache = true
+        }
         
         Task {
             // Clear images from manual cache directory
             let cachedURLs = getCachedImageURLs()
             for urlString in cachedURLs {
-                guard let url = URL(string: urlString) else { continue }
+                guard let url = URL(string: urlString) else {
+                    continue
+                }
                 let fileName = url.lastPathComponent
                 let fileURL = cacheDirectory.appendingPathComponent(fileName)
-                try? fileManager.removeItem(at: fileURL)
+                do {
+                    try fileManager.removeItem(at: fileURL)
+                } catch {
+                }
             }
             userDefaults.removeObject(forKey: imagesCacheKey)
             
@@ -379,11 +478,13 @@ class CacheManager: ObservableObject {
             // Clear SDWebImage caches to free memory and disk space
             SDImageCache.shared.clearMemory()
             await SDImageCache.shared.clearDiskOnCompletion()
+
+            PodcastAudioCache.shared.removeAllCachedFiles()
             
-            self.isClearingCache = false
+            await MainActor.run {
+                self.isClearingCache = false
+            }
             await self.updateCacheSize()
-            
-            print("[CacheManager] All cache cleared successfully.")
         }
     }
 }
@@ -419,11 +520,17 @@ struct CacheStatus {
 extension View {
     func cacheImage(_ url: URL) -> some View {
         self.onAppear {
+            // Defensive check: ensure URL is valid and non-empty before caching
+            guard !url.absoluteString.isEmpty else {
+                return
+            }
+
+            // Check if image is cached
             if CacheManager.shared.getCachedImage(for: url) == nil {
                 // Image not cached, trigger download
                 SDWebImageManager.shared.loadImage(
                     with: url,
-                    options: [.refreshCached],
+                    options: [.scaleDownLargeImages, .continueInBackground, .queryMemoryData],
                     progress: nil
                 ) { image, _, _, _, _, _ in
                     if let image = image {

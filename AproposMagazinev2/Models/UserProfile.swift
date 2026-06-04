@@ -33,7 +33,6 @@ struct UserProfile: Codable {
            creationDate.timeIntervalSince1970 > 0 {
             self.createdAt = creationDate
         } else {
-            print("⚠️ Invalid creation date, using current date")
             self.createdAt = now
         }
         
@@ -41,7 +40,6 @@ struct UserProfile: Codable {
            lastSignInDate.timeIntervalSince1970 > 0 {
             self.lastLoginAt = lastSignInDate
         } else {
-            print("⚠️ Invalid last sign in date, using current date")
             self.lastLoginAt = now
         }
     }
@@ -78,7 +76,6 @@ struct UserProfile: Codable {
            date.timeIntervalSince1970 > 0 {
             createdAt = date
         } else {
-            print("⚠️ Invalid createdAt date from decoder, using current date")
             createdAt = now
         }
         
@@ -86,7 +83,6 @@ struct UserProfile: Codable {
            date.timeIntervalSince1970 > 0 {
             lastLoginAt = date
         } else {
-            print("⚠️ Invalid lastLoginAt date from decoder, using current date")
             lastLoginAt = now
         }
         

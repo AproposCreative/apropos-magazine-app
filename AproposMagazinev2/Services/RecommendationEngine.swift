@@ -34,10 +34,6 @@ class RecommendationEngine: ObservableObject {
         // Invalidate timer to avoid retain cycles and unexpected calls
         cacheClearTimer?.invalidate()
         cacheClearTimer = nil
-        
-        // Debug print for cleanup
-        print("RecommendationEngine deinitialized and resources cleaned up")
-        
         // If NotificationCenter observers or other listeners were added, remove here
         // (Currently none, but this is a good pattern)
     }

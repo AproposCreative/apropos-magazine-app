@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.4] - 2026-06-04
+
+- **Bedre artikel-læsning**
+  - Afsnit har luft imellem sig, intro-tekst med højere line height, og inline-billeder loader korrekt (WebP + optimerede CMS-størrelser).
+- **Billedkreditter**
+  - Ophavsret vises som centreret pille under billeder.
+- **Log ind i Indstillinger**
+  - Google Sign-In med default avatar og "Log ind eller opret en bruger".
+- **Forsiden edge-to-edge**
+  - Hero-billedet går helt op til toppen uden gap.
+- **Notifikations-knap fix**
+  - Synlig primær knap i onboarding-sheet i lys og mørk tilstand.
+
+## [1.2] - 2026-05-29
+
+- **Nye podcasts uden app-update**
+  - Nye Apropos Podcast-afsnit dukker op i appen automatisk uden ny App Store-version.
+- **Besked når ny podcast udkommer**
+  - Push-notifikation når et nyt podcast-afsnit er klar.
+- **Forbedret podcast-afspiller**
+  - Kategori, værter, systemlydstyrke og swipe ned for at lukke.
+- **Notifikationer ved første åbning**
+  - Velkomst til artikel- og podcast-notifikationer.
+- **Hjem virker overalt**
+  - Hjem-knappen bringer dig til forsiden fra enhver artikel.
+- **Hurtigere artikler**
+  - Hurtigere åbning af artikler og mere responsiv forside.
+
 ## [Unreleased] - 2025-01-XX
 
 ### 🔔 Notification System Improvements
@@ -108,7 +136,7 @@
 ### Files Modified
 
 #### Backend
-- `index_fixed_safe.js` - Webflow webhook handler with Firestore tracking
+- `functions/index.js` - Webflow webhook handler with Firestore tracking
 
 #### iOS App
 - `AppDelegate.swift` - Notification handling and duplicate checks
@@ -125,7 +153,7 @@
 
 ### For Developers
 
-1. **Backend Deployment**: Deploy `index_fixed_safe.js` to Cloud Run/Firebase Functions
+1. **Backend Deployment**: Deploy `functions/index.js` with Firebase Functions
 2. **Firestore Setup**: Ensure `notified_articles` collection has proper permissions
 3. **App Groups**: Verify both app and extension have `group.com.aproposmagazine.app` capability
 4. **What's New**: Update `Resources/WhatsNew/whatsnew.json` with new version entries

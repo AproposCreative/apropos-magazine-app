@@ -120,10 +120,6 @@ class KeyboardNotificationManager: ObservableObject {
         
         let hasWebView = findWebView(in: window)
         isWebViewPresent = hasWebView
-        
-        if hasWebView {
-            print("[KeyboardNotificationManager] Web view detected")
-        }
     }
     
     private func findWebView(in view: UIView) -> Bool {
@@ -156,7 +152,6 @@ class KeyboardNotificationManager: ObservableObject {
     private func handleKeyboardNotification(_ notification: Notification, type: KeyboardNotificationType) {
         // Only block notifications if sign-in is actively happening
         if isSignInActive {
-            print("[KeyboardNotificationManager] Blocking keyboard notification during sign-in: \(notification.name.rawValue)")
             return
         }
         
@@ -187,10 +182,5 @@ class KeyboardNotificationManager: ObservableObject {
     
     func setSignInActive(_ active: Bool) {
         isSignInActive = active
-        if active {
-            print("[KeyboardNotificationManager] Sign-in active - blocking keyboard notifications")
-        } else {
-            print("[KeyboardNotificationManager] Sign-in inactive - notifications enabled")
-        }
     }
 }

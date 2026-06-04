@@ -48,9 +48,9 @@ struct SearchView_Enhanced: View {
         
         switch selectedSort {
         case .newest:
-            return articles.sorted { ($0.date ?? "") > ($1.date ?? "") }
+            return articles.sorted { $0.feedSortDate > $1.feedSortDate }
         case .oldest:
-            return articles.sorted { ($0.date ?? "") < ($1.date ?? "") }
+            return articles.sorted { $0.feedSortDate < $1.feedSortDate }
         case .titleAZ:
             return articles.sorted { ($0.name ?? "") < ($1.name ?? "") }
         case .titleZA:
@@ -177,7 +177,7 @@ struct SearchView_Enhanced: View {
                 .padding(.bottom, 8)
 
                 // Article list
-                if viewModel.isLoading {
+                if viewModel.isLoading || (viewModel.articles.isEmpty && viewModel.fetchError == nil) {
                     shimmerPlaceholder
                 } else if viewModel.fetchError != nil {
                     EmptyStateView(
@@ -186,7 +186,7 @@ struct SearchView_Enhanced: View {
                         subtitle: "Tjek din internetforbindelse, og prøv igen.",
                         actionTitle: "Prøv igen"
                     ) {
-                        viewModel.fetchArticles()
+                        viewModel.fetchArticles(forceRefresh: true)
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, showNavTitle ? 12 : 0)
@@ -262,6 +262,10 @@ struct SearchView_Enhanced: View {
             withAnimation(.easeInOut(duration: 0.2)) {
                 showNavTitle = value < -40
             }
+        }
+        .refreshable {
+            await viewModel.refreshArticles()
+            resetPagination()
         }
         .navigationTitle(showNavTitle ? "Artikler" : "")
         .navigationBarTitleDisplayMode(.inline)

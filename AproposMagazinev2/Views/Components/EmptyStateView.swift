@@ -78,6 +78,5 @@ struct EmptyStateView: View {
         subtitle: "Prøv at søge efter noget andet eller tjek din internetforbindelse.",
         actionTitle: "Prøv igen"
     ) {
-        print("Action tapped")
     }
 } 

@@ -12,6 +12,7 @@ struct ArticleCardView_Enhanced: View {
     let showStars: Bool
     var bottom = Int()
     @State private var isLoaded = false
+    @State private var loadFailed = false
     @EnvironmentObject var viewModel: ArticleViewModel
     @Environment(\.colorScheme) var colorScheme
     
@@ -63,23 +64,36 @@ private extension ArticleCardView_Enhanced {
     
     var imageSection: some View {
         GeometryReader { geometry in
-            var mutableArticle = article
-            let thumbnailURL = mutableArticle.thumbnailURL
-            WebImage(url: URL(string: thumbnailURL), options: [.retryFailed, .continueInBackground])
-                .resizable()
-                .onSuccess { _, _, _ in
-                    DispatchQueue.main.async {
-                        isLoaded = true
-                    }
+            let cardImageURL = article.mobileImageURL ?? article.thumbURL ?? article.coverURL
+            ZStack {
+                ArticleImagePlaceholder(showShimmer: !loadFailed, cornerRadius: 8)
+
+                if !loadFailed, let cardImageURL {
+                    WebImage(url: cardImageURL, options: [.retryFailed, .continueInBackground])
+                        .resizable()
+                        .onSuccess { _, _, _ in
+                            DispatchQueue.main.async {
+                                isLoaded = true
+                            }
+                        }
+                        .onFailure { _ in
+                            DispatchQueue.main.async {
+                                loadFailed = true
+                            }
+                        }
+                        .transition(.fade(duration: 0.3))
+                        .aspectRatio(contentMode: .fill)
+                        .opacity(isLoaded ? 1 : 0)
                 }
-                .onFailure { error in
-                    print("Image failed: \(error.localizedDescription)")
-                }
-                .transition(.fade(duration: 0.3)) // ✅ Smooth fade in
-                .aspectRatio(contentMode: .fill) // ✅ Fill like center crop
-                .frame(width: geometry.size.width, height: cardHeight) // ✅ Fixed size
-                .clipped() // ✅ Crop overflowing parts
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading) // ✅ Align to top-left
+            }
+            .frame(width: geometry.size.width, height: cardHeight)
+            .clipped()
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .onChange(of: article.id) { _, _ in
+                isLoaded = false
+                loadFailed = false
+            }
         }
         .frame(height: cardHeight)
     }
@@ -120,9 +134,7 @@ struct StarsFromText: View {
         if count > 0 {
             HStack(spacing: 4) {
                 ForEach(0..<6) { index in
-                    Image(index < count ? 
-                        (colorScheme == .dark ? "DarkStar" : "DimStar") : 
-                        (colorScheme == .dark ? "DimStar" : "DarkStar"))
+                    Image(index < count ? "DarkStar" : "DimStar")
                         .resizable()
                         .frame(width: 16, height: 16)
                 }
@@ -166,8 +178,7 @@ private extension ArticleCardView_Enhanced {
     }
     
     var contentSection: some View {
-        let colorScheme = colorScheme // Capture the environment variable
-        return VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
             
             if showTopic {
                 Text(articleCategories.first ?? "Generelt")
@@ -228,9 +239,7 @@ private extension ArticleCardView_Enhanced {
             if showStars, let rating = article.stjerne {
                 HStack(spacing: 4) {
                     ForEach(0..<6) { index in
-                        Image(index < rating ? 
-                            (colorScheme == .dark ? "DarkStar" : "DimStar") : 
-                            (colorScheme == .dark ? "DimStar" : "DarkStar"))
+                        Image(index < rating ? "DarkStar" : "DimStar")
                             .resizable()
                             .frame(width: 16, height: 16)
                     }

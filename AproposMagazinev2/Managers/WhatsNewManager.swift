@@ -14,22 +14,29 @@ final class WhatsNewManager {
         entries = WhatsNewManager.loadEntries()
     }
 
+    /// Entries relevant for the currently installed app version.
+    func entriesForDisplay() -> [WhatsNewEntry] {
+        let relevant = entries
+            .filter { compare($0.version, currentVersion) != .orderedDescending }
+            .sorted { compare($0.version, $1.version) == .orderedDescending }
+
+        if !relevant.isEmpty {
+            return relevant
+        }
+
+        if let generated = Self.loadEntryFromBundledChangelog(currentVersion: currentVersion) {
+            return [generated]
+        }
+
+        return entries.sorted { compare($0.version, $1.version) == .orderedDescending }
+    }
+
     func entryToPresent() -> WhatsNewEntry? {
-        guard !entries.isEmpty else {
+        guard let entry = entriesForDisplay().first else {
             return nil
         }
 
-        let sortedEntries = entries.sorted { compare($0.version, $1.version) == .orderedDescending }
-        
-        // Find entry that matches current version or is the latest entry that's <= current version
-        // If no entry matches, show the latest entry anyway (for new users)
-        let candidate = sortedEntries.first(where: { compare($0.version, self.currentVersion) != .orderedDescending }) ?? sortedEntries.first
-
-        guard let entry = candidate else {
-            return nil
-        }
-
-        if self.shouldDisplay(entry.version) {
+        if shouldDisplay(entry.version) {
             return entry
         }
 
@@ -43,14 +50,8 @@ final class WhatsNewManager {
     
     /// Check if we should show What's New (any entry not seen)
     func shouldShowWhatsNew() -> Bool {
-        guard !entries.isEmpty else { return false }
-        
-        let sortedEntries = entries.sorted { compare($0.version, $1.version) == .orderedDescending }
-        let latestEntry = sortedEntries.first
-        
-        guard let latest = latestEntry else { return false }
-        
-        return shouldDisplay(latest.version)
+        guard let entry = entriesForDisplay().first else { return false }
+        return shouldDisplay(entry.version)
     }
 
     func markEntryAsSeen(_ entry: WhatsNewEntry) {
@@ -130,12 +131,100 @@ final class WhatsNewManager {
         do {
             let data = try Data(contentsOf: fileURL)
             let decoder = JSONDecoder()
-            let entries = try decoder.decode([WhatsNewEntry].self, from: data)
+            var entries = try decoder.decode([WhatsNewEntry].self, from: data)
+
+            // Auto-generate latest entry from bundled CHANGELOG when available.
+            // This keeps "latest improvements" up to date without manual JSON edits.
+            let currentVersion = Bundle.main.shortVersionString
+            if let generated = loadEntryFromBundledChangelog(currentVersion: currentVersion) {
+                entries.removeAll { $0.version == generated.version }
+                entries.insert(generated, at: 0)
+            }
+
             return entries
         } catch {
             let logger = Logger(subsystem: "com.aproposmagazine.app", category: "WhatsNewManager")
             logger.error("Kunne ikke loade WhatsNew data: \(error.localizedDescription, privacy: .public)")
             return []
         }
+    }
+
+    private static func loadEntryFromBundledChangelog(currentVersion: String) -> WhatsNewEntry? {
+        guard let changelogURL = Bundle.main.url(forResource: "CHANGELOG", withExtension: "md"),
+              let markdown = try? String(contentsOf: changelogURL, encoding: .utf8) else {
+            return nil
+        }
+
+        let extractedItems = extractItems(from: markdown).prefix(6).map { $0 }
+        guard !extractedItems.isEmpty else { return nil }
+
+        return WhatsNewEntry(
+            version: currentVersion,
+            title: "Nyheder i Apropos Magazine",
+            subtitle: "Seneste forbedringer, automatisk hentet fra changelog.",
+            items: extractedItems,
+            ctaTitle: "Se hele changeloggen",
+            ctaURL: URL(string: "https://aproposmagazine.com/changelog")
+        )
+    }
+
+    private static func extractItems(from markdown: String) -> [WhatsNewItem] {
+        let lines = markdown.components(separatedBy: .newlines)
+        var items: [WhatsNewItem] = []
+
+        for (index, rawLine) in lines.enumerated() {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            guard line.hasPrefix("- **"),
+                  let title = parseTitle(from: line),
+                  !title.isEmpty else {
+                continue
+            }
+
+            var description = "Se den fulde changelog for flere detaljer."
+            if index + 1 < lines.count {
+                let nextLine = lines[index + 1].trimmingCharacters(in: .whitespaces)
+                if nextLine.hasPrefix("- "), !nextLine.contains("**") {
+                    description = String(nextLine.dropFirst(2)).trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+            }
+
+            items.append(
+                WhatsNewItem(
+                    icon: iconFor("\(title) \(description)"),
+                    title: title,
+                    description: description
+                )
+            )
+        }
+
+        return items
+    }
+
+    private static func parseTitle(from bulletLine: String) -> String? {
+        guard let start = bulletLine.range(of: "**"),
+              let end = bulletLine.range(of: "**", options: [], range: start.upperBound..<bulletLine.endIndex) else {
+            return nil
+        }
+        return String(bulletLine[start.upperBound..<end.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func iconFor(_ text: String) -> String {
+        let lower = text.lowercased()
+        if lower.contains("fix") || lower.contains("bug") || lower.contains("fejl") {
+            return "wrench.and.screwdriver.fill"
+        }
+        if lower.contains("notifikation") || lower.contains("notification") {
+            return "bell.badge.fill"
+        }
+        if lower.contains("design") || lower.contains("ui") || lower.contains("glas") {
+            return "wand.and.stars"
+        }
+        if lower.contains("performance") || lower.contains("hurtig") || lower.contains("speed") || lower.contains("optimer") {
+            return "bolt.fill"
+        }
+        if lower.contains("search") || lower.contains("søg") || lower.contains("artikelsøgning") {
+            return "magnifyingglass.circle.fill"
+        }
+        return "sparkles"
     }
 }

@@ -20,11 +20,17 @@ struct FavoritesView: View {
 
     @State private var selectedSort: SortOption = .titleAZ
     @State private var selectedCategory: String = "Alle"
-    @State private var showNavTitle: Bool = false
+    @State private var showSettings: Bool = false
 
     // Computed properties for filtering and sorting
+    private var enrichedFavorites: [Article] {
+        viewModel.favorites.map { favorite in
+            viewModel.articles.first(where: { $0.id == favorite.id }) ?? favorite
+        }
+    }
+
     private var availableCategories: [String] {
-        let cats: [String] = viewModel.articles.filter { viewModel.isFavorite($0) }
+        let cats: [String] = enrichedFavorites
             .compactMap { article in
                 viewModel.topics.first(where: { $0.id == article.topicID })?.name
             }
@@ -33,7 +39,7 @@ struct FavoritesView: View {
     }
 
     private var sortedFavorites: [Article] {
-        var favs = viewModel.articles.filter { viewModel.isFavorite($0) }
+        var favs = enrichedFavorites
 
         // Filter by category if not "Alle"
         if selectedCategory != "Alle" {
@@ -93,181 +99,176 @@ struct FavoritesView: View {
 
 
     var body: some View {
-        NavigationView {
-            ZStack(alignment: .top) {
-                ScrollView {
-                    GeometryReader { geo in
-                        Color.clear
-                            .frame(height: 1)
-                            .preference(key: ScrollOffsetKey.self, value: geo.frame(in: .named("scroll")).minY)
+        GeometryReader { geometry in
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 0) {
+                    HStack(alignment: .center) {
+                        Text("Min side")
+                            .font(.largeTitle.bold())
+
+                        Spacer()
+
+                        Button {
+                            showSettings = true
+                        } label: {
+                            Image(systemName: "gearshape")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundColor(.primary)
+                                .frame(width: 36, height: 36)
+                                .background(Color.gray.opacity(0.1))
+                                .clipShape(Circle())
+                        }
+                        .accessibilityLabel("Indstillinger")
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 16)
+                    .padding(.bottom, 12)
 
-                    VStack(spacing: 0) {
-                        // Large Title 'Gemt' shown only when showNavTitle is false
-                        if !showNavTitle {
-                            HStack {
-                                Text("Gemt")
-                                    .font(.largeTitle)
-                                    .fontWeight(.bold)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.horizontal, 16)
-                                    .padding(.top, 12)
-                                    .padding(.bottom, 8)
-                            }
-                            .transition(.opacity)
-                        }
+                    controls
 
-                        // Controls
-                        VStack(spacing: 16) {
-                            HStack(spacing: 12) {
-                                // Sort menu
-                                Menu {
-                                    ForEach(SortOption.allCases) { option in
-                                        Button(action: { selectedSort = option }) {
-                                            HStack {
-                                                Text(option.rawValue)
-                                                if selectedSort == option {
-                                                    Spacer()
-                                                    Image(systemName: "checkmark")
-                                                }
-                                            }
-                                        }
-                                    }
-                                } label: {
-                                    HStack {
-                                        Image(systemName: "arrow.up.arrow.down")
-                                            .font(.caption)
-                                        Text(selectedSort.rawValue)
-                                            .font(.subheadline)
-                                        Image(systemName: "chevron.down")
-                                            .font(.caption2)
-                                    }
-                                    .foregroundColor(.primary)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 8)
-                                    .background(Color.gray.opacity(0.1))
-                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    if viewModel.isLoading {
+                        shimmerPlaceholder
+                    } else if sortedFavorites.isEmpty {
+                        emptyState
+                    } else {
+                        VStack(spacing: 0) {
+                            ForEach(sortedFavorites) { article in
+                                Button(action: {
+                                    navigationCoordinator.navigateToArticle(article, in: .favorites)
+                                }) {
+                                    FavoriteArticleRow(article: article)
+                                        .padding(.vertical, 12)
+                                        .padding(.horizontal, 16)
                                 }
+                                .buttonStyle(PlainButtonStyle())
 
-                                // Category filter
-                                if !availableCategories.isEmpty {
-                                    Menu {
-                                        Button("Alle") { selectedCategory = "Alle" }
-                                        Divider()
-                                        ForEach(availableCategories, id: \.self) { category in
-                                            Button(category) { selectedCategory = category }
-                                        }
-                                    } label: {
-                                        HStack {
-                                            Image(systemName: "tag")
-                                                .font(.caption)
-                                            Text(selectedCategory)
-                                                .font(.subheadline)
-                                            Image(systemName: "chevron.down")
-                                                .font(.caption2)
-                                        }
-                                        .foregroundColor(.primary)
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 8)
-                                        .background(Color.gray.opacity(0.1))
-                                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                                    }
-                                }
-
-                                Spacer()
-
-                                // Article count
-                                Text("\(sortedFavorites.count) artikler")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                            .padding(.horizontal, 16)
-                        }
-                        .padding(.bottom, 8)
-
-                        // Articles list
-                        if viewModel.isLoading {
-                            shimmerPlaceholder
-                        } else if sortedFavorites.isEmpty {
-                            // Empty state
-                            VStack(spacing: 16) {
-                                Image(systemName: "bookmark.slash")
-                                    .font(.system(size: 48))
-                                    .foregroundColor(.secondary)
-
-                                Text("Ingen gemte artikler")
-                                    .font(.title2)
-                                    .fontWeight(.medium)
-                                    .foregroundColor(.primary)
-
-                                Text("Gem artikler ved at trykke på plus-knappen")
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
-                                    .multilineTextAlignment(.center)
-                            }
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .background(Color.clear)
-                            .padding(.top, 100)
-                        } else {
-                            // Articles list
-                            VStack(spacing: 0) {
-                                ForEach(sortedFavorites) { article in
-                                    Button(action: {
-                                        navigationCoordinator.navigateToArticle(article, in: .favorites)
-                                    }) {
-                                        FavoriteArticleRow(article: article)
-                                            .padding(.vertical, 12)
-                                            .padding(.horizontal, 16)
-                                    }
-                                    .buttonStyle(PlainButtonStyle())
-
-                                    if article.id != sortedFavorites.last?.id {
-                                        Divider()
-                                            .padding(.leading, 112) // Align with content
-                                    }
+                                if article.id != sortedFavorites.last?.id {
+                                    Divider()
+                                        .padding(.leading, 112)
                                 }
                             }
                         }
-
-                        Spacer(minLength: 80)
                     }
                 }
-                .coordinateSpace(name: "scroll")
-                .onPreferenceChange(ScrollOffsetKey.self) { value in
-                    let offset = value
-                    withAnimation(.easeInOut(duration: 0.25)) {
-                        showNavTitle = offset < -8
-                    }
-                }
-                .navigationBarTitleDisplayMode(.inline)
-                .navigationTitle(showNavTitle ? "Gemt" : "")
-                
+                .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .top)
             }
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Text(showNavTitle ? "Gemt" : "")
-                        .font(.headline)
-                        .opacity(showNavTitle ? 1 : 0)
-                }
-                
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    HStack(spacing: 16) {
-                        Button {
-                            // Navigate to search
-                            navigationCoordinator.navigateToTab(.search)
-                        } label: {
-                            Image(systemName: "magnifyingglass")
-                        }
-                        Button {
-                            // Show favorites menu
-                            print("Favorites menu tapped")
-                        } label: {
-                            Image(systemName: "line.3.horizontal")
-                        }
-                    }
-                }
+            .scrollBounceBehavior(.basedOnSize, axes: .vertical)
+            .refreshable {
+                await viewModel.refreshArticles()
             }
         }
+        .toolbar(.hidden, for: .navigationBar)
+        .sheet(isPresented: $showSettings) {
+            SettingsView()
+                .environmentObject(viewModel)
+        }
+    }
+
+    private var controls: some View {
+        VStack(spacing: 16) {
+            HStack(spacing: 12) {
+                Menu {
+                    ForEach(SortOption.allCases) { option in
+                        Button(action: { selectedSort = option }) {
+                            HStack {
+                                Text(option.rawValue)
+                                if selectedSort == option {
+                                    Spacer()
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrow.up.arrow.down")
+                            .font(.caption)
+                        Text(selectedSort.rawValue)
+                            .font(.subheadline)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Image(systemName: "chevron.down")
+                            .font(.caption2)
+                    }
+                    .foregroundColor(.primary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .frame(minWidth: 134, maxWidth: 170)
+                    .background(Color.gray.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+
+                if !availableCategories.isEmpty {
+                    Menu {
+                        Button("Alle") { selectedCategory = "Alle" }
+                        Divider()
+                        ForEach(availableCategories, id: \.self) { category in
+                            Button(category) { selectedCategory = category }
+                        }
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "tag")
+                                .font(.caption)
+                            Text(selectedCategory)
+                                .font(.subheadline)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .fixedSize(horizontal: true, vertical: false)
+                            Image(systemName: "chevron.down")
+                                .font(.caption2)
+                        }
+                        .foregroundColor(.primary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .frame(minWidth: 86, maxWidth: 132)
+                        .background(Color.gray.opacity(0.1))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                }
+
+                Spacer()
+
+                Button {
+                    navigationCoordinator.navigateToTab(.search)
+                } label: {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundColor(.primary)
+                        .padding(8)
+                        .background(Color.gray.opacity(0.1))
+                        .clipShape(Circle())
+                }
+
+                Text("\(sortedFavorites.count) artikler")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+            .padding(.horizontal, 16)
+        }
+        .padding(.bottom, 8)
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "bookmark.slash")
+                .font(.system(size: 48))
+                .foregroundColor(.secondary)
+
+            Text("Ingen gemte artikler")
+                .font(.title2)
+                .fontWeight(.medium)
+                .foregroundColor(.primary)
+
+            Text("Gem artikler ved at trykke på plus-knappen")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.clear)
+        .padding(.top, 100)
     }
 }
 
@@ -275,25 +276,28 @@ struct FavoritesView: View {
 struct FavoriteArticleRow: View {
     var article: Article
     @EnvironmentObject var viewModel: ArticleViewModel
+    @State private var imageFailed = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
-            // Image - No rounded corners for Apple premium look
-            var mutableArticle = article
-            if let url = URL(string: mutableArticle.thumbnailURL), !mutableArticle.thumbnailURL.isEmpty {
-                WebImage(url: url, options: [.retryFailed, .continueInBackground])
-                    .resizable()
-                    .indicator(.activity)
-                    .transition(.fade(duration: 0.3))
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: 80, height: 80)
-                    .clipped() // No rounded corners - Apple premium style
-            } else {
-                Image("FallbackImage")
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: 80, height: 80)
-                    .clipped() // No rounded corners - Apple premium style
+            ZStack {
+                ArticleImagePlaceholder(showShimmer: !imageFailed, cornerRadius: 8)
+
+                if let url = article.listThumbnailURL, !imageFailed {
+                    WebImage(url: url, options: [.retryFailed, .continueInBackground, .scaleDownLargeImages])
+                        .resizable()
+                        .onFailure { _ in
+                            imageFailed = true
+                        }
+                        .transition(.fade(duration: 0.25))
+                        .aspectRatio(contentMode: .fill)
+                }
+            }
+            .frame(width: 80, height: 80)
+            .clipped()
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .onChange(of: article.id) { _, _ in
+                imageFailed = false
             }
 
             // Content

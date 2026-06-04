@@ -88,6 +88,7 @@ API keys og secrets håndteres via `SecureConfig`:
 - [ARCHITECTURE.md](./ARCHITECTURE.md) - Arkitektur og design patterns
 - [DEVELOPMENT.md](./DEVELOPMENT.md) - Udviklingsguide og best practices
 - [SERVICES.md](./SERVICES.md) - API services dokumentation
+- [../Docs/PodcastAudioWorkflow.md](../Docs/PodcastAudioWorkflow.md) - Operativ workflow for eksport, upload og playback af podcast-audio
 
 ## 🧪 Testing
 

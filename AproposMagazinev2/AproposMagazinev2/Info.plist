@@ -9,9 +9,9 @@
 	<key>CFBundleDisplayName</key>
 	<string>Apropos Magazine</string>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>2</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0</string>
+	<string>1.4</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundlePackageType</key>
@@ -54,21 +54,18 @@
 	</array>
 	<key>UIBackgroundModes</key>
 	<array>
+		<string>audio</string>
 		<string>remote-notification</string>
 		<string>fetch</string>
 	</array>
-	<key>NSUserNotificationUsageDescription</key>
-	<string>Denne app bruger notifikationer til at informere dig om nye artikler og opdateringer fra Apropos Magazine.</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>Denne app bruger ikke mikrofon, men iOS kræver denne tilladelse for lydfunktioner.</string>
-	<key>NSCameraUsageDescription</key>
-	<string>Denne app bruger ikke kamera, men iOS kræver denne tilladelse for mediefunktioner.</string>
 	<key>FirebaseAppDelegateProxyEnabled</key>
 	<false/>
 	<key>FirebaseAutomaticScreenReportingEnabled</key>
 	<false/>
 	<key>FirebaseMessagingAutoInitEnabled</key>
-	<true/>
+	<false/>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>UIAppFonts</key>
 	<array>
 		<string>SFProText-Bold.ttf</string>

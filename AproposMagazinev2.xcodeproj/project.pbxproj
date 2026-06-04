@@ -9,7 +9,6 @@
 /* Begin PBXBuildFile section */
 		1839D7BA2E3C813B00E2D3C5 /* SDWebImageSwiftUI in Frameworks */ = {isa = PBXBuildFile; productRef = 1839D7B92E3C813B00E2D3C5 /* SDWebImageSwiftUI */; };
 		1839D7BD2E3C832900E2D3C5 /* Shimmer in Frameworks */ = {isa = PBXBuildFile; productRef = 1839D7BC2E3C832900E2D3C5 /* Shimmer */; };
-		5E8D9D952E2A551100F4E113 /* SwiftUIIntrospect in Frameworks */ = {isa = PBXBuildFile; productRef = 5E8D9D942E2A551100F4E113 /* SwiftUIIntrospect */; };
 		B68382452E056B35005C4E85 /* AproposMagazinev2Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B68382462E056B35005C4E85 /* AproposMagazinev2Tests.swift */; };
 		B68382472E056B35005C4E85 /* AproposMagazinev2UITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B68382482E056B35005C4E85 /* AproposMagazinev2UITests.swift */; };
 		B6A7290C2E05D88F00C83654 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = B6A7290B2E05D88F00C83654 /* FirebaseFirestore */; };
@@ -18,6 +17,7 @@
 		DD447F542E4DE0BC0072E9B5 /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = DD447F532E4DE0BC0072E9B5 /* FirebaseMessaging */; };
 		DD447F5F2E4DEAFE0072E9B5 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = DD447F5E2E4DEAFE0072E9B5 /* GoogleSignIn */; };
 		DD447F612E4DEAFE0072E9B5 /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = DD447F602E4DEAFE0072E9B5 /* GoogleSignInSwift */; };
+		DD8EAAB42E7838B100F37B5C /* AproposMagazinev2/AproposMagazineNotificationService/PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = DD8EAAB32E7838B100F37B5C /* AproposMagazinev2/AproposMagazineNotificationService/PrivacyInfo.xcprivacy */; };
 		DDD1A5B52EBCFD440025EC07 /* AproposMagazineNotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = DDD1A5AE2EBCFD440025EC07 /* AproposMagazineNotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -67,8 +67,7 @@
 		B68382462E056B35005C4E85 /* AproposMagazinev2Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AproposMagazinev2Tests.swift; sourceTree = "<group>"; };
 		B68382482E056B35005C4E85 /* AproposMagazinev2UITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AproposMagazinev2UITests.swift; sourceTree = "<group>"; };
 		DD03F6E02EC2119C000191C3 /* AproposMagazineNotificationService.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AproposMagazineNotificationService.entitlements; sourceTree = "<group>"; };
-		DD8EA8AF2E782D2200F37B5C /* AproposMagazinev2.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = AproposMagazinev2.xcodeproj; sourceTree = "<group>"; };
-		DD8EA9B32E782F5300F37B5C /* AproposMagazinev2.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = AproposMagazinev2.xcodeproj; sourceTree = "<group>"; };
+		DD8EAAB32E7838B100F37B5C /* AproposMagazinev2/AproposMagazineNotificationService/PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = AproposMagazinev2/AproposMagazineNotificationService/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		DDD1A5AE2EBCFD440025EC07 /* AproposMagazineNotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AproposMagazineNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -85,10 +84,28 @@
 			membershipExceptions = (
 				AproposMagazineNotificationService/Info.plist,
 				AproposMagazineNotificationService/NotificationService.swift,
+				AproposMagazineNotificationService/PrivacyInfo.xcprivacy,
 				AproposMagazineNotificationService/README.md,
 				AproposMagazinev2/Info.plist,
 				AproposMagazinev2/Resources/WhatsNew/whatsnew.json,
+				ARCHITECTURE.md,
+				CHANGELOG.md,
+				DEVELOPMENT.md,
+				FEATURE_ROADMAP.md,
+				FIND_BUILD_SETTINGS.md,
+				FIX_BUILD_ERRORS.md,
+				fix_build_errors.py,
+				fix_xcode_targets.sh,
+				HVORDAN_PROBLEMET_OPSTOD.md,
 				README.md,
+				RICH_NOTIFICATIONS_IMPLEMENTATION.md,
+				Scripts/generate_whats_new.py,
+				"Scripts/profile-device.sh",
+				"Scripts/run-tests.sh",
+				serviceAccountKey.example.json,
+				SERVICES.md,
+				SESSION_SUMMARY_20251106.md,
+				test_fcm.py,
 			);
 			target = B68382192E056B2F005C4E85 /* AproposMagazinev2 */;
 		};
@@ -116,7 +133,6 @@
 				DD447F5F2E4DEAFE0072E9B5 /* GoogleSignIn in Frameworks */,
 				1839D7BD2E3C832900E2D3C5 /* Shimmer in Frameworks */,
 				DD447F542E4DE0BC0072E9B5 /* FirebaseMessaging in Frameworks */,
-				5E8D9D952E2A551100F4E113 /* SwiftUIIntrospect in Frameworks */,
 				B6A7290C2E05D88F00C83654 /* FirebaseFirestore in Frameworks */,
 				DD447F522E4DE0BC0072E9B5 /* FirebaseCore in Frameworks */,
 				B6C02F462E069DB6003BDD5E /* FirebaseAuth in Frameworks */,
@@ -151,6 +167,7 @@
 			isa = PBXGroup;
 			children = (
 				DD03F6E02EC2119C000191C3 /* AproposMagazineNotificationService.entitlements */,
+				DD8EAAB32E7838B100F37B5C /* AproposMagazinev2/AproposMagazineNotificationService/PrivacyInfo.xcprivacy */,
 				5E8D9D962E2A77D600F4E113 /* FontsFree-Net-SFProDisplay-Regular.ttf */,
 				B683821C2E056B2F005C4E85 /* AproposMagazinev2 */,
 				B683821B2E056B2F005C4E85 /* Products */,
@@ -186,20 +203,6 @@
 			path = AproposMagazinev2UITests;
 			sourceTree = "<group>";
 		};
-		DD8EA8BF2E782D2200F37B5C /* Products */ = {
-			isa = PBXGroup;
-			children = (
-			);
-			name = Products;
-			sourceTree = "<group>";
-		};
-		DD8EA9BE2E782F5300F37B5C /* Products */ = {
-			isa = PBXGroup;
-			children = (
-			);
-			name = Products;
-			sourceTree = "<group>";
-		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -224,7 +227,6 @@
 			packageProductDependencies = (
 				B6A7290B2E05D88F00C83654 /* FirebaseFirestore */,
 				B6C02F452E069DB6003BDD5E /* FirebaseAuth */,
-				5E8D9D942E2A551100F4E113 /* SwiftUIIntrospect */,
 				1839D7B92E3C813B00E2D3C5 /* SDWebImageSwiftUI */,
 				1839D7BC2E3C832900E2D3C5 /* Shimmer */,
 				DD447F512E4DE0BC0072E9B5 /* FirebaseCore */,
@@ -328,7 +330,6 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				B6A729082E05D88F00C83654 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
-				5E8D9D932E2A551100F4E113 /* XCRemoteSwiftPackageReference "SwiftUI-Introspect" */,
 				1839D7B82E3C813B00E2D3C5 /* XCRemoteSwiftPackageReference "SDWebImageSwiftUI" */,
 				1839D7BB2E3C832900E2D3C5 /* XCRemoteSwiftPackageReference "SwiftUI-Shimmer" */,
 				DD447F5D2E4DEAFE0072E9B5 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
@@ -336,16 +337,6 @@
 			preferredProjectObjectVersion = 77;
 			productRefGroup = B683821B2E056B2F005C4E85 /* Products */;
 			projectDirPath = "";
-			projectReferences = (
-				{
-					ProductGroup = DD8EA8BF2E782D2200F37B5C /* Products */;
-					ProjectRef = DD8EA8AF2E782D2200F37B5C /* AproposMagazinev2.xcodeproj */;
-				},
-				{
-					ProductGroup = DD8EA9BE2E782F5300F37B5C /* Products */;
-					ProjectRef = DD8EA9B32E782F5300F37B5C /* AproposMagazinev2.xcodeproj */;
-				},
-			);
 			projectRoot = "";
 			targets = (
 				B68382192E056B2F005C4E85 /* AproposMagazinev2 */,
@@ -382,6 +373,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DD8EAAB42E7838B100F37B5C /* AproposMagazinev2/AproposMagazineNotificationService/PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -570,7 +562,7 @@
 				CODE_SIGN_ENTITLEMENTS = AproposMagazinev2/AproposMagazinev2.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = Q2LR5XQ8GK;
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = AproposMagazinev2/AproposMagazinev2/Info.plist;
@@ -579,7 +571,7 @@
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UILaunchStoryboardName = "";
+				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
@@ -587,7 +579,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.frederikkragh.aproposmagazinev2;
 				PRODUCT_NAME = "Apropos Magazine";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -602,10 +594,10 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = AproposMagazinev2/AproposMagazinev2.entitlements;
+				CODE_SIGN_ENTITLEMENTS = AproposMagazinev2/AproposMagazinev2Release.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = Q2LR5XQ8GK;
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = AproposMagazinev2/AproposMagazinev2/Info.plist;
@@ -614,7 +606,7 @@
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UILaunchStoryboardName = "";
+				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
@@ -622,7 +614,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.frederikkragh.aproposmagazinev2;
 				PRODUCT_NAME = "Apropos Magazine";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -637,10 +629,10 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = WABH3U3M22;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.4;
 				PRODUCT_BUNDLE_IDENTIFIER = Apropos.AproposMagazinev2Tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -655,10 +647,10 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = WABH3U3M22;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.4;
 				PRODUCT_BUNDLE_IDENTIFIER = Apropos.AproposMagazinev2Tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -672,9 +664,9 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = WABH3U3M22;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.4;
 				PRODUCT_BUNDLE_IDENTIFIER = Apropos.AproposMagazinev2UITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -688,9 +680,9 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = WABH3U3M22;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.4;
 				PRODUCT_BUNDLE_IDENTIFIER = Apropos.AproposMagazinev2UITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -706,7 +698,7 @@
 				CODE_SIGN_ENTITLEMENTS = AproposMagazineNotificationService.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = Q2LR5XQ8GK;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AproposMagazinev2/AproposMagazineNotificationService/Info.plist;
@@ -718,7 +710,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.frederikkragh.aproposmagazinev2.AproposMagazineNotificationService;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -737,7 +729,7 @@
 				CODE_SIGN_ENTITLEMENTS = AproposMagazineNotificationService.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = Q2LR5XQ8GK;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AproposMagazinev2/AproposMagazineNotificationService/Info.plist;
@@ -749,7 +741,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.frederikkragh.aproposmagazinev2.AproposMagazineNotificationService;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -829,14 +821,6 @@
 				minimumVersion = 1.5.1;
 			};
 		};
-		5E8D9D932E2A551100F4E113 /* XCRemoteSwiftPackageReference "SwiftUI-Introspect" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/siteline/SwiftUI-Introspect";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 1.3.0;
-			};
-		};
 		B6A729082E05D88F00C83654 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
@@ -865,11 +849,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 1839D7BB2E3C832900E2D3C5 /* XCRemoteSwiftPackageReference "SwiftUI-Shimmer" */;
 			productName = Shimmer;
-		};
-		5E8D9D942E2A551100F4E113 /* SwiftUIIntrospect */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 5E8D9D932E2A551100F4E113 /* XCRemoteSwiftPackageReference "SwiftUI-Introspect" */;
-			productName = SwiftUIIntrospect;
 		};
 		B6A7290B2E05D88F00C83654 /* FirebaseFirestore */ = {
 			isa = XCSwiftPackageProductDependency;

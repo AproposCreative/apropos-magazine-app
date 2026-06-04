@@ -1,5 +1,5 @@
-# macOS
-.DS_Store
+# Local podcast re-encode workspace (large audio files)
+podcast-audio/
 
 # Xcode
 build/
@@ -54,9 +54,18 @@ secrets.json
 .env.local
 .env.production
 
-# Backup files
-backup.log
-*.backup
+# Node
+functions/node_modules/
+node_modules/
+
+# macOS
+.DS_Store
+
+# Dev tools (keep outside synced iOS source folder)
+ngrok
+ngrok-v3-stable-darwin-amd64.tgz
+profiling-results/
+AproposMagazinev2/profiling-results/
 
 # Swift Package Manager
 SourcePackages/

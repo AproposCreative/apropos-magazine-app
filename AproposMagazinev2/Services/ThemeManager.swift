@@ -25,7 +25,14 @@ enum AppTheme: String, CaseIterable {
     }
     
     var displayName: String {
-        return self.rawValue
+        switch self {
+        case .system:
+            return "System"
+        case .light:
+            return "Lys"
+        case .dark:
+            return "Mørk"
+        }
     }
     
     var icon: String {

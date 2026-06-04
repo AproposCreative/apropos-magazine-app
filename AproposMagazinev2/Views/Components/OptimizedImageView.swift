@@ -41,8 +41,7 @@ struct OptimizedImageView: View {
                         placeholderView
                     }
                 }
-                .onFailure { error in
-                    print("🖼️ Image loading failed: \(error.localizedDescription)")
+                .onFailure { _ in
                     loadError = true
                 }
                 .onAppear {
@@ -129,11 +128,8 @@ struct ProgressiveImageView: View {
                     self.loadLowQualityImage(from: url)
                 }
             }
-        ) { image, _, error, _, _, _ in
+        ) { image, _, _, _, _, _ in
             DispatchQueue.main.async {
-                if let error = error {
-                    print("🖼️ Progressive image loading failed: \(error.localizedDescription)")
-                }
                 self.currentImage = image
                 self.isLoading = false
                 if image != nil {
@@ -151,11 +147,8 @@ struct ProgressiveImageView: View {
             with: lowQualityURL,
             options: [.lowPriority, .retryFailed],
             progress: nil
-        ) { image, _, error, _, _, _ in
+        ) { image, _, _, _, _, _ in
             DispatchQueue.main.async {
-                if let error = error {
-                    print("🖼️ Low quality image loading failed: \(error.localizedDescription)")
-                }
                 if self.currentImage == nil {
                     self.currentImage = image
                 }
@@ -269,11 +262,7 @@ struct ImagePreloader {
                     with: url,
                     options: [.preloadAllFrames, .refreshCached, .retryFailed],
                     progress: nil
-                ) { _, _, error, _, _, _ in
-                    if let error = error {
-                        print("🖼️ Image preload failed: \(error.localizedDescription)")
-                    }
-                }
+                ) { _, _, _, _, _, _ in }
             }
         }
     }

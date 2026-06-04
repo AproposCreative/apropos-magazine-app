@@ -70,17 +70,13 @@ class NotificationServiceExtension: UNNotificationServiceExtension {
     var bestAttemptContent: UNMutableNotificationContent?
     
     override func didReceive(_ request: UNNotificationRequest, withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
-        print("🔔 [NotificationServiceExtension] didReceive called!")
         self.contentHandler = contentHandler
         bestAttemptContent = (request.content.mutableCopy() as? UNMutableNotificationContent)
         
         guard let bestAttemptContent = bestAttemptContent else {
-            print("⚠️ [NotificationServiceExtension] bestAttemptContent is nil")
             contentHandler(request.content)
             return
         }
-        
-        print("🔍 [NotificationServiceExtension] userInfo keys: \(bestAttemptContent.userInfo.keys)")
         
         // Check if this is an article notification
         // Try to get article_id from userInfo (required for duplicate check)
@@ -102,12 +98,9 @@ class NotificationServiceExtension: UNNotificationServiceExtension {
         // CRITICAL: Check if article is already published BEFORE processing
         // This prevents duplicate notifications when articles are updated
         if let articleId = articleId, !articleId.isEmpty {
-            print("🔍 [NotificationServiceExtension] Checking article: \(articleId)")
             let isAlreadyPublished = isArticleAlreadyPublished(articleId: articleId)
-            print("🔍 [NotificationServiceExtension] isAlreadyPublished: \(isAlreadyPublished)")
             
             if isAlreadyPublished {
-                print("🚫 [NotificationServiceExtension] BLOCKING notification - article \(articleId) already published (exists in cache)")
                 // Article is already published - return empty notification to suppress it
                 let emptyContent = UNMutableNotificationContent()
                 emptyContent.title = ""
@@ -116,11 +109,8 @@ class NotificationServiceExtension: UNNotificationServiceExtension {
                 emptyContent.badge = nil
                 contentHandler(emptyContent)
                 return
-            } else {
-                print("✅ [NotificationServiceExtension] ALLOWING notification - article \(articleId) is NEW (not in cache)")
             }
         } else {
-            print("⚠️ [NotificationServiceExtension] articleId is missing or empty - cannot check cache")
             // No article_id provided - try to find article by name as fallback
             // This happens when backend doesn't send article_id (e.g., when republishing in Webflow)
             
@@ -205,66 +195,38 @@ class NotificationServiceExtension: UNNotificationServiceExtension {
     /// Check if an article is already published (has publishedDate in the past)
     /// Uses App Group UserDefaults to access cached articles from main app
     private func isArticleAlreadyPublished(articleId: String) -> Bool {
-        print("🔍 [NotificationServiceExtension] Checking if article \(articleId) is already published...")
-        
         // Try App Group UserDefaults first (preferred method)
         if let appGroupDefaults = UserDefaults(suiteName: "group.com.aproposmagazine.app") {
-            print("✅ [NotificationServiceExtension] App Group UserDefaults accessible")
-            
             if let data = appGroupDefaults.data(forKey: "cached_articles"),
                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let articlesArray = json["articles"] as? [[String: Any]] {
-                
-                print("✅ [NotificationServiceExtension] Found \(articlesArray.count) articles in cache")
-                
+
                 // Find article in simplified cache
                 // Try exact match first
-                if let articleDict = articlesArray.first(where: { ($0["id"] as? String) == articleId }) {
-                    print("✅ [NotificationServiceExtension] Article \(articleId) FOUND in cache - already published!")
-                    let now = Date()
-                    
+                if articlesArray.contains(where: { ($0["id"] as? String) == articleId }) {
                     // CRITICAL: If article exists in cache, it means it was already published before
                     // The cache only contains published articles that have been fetched from Webflow API
                     // If an article is in cache, it means it was already published and fetched by the app
                     // Therefore, this is a republish - don't send notification
-                    print("🚫 [NotificationServiceExtension] Article \(articleId) exists in cache - already published before, blocking notification")
                     return true
-                } else {
-                    print("⚠️ [NotificationServiceExtension] Article \(articleId) NOT found in App Group cache")
                 }
-            } else {
-                print("⚠️ [NotificationServiceExtension] No cache data in App Group")
             }
         } else {
-            print("⚠️ [NotificationServiceExtension] App Group UserDefaults NOT accessible - trying standard UserDefaults")
-            
             // Fallback: Try standard UserDefaults (if App Group not available)
             if let data = UserDefaults.standard.data(forKey: "cached_articles"),
                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let articlesArray = json["articles"] as? [[String: Any]] {
-                
-                print("✅ [NotificationServiceExtension] Found \(articlesArray.count) articles in standard UserDefaults")
-                
-                if let articleDict = articlesArray.first(where: { ($0["id"] as? String) == articleId }) {
-                    print("✅ [NotificationServiceExtension] Article \(articleId) FOUND in standard cache - already published!")
-                    let now = Date()
-                    
+                if articlesArray.contains(where: { ($0["id"] as? String) == articleId }) {
                     // CRITICAL: If article exists in cache, it means it was already published before
                     // The cache only contains published articles that have been fetched from Webflow API
                     // If an article is in cache, it means it was already published and fetched by the app
                     // Therefore, this is a republish - don't send notification
-                    print("🚫 [NotificationServiceExtension] Article \(articleId) exists in standard cache - already published before, blocking notification")
                     return true
-                } else {
-                    print("⚠️ [NotificationServiceExtension] Article \(articleId) NOT found in standard cache")
                 }
-            } else {
-                print("⚠️ [NotificationServiceExtension] No cache data in standard UserDefaults")
             }
         }
         
         // Article not found or dates are in future - assume it's new
-        print("✅ [NotificationServiceExtension] Article \(articleId) NOT found in cache - treating as NEW")
         return false
     }
     

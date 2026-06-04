@@ -99,7 +99,6 @@ class WebflowService {
                }
                
                if let httpResponse = response as? HTTPURLResponse {
-                   self.logger.debug("Stjernemapping HTTP status: \(httpResponse.statusCode, privacy: .public)")
                    if httpResponse.statusCode != 200 {
                        self.logger.error("Fejlstatus fra Webflow-stjerner: \(httpResponse.statusCode, privacy: .public)")
                        completion(Self.defaultStarsMapping)
@@ -108,7 +107,6 @@ class WebflowService {
                }
                
                guard let data = data else {
-                   self.logger.warning("Ingen data modtaget for stjernemapping – bruger defaults.")
                    completion(Self.defaultStarsMapping)
                    return
                }
@@ -125,19 +123,14 @@ class WebflowService {
                       let options = starsField.options {
                        
                        let mapping = Dictionary(uniqueKeysWithValues: options.map { ($0.id, $0.label) })
-                       self.logger.debug("Stjernemapping hentet: \(mapping, privacy: .public)")
                        completion(mapping)
                        
                    } else {
-                       self.logger.warning("Feltet 'stars-1-5' blev ikke fundet – bruger default mapping.")
                       completion(Self.defaultStarsMapping)
                    }
                    
                } catch {
                   self.logger.error("Fejl ved dekodning af stjernemapping: \(error.localizedDescription, privacy: .public)")
-                   if let decodingError = error as? DecodingError {
-                       self.logger.debug("Decoding detaljer: \(String(describing: decodingError), privacy: .public)")
-                   }
                    completion(Self.defaultStarsMapping)
                }
                
@@ -153,20 +146,25 @@ class WebflowService {
             }
             return
         }
-        let urlString = "https://api.webflow.com/v2/collections/67dbf17ba540975b5b21c2a6/items"
-        
-        guard let url = URL(string: urlString) else {
-            let error = NSError(domain: "WebflowService", code: 0, userInfo: [NSLocalizedDescriptionKey: "Invalid URL"])
-            DispatchQueue.main.async { completion(.failure(error)) }
-            return
-        }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("Bearer \(webflowAPIToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("1.0.0", forHTTPHeaderField: "accept-version")
-        
-        let task = URLSession.shared.dataTask(with: request) { data, response, error in
+
+        let collectionId = "67dbf17ba540975b5b21c2a6"
+        let pageLimit = 100
+
+        func fetchPage(offset: Int, accumulatedArticles: [Article]) {
+            let urlString = "https://api.webflow.com/v2/collections/\(collectionId)/items?live=true&limit=\(pageLimit)&offset=\(offset)&sortBy=lastPublished&sortOrder=desc"
+
+            guard let url = URL(string: urlString) else {
+                let error = NSError(domain: "WebflowService", code: 0, userInfo: [NSLocalizedDescriptionKey: "Invalid URL"])
+                DispatchQueue.main.async { completion(.failure(error)) }
+                return
+            }
+
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            request.setValue("Bearer \(webflowAPIToken)", forHTTPHeaderField: "Authorization")
+            request.setValue("1.0.0", forHTTPHeaderField: "accept-version")
+
+            let task = URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
                 self.logger.error("Netværksfejl ved hentning af artikler: \(error.localizedDescription, privacy: .public)")
                 
@@ -188,7 +186,6 @@ class WebflowService {
             }
             
             if let httpResponse = response as? HTTPURLResponse {
-                self.logger.debug("Webflow artikler status: \(httpResponse.statusCode, privacy: .public)")
                 if httpResponse.statusCode != 200 {
                     self.logger.error("HTTP-fejl ved artikler: \(httpResponse.statusCode, privacy: .public)")
                 }
@@ -208,19 +205,27 @@ class WebflowService {
             
             do {
                 let webflowData = try JSONDecoder().decode(WebflowResponse.self, from: data)
-                let publishedArticles = webflowData.items.filter { $0.isDraft == false }
-                DispatchQueue.main.async {
-                    completion(.success(publishedArticles))
+                let publishedArticles = webflowData.items.filter { article in
+                    article.isDraft == false || article.lastPublished != nil
+                }
+
+                let allArticles = accumulatedArticles + publishedArticles
+                if webflowData.items.count == pageLimit {
+                    fetchPage(offset: offset + pageLimit, accumulatedArticles: allArticles)
+                } else {
+                    DispatchQueue.main.async {
+                        completion(.success(allArticles))
+                    }
                 }
             } catch {
                 self.logger.error("Fejl ved dekodning af artikler: \(error.localizedDescription, privacy: .public)")
-                if let decodingError = error as? DecodingError {
-                    self.logger.debug("Decode detaljer: \(String(describing: decodingError), privacy: .public)")
-                }
                 DispatchQueue.main.async { completion(.failure(error)) }
             }
+            }
+            task.resume()
         }
-        task.resume()
+
+        fetchPage(offset: 0, accumulatedArticles: [])
     }
     
     func fetchTopics(completion: @escaping (Result<[Topic], Error>) -> Void) {

@@ -1,5 +1,112 @@
 [
   {
+    "version": "1.4",
+    "title": "Nyheder i Apropos Magazine",
+    "subtitle": "Pænere artikler, login og små poleringer før release.",
+    "items": [
+      {
+        "icon": "doc.richtext",
+        "title": "Bedre artikel-læsning",
+        "description": "Afsnit har nu luft imellem sig, intro-teksten er lettere at læse, og billeder i artikler loader korrekt."
+      },
+      {
+        "icon": "photo.on.rectangle.angled",
+        "title": "Billedkreditter",
+        "description": "Ophavsret og kilder vises som små piller centreret under billeder."
+      },
+      {
+        "icon": "person.crop.circle.badge.plus",
+        "title": "Log ind i Indstillinger",
+        "description": "Log ind med Google for at gemme artikler og synkronisere på tværs af enheder."
+      },
+      {
+        "icon": "house.fill",
+        "title": "Forsiden edge-to-edge",
+        "description": "Hero-billedet går helt op til toppen uden det lille gap."
+      },
+      {
+        "icon": "bell.fill",
+        "title": "Notifikations-knap fix",
+        "description": "Tillad notifikationer-knappen er nu synlig i både lys og mørk tilstand."
+      },
+      {
+        "icon": "person.crop.circle",
+        "title": "Min side",
+        "description": "Gemte artikler, login og indstillinger samlet på én fane."
+      }
+    ],
+    "ctaTitle": "Se alle ændringer",
+    "ctaURL": "https://aproposmagazine.com/changelog"
+  },
+  {
+    "version": "1.2",
+    "title": "Nyheder i Apropos Magazine",
+    "subtitle": "Flere podcasts, smartere afspiller og besked når nyt er ude.",
+    "items": [
+      {
+        "icon": "antenna.radiowaves.left.and.right",
+        "title": "Nye podcasts uden app-update",
+        "description": "Nye Apropos Podcast-afsnit dukker op i appen automatisk – du skal ikke vente på en ny version fra App Store."
+      },
+      {
+        "icon": "bell.badge.fill",
+        "title": "Besked når ny podcast udkommer",
+        "description": "Få push når et nyt podcast-afsnit er klar. Tryk for at gå direkte til artiklen."
+      },
+      {
+        "icon": "headphones.circle.fill",
+        "title": "Forbedret podcast-afspiller",
+        "description": "Kategori og værter vises tydeligere, lydstyrke følger telefonen, og du lukker afspilleren med et swipe ned."
+      },
+      {
+        "icon": "bell.fill",
+        "title": "Notifikationer ved første åbning",
+        "description": "Ny velkomst, så du nemt kan tilmelde dig nye artikler og podcasts."
+      },
+      {
+        "icon": "house.fill",
+        "title": "Hjem virker overalt",
+        "description": "Tryk Hjem fra enhver artikel – så er du tilbage på forsiden med det samme."
+      },
+      {
+        "icon": "bolt.fill",
+        "title": "Hurtigere artikler",
+        "description": "Artikler åbner hurtigere, og forsiden føles mere responsiv."
+      }
+    ],
+    "ctaTitle": "Se alle ændringer",
+    "ctaURL": "https://aproposmagazine.com/changelog"
+  },
+  {
+    "version": "1.1",
+    "title": "Nyheder i Apropos Magazine",
+    "subtitle": "Podcast, bedre performance og en mere poleret app-oplevelse.",
+    "items": [
+      {
+        "icon": "headphones.circle.fill",
+        "title": "Lyt til artiklen",
+        "description": "Hør udvalgte artikler som podcast direkte i appen – med mini-player og fuld afspiller."
+      },
+      {
+        "icon": "play.circle.fill",
+        "title": "Afspilning i baggrunden",
+        "description": "Podcasts fortsætter på låseskærm og i Control Center, mens du læser videre."
+      },
+      {
+        "icon": "bolt.fill",
+        "title": "Hurtigere app",
+        "description": "Optimeret opstart, scrolling og billedindlæsning giver en mere flydende oplevelse."
+      },
+      {
+        "icon": "sparkles",
+        "title": "Finpudset design",
+        "description": "Forbedret mørk tilstand, tydeligere stjerner og mere ensartede billeder i Home."
+      }
+    ],
+    "ctaTitle": "Se alle ændringer",
+    "ctaURL": "https://aproposmagazine.com/changelog"
+  },
+  {
     "version": "1.0",
     "title": "Velkommen til Apropos Magazine",
     "subtitle": "Din nye app til at læse og opdage artikler fra Apropos Magazine.",
@@ -10,31 +117,7 @@
         "description": "Filtrer på kategorier og se relaterede artikler direkte i søgeresultaterne."
       },
       {
-        "icon": "bolt.circle",
-        "title": "Mere stabile notifikationer",
-        "description": "Vi har optimeret push-motoren, så du kun får de beskeder, der betyder noget."
-      },
-      {
-        "icon": "wand.and.stars",
-        "title": "Glas topbar",
-        "description": "Appen har fået et visuelt løft med en ny glas-topbar, der gør navigationen elegant."
-      }
-    ],
-    "ctaTitle": "Se alle ændringer",
-    "ctaURL": "https://aproposmagazine.com/changelog"
-  },
-  {
-    "version": "2.3.0",
-    "title": "Nyheder i Apropos Magazine",
-    "subtitle": "En hurtigere, mere elegant app-oplevelse med fokus på læsning.",
-    "items": [
-      {
-        "icon": "sparkles",
-        "title": "Forbedret artikelsøgning",
-        "description": "Filtrer på kategorier og se relaterede artikler direkte i søgeresultaterne."
-      },
-      {
-        "icon": "bolt.circle",
+        "icon": "bell.badge.fill",
         "title": "Mere stabile notifikationer",
         "description": "Vi har optimeret push-motoren, så du kun får de beskeder, der betyder noget."
       },

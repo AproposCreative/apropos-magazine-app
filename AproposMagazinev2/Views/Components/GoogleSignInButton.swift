@@ -29,7 +29,7 @@ struct GoogleSignInButton: View {
                         .scaleEffect(0.8)
                 }
                 
-                Text("Sign in with Google")
+                Text("Fortsæt med Google")
                     .font(.headline)
                     .foregroundColor(.black)
             }
@@ -65,7 +65,7 @@ struct GoogleSignOutButton: View {
                     .font(.title2)
                     .foregroundColor(.white)
                 
-                Text("Sign Out")
+                Text("Log ud")
                     .font(.headline)
                     .foregroundColor(.white)
             }

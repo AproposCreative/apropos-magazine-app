@@ -28,18 +28,12 @@ class GoogleSignInService: ObservableObject {
             self.isSignedIn = true
             self.errorMessage = nil
             await signInToFirebase(with: user)
-            print("[GoogleSignInService] Successfully restored previous sign-in for: \(user.profile?.email ?? "Unknown")")
         } catch {
-            print("[GoogleSignInService] Error restoring previous sign-in: \(error)")
             // Don't treat this as a critical error - it's normal for first-time users
             if let currentUser = GIDSignIn.sharedInstance.currentUser {
                 self.user = currentUser
                 self.isSignedIn = true
                 self.errorMessage = nil
-                print("[GoogleSignInService] Fallback to current user: \(currentUser.profile?.email ?? "Unknown")")
-            } else {
-                print("[GoogleSignInService] No previous sign-in found")
-                // This is normal for first-time users, don't set error state
             }
         }
     }
@@ -54,8 +48,6 @@ class GoogleSignInService: ObservableObject {
             return
         }
         
-        print("[GoogleSignInService] Starting Google Sign-In process")
-
         do {
             // Use the new sign-in method that uses ASWebAuthenticationSession
             let result = try await GIDSignIn.sharedInstance.signIn(withPresenting: rootViewController)
@@ -74,9 +66,6 @@ class GoogleSignInService: ObservableObject {
             if let fcmToken = NotificationService.shared.fcmToken {
                 NotificationService.shared.updateFCMTokenOnServer(fcmToken)
             }
-            
-            print("[GoogleSignInService] Sign-in completed successfully")
-
         } catch {
             await MainActor.run {
                 // Handle specific error cases
@@ -94,7 +83,6 @@ class GoogleSignInService: ObservableObject {
                 }
                 self.showErrorDialog = true
             }
-            print("[GoogleSignInService] Sign-in failed: \(error.localizedDescription)")
         }
     }
 
@@ -111,8 +99,7 @@ class GoogleSignInService: ObservableObject {
 
         do {
             let result = try await Auth.auth().signIn(with: credential)
-            print("Successfully signed in to Firebase with user: \(result.user.email ?? "Unknown")")
-            
+
             // Update UserManager with the signed-in user
             UserManager.shared.loadUserProfile(for: result.user)
             
@@ -129,7 +116,6 @@ class GoogleSignInService: ObservableObject {
         do {
             try Auth.auth().signOut()
         } catch {
-            print("Error signing out from Firebase: \(error)")
         }
 
         self.user = nil

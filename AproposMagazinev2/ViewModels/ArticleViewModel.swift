@@ -24,6 +24,7 @@ class ArticleViewModel: ObservableObject {
     @Published var fullArticle: Article?
     @Published var anmeldelserTopicID:String? = nil
     private let favoritesKey = "favoriteArticlesJSON"
+    private var hasStarted = false
     
     // Track which articles are currently being loaded to prevent duplicate calls
     var loadingArticles: Set<String> = []
@@ -32,44 +33,19 @@ class ArticleViewModel: ObservableObject {
     private let maxConcurrentLoads = 1  // Reduced to 1 to prevent memory issues
     private var currentLoadCount = 0
     private var pendingLoads: [String] = []
+    private var didStartFavoritesListener = false
     
     private var notificationObserverTokens: [NSObjectProtocol] = []
     private let logger = Logger(subsystem: "com.aproposmagazine.app", category: "ArticleViewModel")
     
     init() {
-        // FirestoreService.shared and UserManager.shared are always available, so no need to check
-        // Note: Firestore persistence is configured in AppDelegate before any Firestore operations
-        
-        loadFavorites()
-        
-        // Critical: Load articles first (with cache)
-        fetchArticles()
-        
-        // Load cached metadata immediately (fast)
-        loadCachedMetadata()
-        
-        // Delay non-critical fetches to after initial load
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second delay
-            fetchMetadataInBackground()
-        }
-        
-        // Lazy load AI recommendations (not critical for initial load)
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 second delay
-            fetchAIRecommendations()
-        }
-        
         // Listen for notification navigation
         let openArticleToken = NotificationCenter.default.addObserver(
             forName: NSNotification.Name("OpenArticleFromNotification"),
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard let self = self else {
-                Logger(subsystem: "com.aproposmagazine.app", category: "ArticleViewModel").warning("ArticleViewModel er nil i notification observer")
-                return
-            }
+            guard let self = self else { return }
             
             // Try articleId first
             if let articleId = notification.userInfo?["articleId"] as? String, !articleId.isEmpty {
@@ -82,8 +58,6 @@ class ArticleViewModel: ObservableObject {
                 Task { @MainActor in
                     self.navigateToArticleByName(articleName: articleName)
                 }
-            } else {
-                self.logger.warning("OpenArticleFromNotification notification mangler articleId eller articleName")
             }
         }
         notificationObserverTokens.append(openArticleToken)
@@ -102,7 +76,33 @@ class ArticleViewModel: ObservableObject {
             }
         }
         notificationObserverTokens.append(fetchArticleToken)
-        
+
+    }
+
+    func start() {
+        guard !hasStarted else { return }
+        hasStarted = true
+
+        // Let SwiftUI paint the first frame before decoding caches or starting network work.
+        Task { @MainActor in
+            await Task.yield()
+            loadFavorites()
+            fetchArticles()
+            loadCachedMetadata()
+        }
+
+        // Delay non-critical fetches to after initial load
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second delay
+            fetchMetadataInBackground()
+        }
+
+        // Lazy load AI recommendations (not critical for initial load)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 second delay
+            fetchAIRecommendations()
+        }
+
         // Overvåg UserManager ændringer og synkroniser favoritter
         UserManager.shared.$currentUser
             .removeDuplicates { user1, user2 in
@@ -117,21 +117,17 @@ class ArticleViewModel: ObservableObject {
                 guard let self = self else { return }
                 
                 if let user = user, !user.uid.isEmpty {
+                    self.startFavoritesListenerIfNeeded()
                     Task { await self.syncFavoritesWithFirestore() }
-                } else {
-                    self.logger.debug("Ingen bruger tilgængelig – springer favorit-sync over")
                 }
             }
             .store(in: &cancellables)
-            
-        // Realtime favorites updates
-        favoritesListener = FirestoreService.shared.listenFavorites { [weak self] articles in
-            guard let self = self else { return }
-            // Safety check: ensure we have valid articles
-            guard !articles.isEmpty else { return }
-            
-            self.favorites = articles
-            self.saveFavorites()
+
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard UserManager.shared.currentUser != nil else { return }
+            startFavoritesListenerIfNeeded()
+            await syncFavoritesWithFirestore()
         }
     }
     
@@ -145,14 +141,11 @@ class ArticleViewModel: ObservableObject {
             NotificationCenter.default.removeObserver(token)
         }
         notificationObserverTokens.removeAll()
-        
-        logger.debug("ArticleViewModel deinitialiseret – observatører fjernet")
     }
     
     func fetchArticles(forceRefresh: Bool = false) {
         // Safety check: ensure we're not already loading
         guard !isLoading else {
-            logger.debug("Ignorerer fetchArticles – allerede i gang")
             return
         }
         
@@ -163,20 +156,14 @@ class ArticleViewModel: ObservableObject {
         // Try cache first for fast startup (unless force refresh)
         if !forceRefresh, let cached = CacheManager.shared.getCachedArticles(), !cached.isEmpty {
             // Sort cached articles by date (newest first)
-            let sortedCached = cached.sorted { article1, article2 in
-                var mutableArticle1 = article1
-                var mutableArticle2 = article2
-                let date1 = mutableArticle1.createdDate ?? mutableArticle1.publishedDate ?? Date.distantPast
-                let date2 = mutableArticle2.createdDate ?? mutableArticle2.publishedDate ?? Date.distantPast
-                return date1 > date2
-            }
+            let sortedCached = sortedNewestFirst(cached)
             
             // Show cached articles immediately (no loading state)
             self.articles = sortedCached
             self.isLoading = false
             
-            // Preload images for first 10 articles in background
-            CacheManager.shared.preloadImages(for: Array(sortedCached.prefix(10)))
+            // Keep launch light: only warm the first few visible images.
+            CacheManager.shared.preloadImages(for: Array(sortedCached.prefix(5)))
             
             // Load favorites after articles are available
             Task { [weak self] in await self?.syncFavoritesWithFirestore() }
@@ -203,28 +190,19 @@ class ArticleViewModel: ObservableObject {
                     
                     switch result {
                     case .success(let articles):
-                        logger.debug("Hentet \(articles.count) artikler fra Webflow")
-                        
                         // Sort articles by date (newest first)
-                        let sortedArticles = articles.sorted { article1, article2 in
-                            var mutableArticle1 = article1
-                            var mutableArticle2 = article2
-                            let date1 = mutableArticle1.createdDate ?? mutableArticle1.publishedDate ?? Date.distantPast
-                            let date2 = mutableArticle2.createdDate ?? mutableArticle2.publishedDate ?? Date.distantPast
-                            return date1 > date2
-                        }
+                        let sortedArticles = self.sortedNewestFirst(articles)
                         
                         self.articles = sortedArticles
                         CacheManager.shared.cacheArticles(sortedArticles)
                         
-                        // Preload images for first 10 articles in background
-                        CacheManager.shared.preloadImages(for: Array(sortedArticles.prefix(10)))
+                        // Keep launch light: only warm the first few visible images.
+                        CacheManager.shared.preloadImages(for: Array(sortedArticles.prefix(5)))
                         
                         // Load favorites after articles are available
                         Task { [weak self] in await self?.syncFavoritesWithFirestore() }
                         
                         if articles.isEmpty {
-                            self.logger.warning("Webflow-returnerede ingen artikler")
                             self.fetchError = NSError(domain: "ViewModel", code: -1, userInfo: [NSLocalizedDescriptionKey: "Ingen artikler fundet."])
                         }
                     case .failure(let error):
@@ -235,6 +213,11 @@ class ArticleViewModel: ObservableObject {
                 }
             }
         }
+    }
+
+    func refreshArticles() async {
+        fetchArticles(forceRefresh: true)
+        await PodcastRepository.shared.refreshManifest(force: true)
     }
     
     /// Silently refresh articles in background without showing loading state
@@ -251,25 +234,18 @@ class ArticleViewModel: ObservableObject {
                 switch result {
                 case .success(let articles):
                     // Only update if we got articles and they're different
-                    let sortedArticles = articles.sorted { article1, article2 in
-                        var mutableArticle1 = article1
-                        var mutableArticle2 = article2
-                        let date1 = mutableArticle1.createdDate ?? mutableArticle1.publishedDate ?? Date.distantPast
-                        let date2 = mutableArticle2.createdDate ?? mutableArticle2.publishedDate ?? Date.distantPast
-                        return date1 > date2
-                    }
+                    let sortedArticles = self.sortedNewestFirst(articles)
                     
                     Task { @MainActor in
                         // Only update if article count changed or we have new articles
                         if sortedArticles.count != self.articles.count || 
                            sortedArticles.first?.id != self.articles.first?.id {
-                            self.logger.debug("Opdaterer artikler i baggrunden: \(sortedArticles.count) artikler")
                             self.articles = sortedArticles
                             CacheManager.shared.cacheArticles(sortedArticles)
                         }
                     }
-                case .failure(let error):
-                    self.logger.debug("Kunne ikke opdatere artikler i baggrunden: \(error.localizedDescription, privacy: .public)")
+                case .failure:
+                    break
                 }
             }
         }
@@ -278,7 +254,6 @@ class ArticleViewModel: ObservableObject {
     func fetchAIRecommendations() {
         // Safety check: ensure we're not already loading
         guard !isLoadingAI else {
-        logger.debug("AI anbefalinger hentes allerede – ignorerer nyt kald")
             return
         }
         
@@ -330,9 +305,8 @@ class ArticleViewModel: ObservableObject {
             case .success(let topics):
                 self.topics = topics
                 CacheManager.shared.cacheTopics(topics)
-                self.logger.debug("Fetched and cached \(topics.count) topics")
-            case .failure(let error):
-                self.logger.debug("Failed to fetch topics: \(error.localizedDescription, privacy: .public)")
+            case .failure:
+                break
             }
         }
     }
@@ -345,9 +319,8 @@ class ArticleViewModel: ObservableObject {
             case .success(let sections):
                 self.sections = sections
                 CacheManager.shared.cacheSections(sections)
-                self.logger.debug("Fetched and cached \(sections.count) sections")
-            case .failure(let error):
-                self.logger.debug("Failed to fetch sections: \(error.localizedDescription, privacy: .public)")
+            case .failure:
+                break
             }
         }
     }
@@ -360,9 +333,8 @@ class ArticleViewModel: ObservableObject {
             case .success(let authors):
                 self.authors = authors
                 CacheManager.shared.cacheAuthors(authors)
-                self.logger.debug("Fetched and cached \(authors.count) authors")
-            case .failure(let error):
-                self.logger.debug("Failed to fetch authors: \(error.localizedDescription, privacy: .public)")
+            case .failure:
+                break
             }
         }
     }
@@ -374,7 +346,6 @@ class ArticleViewModel: ObservableObject {
             Task { @MainActor in
                 self.starsMapping = mapping
                 CacheManager.shared.cacheStarsMapping(mapping)
-                self.logger.debug("Fetched and cached stars mapping")
             }
         }
     }
@@ -472,13 +443,27 @@ class ArticleViewModel: ObservableObject {
     }
     
     func author(for article: Article) -> Author? {
-        // If no authors loaded, return nil to prevent crashes
-        guard !authors.isEmpty else {
-            return nil
-        }
-        
+        guard !authors.isEmpty else { return nil }
         guard let authorRef = article.authorID else { return nil }
-        return authors.first(where: { $0.id == authorRef })
+
+        let normalizedRef = authorRef
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !normalizedRef.isEmpty else { return nil }
+
+        return authors.first(where: { author in
+            let normalizedID = author.id
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            if normalizedID == normalizedRef {
+                return true
+            }
+
+            let normalizedName = author.name
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            return normalizedName == normalizedRef
+        })
     }
     
 
@@ -491,13 +476,18 @@ class ArticleViewModel: ObservableObject {
         }
         
         guard !articles.isEmpty else {
-            logger.debug("Ingen artikler er indlæst endnu – afventer før loadFullArticle")
             return
         }
         
-        if let existingArticle = articles.first(where: { $0.id == id }),
-           existingArticle.author != nil {
-            return
+        if let existingArticle = articles.first(where: { $0.id == id }) {
+            if existingArticle.author != nil {
+                return
+            }
+            
+            if let content = existingArticle.content, !content.isEmpty {
+                loadAuthorIfNeeded(for: existingArticle)
+                return
+            }
         }
         
         if loadingArticles.contains(id) {
@@ -517,6 +507,26 @@ class ArticleViewModel: ObservableObject {
         
         // Start loading the article
         startLoadingArticle(id)
+    }
+    
+    private func loadAuthorIfNeeded(for article: Article) {
+        guard let authorID = article.authorID, !authorID.isEmpty else { return }
+        guard !loadingArticles.contains(article.id) else { return }
+        
+        loadingArticles.insert(article.id)
+        fetchAuthor(by: authorID) { [weak self] result in
+            guard let self else { return }
+            
+            var updatedArticle = article
+            if case .success(let author) = result {
+                updatedArticle.author = author
+            }
+            
+            DispatchQueue.main.async {
+                self.updateArticleInAllArrays(updatedArticle)
+                self.loadingArticles.remove(article.id)
+            }
+        }
     }
     
     private func startLoadingArticle(_ id: String) {
@@ -613,8 +623,6 @@ class ArticleViewModel: ObservableObject {
             
             if let index = array.firstIndex(where: { $0.id == updated.id }) {
                 array[index] = updated
-            } else {
-                logger.debug("Artikel \(updated.id, privacy: .public) blev ikke fundet ved opdatering")
             }
         }
 
@@ -660,7 +668,6 @@ class ArticleViewModel: ObservableObject {
             Task {
                 do {
                     try await FirestoreService.shared.toggleFavorite(article, isFavorite: !wasFavorite)
-                    self.logger.debug("Favorit sync'et til Firebase for \(article.name ?? "Ukendt", privacy: .public)")
                 } catch {
                     self.logger.error("Favorit sync-fejl: \(error.localizedDescription, privacy: .public)")
                 }
@@ -678,15 +685,12 @@ class ArticleViewModel: ObservableObject {
                     UserManager.shared.toggleBookmark(article.id)
                 }
             }
-        } else {
-            logger.debug("Bruger ikke logget ind – favoritter gemt lokalt")
         }
     }
     
     private func loadFavorites() {
         // Safety check: ensure we're not already loading favorites
         guard !isLoadingFavorites else {
-            logger.debug("Ignorerer loadFavorites – allerede i gang")
             return
         }
         
@@ -696,9 +700,19 @@ class ArticleViewModel: ObservableObject {
             favorites = decoded
         }
         
-        // Then sync with Firebase if user is logged in
-        Task { [weak self] in
-            await self?.syncFavoritesWithFirestore()
+        // Firebase sync is delayed until after launch to keep the first frame responsive.
+    }
+
+    private func startFavoritesListenerIfNeeded() {
+        guard !didStartFavoritesListener else { return }
+        didStartFavoritesListener = true
+
+        favoritesListener = FirestoreService.shared.listenFavorites { [weak self] articles in
+            guard let self = self else { return }
+            guard !articles.isEmpty else { return }
+
+            self.favorites = articles
+            self.saveFavorites()
         }
     }
     
@@ -709,7 +723,6 @@ class ArticleViewModel: ObservableObject {
         }
         
         guard UserManager.shared.currentUser != nil else {
-            logger.debug("Ingen bruger logget ind – bruger lokale favoritter")
             // For logged-out users, just ensure local favorites are loaded
             DispatchQueue.main.async { [weak self] in
                 self?.isLoadingFavorites = false
@@ -752,7 +765,6 @@ class ArticleViewModel: ObservableObject {
     private func reloadFavorites() {
         // Safety check: ensure we're not already syncing
         guard !isLoadingFavorites else {
-            logger.debug("Ignorerer reloadFavorites – sync er i gang")
             return
         }
         
@@ -764,7 +776,6 @@ class ArticleViewModel: ObservableObject {
     private func saveFavorites() {
         // Safety check: ensure we have valid favorites to save
         guard !favorites.isEmpty else {
-            logger.debug("Ingen favoritter at gemme")
             return
         }
         
@@ -862,12 +873,12 @@ class ArticleViewModel: ObservableObject {
     // MARK: - Intelligent Article Filtering for HomeView
     
     // Get hero articles (first 5 articles)
-    private var heroArticles: [Article] {
+    var heroArticles: [Article] {
         // If no articles loaded, return empty array to prevent crashes
         guard !articles.isEmpty else {
             return []
         }
-        return Array(articles.prefix(5))
+        return Array(sortedNewestFirst(articles).prefix(5))
     }
     
     // Helper function to exclude articles by IDs
@@ -888,6 +899,31 @@ class ArticleViewModel: ObservableObject {
             }
             return !excludedIDs.contains(article.id)
         }
+    }
+
+    private func articleFeedDate(_ article: Article) -> Date {
+        article.feedSortDate
+    }
+
+    private func sortedNewestFirst(_ articles: [Article]) -> [Article] {
+        articles.sorted { articleFeedDate($0) > articleFeedDate($1) }
+    }
+
+    private func articles(inSectionNamed sectionMatcher: (String) -> Bool) -> [Article] {
+        guard !sections.isEmpty else { return [] }
+        guard let section = sections.first(where: { sectionMatcher($0.name.lowercased()) }) else {
+            return []
+        }
+
+        return articles.filter { article in
+            findSectionForArticle(article)?.id == section.id
+        }
+    }
+
+    private func latestSectionArticles(named sectionMatcher: (String) -> Bool, limit: Int = 6) -> [Article] {
+        let sectionArticles = articles(inSectionNamed: sectionMatcher)
+        let visibleArticles = excludeArticles(withIDs: Array(usedArticleIDs), from: sectionArticles)
+        return Array(sortedNewestFirst(visibleArticles).prefix(limit))
     }
     
     // Track which articles are already shown in other sections
@@ -927,18 +963,9 @@ class ArticleViewModel: ObservableObject {
             return []
         }
         
-        // Popular articles - exclude hero and anmeldelser articles
-        let allArticles = Array(articles.prefix(25)) // Take more articles to ensure we have enough after filtering
-        let filtered = excludeArticles(withIDs: Array(usedArticleIDs), from: allArticles)
-        let result = Array(filtered.prefix(6)) // Ensure at least 5-6 articles
-        
-        // Fallback: if we don't have enough articles, use some general articles
-        if result.count < 5 {
-            let fallbackArticles = Array(articles.prefix(20))
-            return Array(fallbackArticles.prefix(6))
-        }
-        
-        return result
+        // Popular articles use the same editorial feed order as the rest of Home.
+        let filtered = excludeArticles(withIDs: Array(usedArticleIDs), from: articles)
+        return Array(sortedNewestFirst(filtered).prefix(6))
     }
     
     var allAnmeldelser: [Article] {
@@ -953,127 +980,22 @@ class ArticleViewModel: ObservableObject {
         let filteredArticles = articles.filter { $0.topicID == anmeldelserTopicID }
         let excludedArticles = excludeArticles(withIDs: heroArticles.map { $0.id }, from: filteredArticles)
         
-        // Sort by date (newest first) and take first 10
-        let sortedArticles = excludedArticles.sorted { article1, article2 in
-            var mutableArticle1 = article1
-            var mutableArticle2 = article2
-            let date1 = mutableArticle1.createdDate ?? mutableArticle1.publishedDate ?? Date.distantPast
-            let date2 = mutableArticle2.createdDate ?? mutableArticle2.publishedDate ?? Date.distantPast
-            
-            return date1 > date2
-        }.prefix(10).map { $0 }
+        // Sort by editorial publication date (newest first) and take first 10
+        let sortedArticles = sortedNewestFirst(excludedArticles).prefix(10).map { $0 }
         
         return sortedArticles
     }
 
     var musicArticles: [Article] {
-        // Find the music section ID from the sections we fetched
-        let musicSectionID = sections.first(where: { $0.name.lowercased().contains("musik") })?.id
-        
-        // print("[DEBUG] Music section ID found: \(musicSectionID ?? "nil")")
-        // print("[DEBUG] Available sections: \(sections.map { "\($0.name) (ID: \($0.id))" })")
-        
-        // Filter articles by music section
-        let musicArticles = articles.filter { article in
-            // Check if article belongs to music section
-            if let articleSection = findSectionForArticle(article) {
-                return articleSection.id == musicSectionID
-            }
-            return false
-        }
-        
-        // print("[DEBUG] Found \(musicArticles.count) music articles using section-based filtering")
-        
-        // If no music articles found, use some general articles as fallback
-        if musicArticles.isEmpty {
-            // print("[DEBUG] No music articles found, using fallback articles")
-            let fallbackArticles = Array(articles.prefix(20))
-            return excludeArticles(withIDs: Array(usedArticleIDs), from: fallbackArticles).prefix(6).map { $0 }
-        }
-        
-        // Music articles - exclude hero and anmeldelser articles, then sort by date (newest first)
-        let excludedArticles = excludeArticles(withIDs: Array(usedArticleIDs), from: Array(musicArticles.prefix(20)))
-        return excludedArticles.sorted { article1, article2 in
-            var mutableArticle1 = article1
-            var mutableArticle2 = article2
-            let date1 = mutableArticle1.createdDate ?? mutableArticle1.publishedDate ?? Date.distantPast
-            let date2 = mutableArticle2.createdDate ?? mutableArticle2.publishedDate ?? Date.distantPast
-            return date1 > date2
-        }.prefix(6).map { $0 }
+        latestSectionArticles(named: { $0.contains("musik") })
     }
     
     var kulturArticles: [Article] {
-        // Find the kultur section ID from the sections we fetched
-        let kulturSectionID = sections.first(where: { $0.name.lowercased().contains("kultur") })?.id
-        
-        // print("[DEBUG] Kultur section ID found: \(kulturSectionID ?? "nil")")
-        
-        // Filter articles by kultur section
-        let kulturArticles = articles.filter { article in
-            // Check if article belongs to kultur section
-            if let articleSection = findSectionForArticle(article) {
-                return articleSection.id == kulturSectionID
-            }
-            return false
-        }
-        
-        // print("[DEBUG] Found \(kulturArticles.count) kultur articles using section-based filtering")
-        
-        // If no kultur articles found, use some general articles as fallback
-        if kulturArticles.isEmpty {
-            // print("[DEBUG] No kultur articles found, using fallback articles")
-            let fallbackArticles = Array(articles.prefix(20))
-            return excludeArticles(withIDs: Array(usedArticleIDs), from: fallbackArticles).prefix(6).map { $0 }
-        }
-        
-        // Kultur articles - exclude hero and anmeldelser articles, then sort by date (newest first)
-        let excludedArticles = excludeArticles(withIDs: Array(usedArticleIDs), from: Array(kulturArticles.prefix(20)))
-        let finalKulturArticles = excludedArticles.sorted { article1, article2 in
-            var mutableArticle1 = article1
-            var mutableArticle2 = article2
-            let date1 = mutableArticle1.createdDate ?? mutableArticle1.publishedDate ?? Date.distantPast
-            let date2 = mutableArticle2.createdDate ?? mutableArticle2.publishedDate ?? Date.distantPast
-            return date1 > date2
-        }.prefix(6).map { $0 }
-        // print("[DEBUG] Final kultur articles: \(finalKulturArticles.map { $0.name ?? "Unknown" })")
-        return finalKulturArticles
+        latestSectionArticles(named: { $0.contains("kultur") })
     }
     
     var serierFilmArticles: [Article] {
-        // Find the serier & film section ID from the sections we fetched
-        let serierFilmSectionID = sections.first(where: { $0.name.lowercased().contains("serier") || $0.name.lowercased().contains("film") })?.id
-        
-        // print("[DEBUG] Serier & Film section ID found: \(serierFilmSectionID ?? "nil")")
-        
-        // Filter articles by serier & film section
-        let serierFilmArticles = articles.filter { article in
-            // Check if article belongs to serier & film section
-            if let articleSection = findSectionForArticle(article) {
-                return articleSection.id == serierFilmSectionID
-            }
-            return false
-        }
-        
-        // print("[DEBUG] Found \(serierFilmArticles.count) serier & film articles using section-based filtering")
-        
-        // If no serier & film articles found, use some general articles as fallback
-        if serierFilmArticles.isEmpty {
-            // print("[DEBUG] No serier & film articles found, using fallback articles")
-            let fallbackArticles = Array(articles.prefix(20))
-            return excludeArticles(withIDs: Array(usedArticleIDs), from: fallbackArticles).prefix(6).map { $0 }
-        }
-        
-        // Serier & Film articles - exclude hero and anmeldelser articles, then sort by date (newest first)
-        let excludedArticles = excludeArticles(withIDs: Array(usedArticleIDs), from: Array(serierFilmArticles.prefix(20)))
-        let finalSerierFilmArticles = excludedArticles.sorted { article1, article2 in
-            var mutableArticle1 = article1
-            var mutableArticle2 = article2
-            let date1 = mutableArticle1.createdDate ?? mutableArticle1.publishedDate ?? Date.distantPast
-            let date2 = mutableArticle2.createdDate ?? mutableArticle2.publishedDate ?? Date.distantPast
-            return date1 > date2
-        }.prefix(6).map { $0 }
-        // print("[DEBUG] Final serier & film articles: \(finalSerierFilmArticles.map { $0.name ?? "Unknown" })")
-        return finalSerierFilmArticles
+        latestSectionArticles(named: { $0.contains("serier") || $0.contains("film") })
     }
 
     var popularat: [Article] {
@@ -1090,9 +1012,8 @@ class ArticleViewModel: ObservableObject {
         let now = Date()
 
         let recentArticles = articles.compactMap { article -> (Article, Date)? in
-            var mutableArticle = article
-            let date = mutableArticle.createdDate ?? mutableArticle.publishedDate
-            guard let date, date <= now else { return nil }
+            let date = articleFeedDate(article)
+            guard date <= now else { return nil }
             return (article, date)
         }
 
@@ -1108,89 +1029,15 @@ class ArticleViewModel: ObservableObject {
     // MARK: - ALL Articles for Each Section (for "Se alle" functionality)
     
     var allMusicArticles: [Article] {
-        // If no sections loaded, return empty array to prevent crashes
-        guard !sections.isEmpty else {
-            // print("[DEBUG] No sections loaded, returning empty allMusicArticles")
-            return []
-        }
-        
-        // Find the music section ID from the sections we fetched
-        let musicSectionID = sections.first(where: { $0.name.lowercased().contains("musik") })?.id
-        
-        // Filter articles by music section
-        let musicArticles = articles.filter { article in
-            if let articleSection = findSectionForArticle(article) {
-                return articleSection.id == musicSectionID
-            }
-            return false
-        }
-        
-        // Sort by date (newest first)
-        let sortedArticles = musicArticles.sorted { article1, article2 in
-            var mutableArticle1 = article1
-            var mutableArticle2 = article2
-            let date1 = mutableArticle1.createdDate ?? mutableArticle1.publishedDate ?? Date.distantPast
-            let date2 = mutableArticle2.createdDate ?? mutableArticle2.publishedDate ?? Date.distantPast
-            return date1 > date2
-        }
-        
-        return sortedArticles
+        sortedNewestFirst(articles(inSectionNamed: { $0.contains("musik") }))
     }
     
     var allKulturArticles: [Article] {
-        // If no sections loaded, return empty array to prevent crashes
-        guard !sections.isEmpty else {
-            // print("[DEBUG] No sections loaded, returning empty allKulturArticles")
-            return []
-        }
-        
-        // Find the kultur section ID from the sections we fetched
-        let kulturSectionID = sections.first(where: { $0.name.lowercased().contains("kultur") })?.id
-        
-        // Filter articles by kultur section
-        let kulturArticles = articles.filter { article in
-            if let articleSection = findSectionForArticle(article) {
-                return articleSection.id == kulturSectionID
-            }
-            return false
-        }
-        
-        // Sort by date (newest first)
-        return kulturArticles.sorted { article1, article2 in
-            var mutableArticle1 = article1
-            var mutableArticle2 = article2
-            let date1 = mutableArticle1.createdDate ?? mutableArticle1.publishedDate ?? Date.distantPast
-            let date2 = mutableArticle2.createdDate ?? mutableArticle2.publishedDate ?? Date.distantPast
-            return date1 > date2
-        }
+        sortedNewestFirst(articles(inSectionNamed: { $0.contains("kultur") }))
     }
     
     var allSerierFilmArticles: [Article] {
-        // If no sections loaded, return empty array to prevent crashes
-        guard !sections.isEmpty else {
-            // print("[DEBUG] No sections loaded, returning empty allSerierFilmArticles")
-            return []
-        }
-        
-        // Find the serier & film section ID from the sections we fetched
-        let serierFilmSectionID = sections.first(where: { $0.name.lowercased().contains("serier") || $0.name.lowercased().contains("film") })?.id
-        
-        // Filter articles by serier & film section
-        let serierFilmArticles = articles.filter { article in
-            if let articleSection = findSectionForArticle(article) {
-                return articleSection.id == serierFilmSectionID
-            }
-            return false
-        }
-        
-        // Sort by date (newest first)
-        return serierFilmArticles.sorted { article1, article2 in
-            var mutableArticle1 = article1
-            var mutableArticle2 = article2
-            let date1 = mutableArticle1.createdDate ?? mutableArticle1.publishedDate ?? Date.distantPast
-            let date2 = mutableArticle2.createdDate ?? mutableArticle2.publishedDate ?? Date.distantPast
-            return date1 > date2
-        }
+        sortedNewestFirst(articles(inSectionNamed: { $0.contains("serier") || $0.contains("film") }))
     }
     
     var allAnmeldelserArticles: [Article] {
@@ -1205,14 +1052,8 @@ class ArticleViewModel: ObservableObject {
         let anmeldelserArticles = articles.filter { $0.topicID == anmeldelserTopicID }
         let filteredArticles = excludeArticles(withIDs: heroArticles.map { $0.id }, from: anmeldelserArticles)
         
-        // Sort by date (newest first)
-        return filteredArticles.sorted { article1, article2 in
-            var mutableArticle1 = article1
-            var mutableArticle2 = article2
-            let date1 = mutableArticle1.createdDate ?? mutableArticle1.publishedDate ?? Date.distantPast
-            let date2 = mutableArticle2.createdDate ?? mutableArticle2.publishedDate ?? Date.distantPast
-            return date1 > date2
-        }
+        // Sort by editorial publication date (newest first)
+        return sortedNewestFirst(filteredArticles)
     }
     
     var allPopularArticles: [Article] {
@@ -1225,14 +1066,8 @@ class ArticleViewModel: ObservableObject {
         // Get all popular articles (not just first 6)
         let filteredArticles = excludeArticles(withIDs: Array(usedArticleIDs), from: articles)
         
-        // Sort by date (newest first)
-        return filteredArticles.sorted { article1, article2 in
-            var mutableArticle1 = article1
-            var mutableArticle2 = article2
-            let date1 = mutableArticle1.createdDate ?? mutableArticle1.publishedDate ?? Date.distantPast
-            let date2 = mutableArticle2.createdDate ?? mutableArticle2.publishedDate ?? Date.distantPast
-            return date1 > date2
-        }
+        // Sort by editorial publication date (newest first)
+        return sortedNewestFirst(filteredArticles)
     }
     
     var allSectionArticles: [Article] {
@@ -1246,9 +1081,8 @@ class ArticleViewModel: ObservableObject {
         let now = Date()
         
         let recentArticles = articles.compactMap { article -> (Article, Date)? in
-            var mutableArticle = article
-            let date = mutableArticle.createdDate ?? mutableArticle.publishedDate
-            guard let date, date <= now else { return nil }
+            let date = articleFeedDate(article)
+            guard date <= now else { return nil }
             return (article, date)
         }
         
@@ -1375,15 +1209,11 @@ class ArticleViewModel: ObservableObject {
     
     /// Navigate to article by name (fallback when ID is not available)
     private func navigateToArticleByName(articleName: String) {
-        logger.info("Søger efter artikel ved navn: \(articleName, privacy: .public)")
-        
         let searchName = articleName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         
         // If "Ny artikel" or similar, we need to find the newest article
         // But first, ensure we have fresh articles loaded
         if searchName.contains("ny") || searchName.contains("new") {
-            logger.info("Notifikation omhandler 'ny artikel' - henter frisk artikel-liste og finder nyeste")
-            
             // Force refresh articles to get the latest
             fetchArticles()
             
@@ -1392,19 +1222,10 @@ class ArticleViewModel: ObservableObject {
                 // Wait longer for articles to load from server
                 try? await Task.sleep(nanoseconds: 3_000_000_000) // 3 seconds
                 
-                // Get the newest article (most recently created/published)
-                if let newestArticle = self.articles.sorted(by: { article1, article2 in
-                    var mutableArticle1 = article1
-                    var mutableArticle2 = article2
-                    let date1 = mutableArticle1.createdDate ?? mutableArticle1.publishedDate ?? Date.distantPast
-                    let date2 = mutableArticle2.createdDate ?? mutableArticle2.publishedDate ?? Date.distantPast
-                    return date1 > date2
-                }).first {
-                    self.logger.info("Navigerer til nyeste artikel: \(newestArticle.name ?? "Ukendt", privacy: .public)")
+                // Get the newest article by the same editorial feed order as Home.
+                if let newestArticle = self.sortedNewestFirst(self.articles).first {
                     self.navigateToArticle(newestArticle)
                     return
-                } else {
-                    self.logger.warning("Kunne ikke finde nyeste artikel efter \(self.articles.count) artikler")
                 }
             }
             return
@@ -1415,7 +1236,6 @@ class ArticleViewModel: ObservableObject {
             let articleName = $0.name?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
             return articleName == searchName
         }) {
-            logger.info("Artikel fundet i cache (exact match): \(existingArticle.name ?? "Ukendt", privacy: .public)")
             navigateToArticle(existingArticle)
             return
         }
@@ -1425,13 +1245,11 @@ class ArticleViewModel: ObservableObject {
             let articleName = $0.name?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
             return articleName.contains(searchName) || searchName.contains(articleName)
         }) {
-            logger.info("Artikel fundet i cache (partial match): \(existingArticle.name ?? "Ukendt", privacy: .public)")
             navigateToArticle(existingArticle)
             return
         }
         
         // If not found, wait a bit for articles to load, then search again
-        logger.info("Artikel ikke fundet i cache - venter på at artikler loader og søger igen")
         Task { @MainActor in
             // Refresh articles to ensure we have latest
             self.fetchArticles()
@@ -1444,7 +1262,6 @@ class ArticleViewModel: ObservableObject {
                 let articleName = $0.name?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
                 return articleName == searchName
             }) {
-                self.logger.info("Artikel fundet efter ventetid (exact match): \(foundArticle.name ?? "Ukendt", privacy: .public)")
                 self.navigateToArticle(foundArticle)
                 return
             }
@@ -1454,12 +1271,9 @@ class ArticleViewModel: ObservableObject {
                 let articleName = $0.name?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
                 return articleName.contains(searchName) || searchName.contains(articleName)
             }) {
-                self.logger.info("Artikel fundet efter ventetid (partial match): \(foundArticle.name ?? "Ukendt", privacy: .public)")
                 self.navigateToArticle(foundArticle)
                 return
             }
-            
-            self.logger.warning("Kunne ikke finde artikel med navn: \(articleName, privacy: .public) efter \(self.articles.count) artikler")
         }
     }
 }

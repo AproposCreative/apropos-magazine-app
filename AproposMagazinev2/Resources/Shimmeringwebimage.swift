@@ -38,8 +38,7 @@ struct ShimmeringWebImage: View {
                         loadFailed = false
                     }
                 }
-                .onFailure { error in
-                    print("Image load failed: \(error.localizedDescription)")
+                .onFailure { _ in
                     loadFailed = true
                     isLoaded = false
                     retryLoadIfNeeded()

@@ -28,30 +28,49 @@ struct CategoriesView: View {
     }
     
     var body: some View {
-        VStack(spacing: 0) {
-            // Top padding to account for modern top bar
-            Spacer()
-                .frame(height: 104) // 44 (safe area) + 60 (top bar height)
-            
-            if viewModel.isLoading {
-                shimmerPlaceholder
-            } else {
-                List(categories) { cat in
-                    Button(action: {
-                        navigationCoordinator.navigateToCategory(cat.name, in: .categories)
-                    }) {
-                        Text(cat.name)
-                            .font(.system(size: 34, weight: .bold))
-                            .foregroundStyle(.primary)
-                            .padding(.vertical, 14)
+        GeometryReader { geometry in
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 0) {
+                    Text("Kategorier")
+                        .font(.largeTitle.bold())
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 16)
+                        .padding(.bottom, 24)
+
+                    if viewModel.isLoading {
+                        shimmerPlaceholder
+                    } else {
+                        VStack(spacing: 0) {
+                            ForEach(categories) { cat in
+                                Button(action: {
+                                    navigationCoordinator.navigateToCategory(cat.name, in: .categories)
+                                }) {
+                                    Text(cat.name)
+                                        .font(.system(size: 34, weight: .bold))
+                                        .foregroundStyle(.primary)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.horizontal, 16)
+                                        .padding(.vertical, 18)
+                                }
+                                .buttonStyle(PlainButtonStyle())
+
+                                if cat.id != categories.last?.id {
+                                    Divider()
+                                        .padding(.horizontal, 16)
+                                }
+                            }
+                        }
                     }
-                    .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 12))
-                    .listRowSeparator(.visible)
                 }
-                .listStyle(.plain)
+                .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .top)
+            }
+            .scrollBounceBehavior(.basedOnSize, axes: .vertical)
+            .refreshable {
+                await viewModel.refreshArticles()
             }
         }
-        // .modernTopBar() - temporarily disabled
+        .toolbar(.hidden, for: .navigationBar)
     }
     
     private var shimmerPlaceholder: some View {
@@ -180,6 +199,7 @@ struct ArticleRowCompact: View {
     var article: Article
     @EnvironmentObject var viewModel: ArticleViewModel
     @Environment(\.colorScheme) var colorScheme
+    @State private var imageLoaded = false
     
     // Get categories for this article
     private var articleCategories: [String] {
@@ -207,20 +227,29 @@ struct ArticleRowCompact: View {
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             // Thumbnail
-            var mutableArticle = article
-            let thumbnailURL = mutableArticle.thumbnailURL
-            AsyncImage(url: URL(string: thumbnailURL)) { image in
-                image
-                    .resizable()
-                    .scaledToFill()
-            } placeholder: {
-                Rectangle()
-                    .fill(Color.gray.opacity(0.3))
+            ZStack {
+                ArticleImagePlaceholder(showShimmer: !imageLoaded, cornerRadius: 8)
+
+                if let url = article.listThumbnailURL {
+                    AsyncImage(url: url) { phase in
+                        if let image = phase.image {
+                            image
+                                .resizable()
+                                .scaledToFill()
+                                .onAppear {
+                                    imageLoaded = true
+                                }
+                        }
+                    }
+                }
             }
             .frame(width: 80, height: 60)
             .clipped()
             .cornerRadius(8)
             .id(article.id) // Add ID for better memory management
+            .onChange(of: article.id) { _, _ in
+                imageLoaded = false
+            }
             
             // Content
             VStack(alignment: .leading, spacing: 4) {

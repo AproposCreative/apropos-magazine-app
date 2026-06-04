@@ -6,7 +6,12 @@ struct HTMLTextView: UIViewRepresentable {
     @Binding var dynamicHeight: CGFloat
 
     func makeUIView(context: Context) -> WKWebView {
-        let webView = WKWebView()
+        let configuration = WKWebViewConfiguration()
+        configuration.suppressesIncrementalRendering = true
+        configuration.allowsInlineMediaPlayback = true
+        configuration.mediaTypesRequiringUserActionForPlayback = []
+        
+        let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.isOpaque = false
         webView.backgroundColor = .clear
         webView.scrollView.backgroundColor = .clear
@@ -14,10 +19,6 @@ struct HTMLTextView: UIViewRepresentable {
         webView.isUserInteractionEnabled = true
         webView.navigationDelegate = context.coordinator
         webView.configuration.userContentController.add(context.coordinator, name: "heightHandler")
-        
-        // Configure web view to handle media better
-        webView.configuration.allowsInlineMediaPlayback = true
-        webView.configuration.mediaTypesRequiringUserActionForPlayback = []
         
         return webView
     }
@@ -31,10 +32,11 @@ struct HTMLTextView: UIViewRepresentable {
         
         // Fjern alle <style>...</style> tags fra HTML
         let cleanedHTML = html.replacingOccurrences(of: "<style[\\s\\S]*?</style>", with: "", options: .regularExpression)
+        let sanitizedHTML = ArticleHTMLProcessor.process(cleanedHTML)
 
         let css = """
           <style>
-              body, p, div, span {
+              body, div, span {
                   font-family: -apple-system, BlinkMacSystemFont, 'San Francisco', Arial, sans-serif !important;
                   font-size: 18px !important;
                   font-weight: 400 !important;
@@ -44,22 +46,56 @@ struct HTMLTextView: UIViewRepresentable {
                   margin: 0 !important;
                   padding: 0 !important;
               }
+              p {
+                  font-family: -apple-system, BlinkMacSystemFont, 'San Francisco', Arial, sans-serif !important;
+                  font-size: 18px !important;
+                  font-weight: 400 !important;
+                  color: black !important;
+                  background-color: transparent !important;
+                  line-height: 1.7 !important;
+                  margin: 0 0 1.25em 0 !important;
+                  padding: 0 !important;
+              }
+              p:last-child {
+                  margin-bottom: 0 !important;
+              }
               img {
                   width: 100vw !important;
                   max-width: 100vw !important;
                   height: auto !important;
                   display: block;
                   margin: 0 !important;
-                  margin-left: calc(-50vw + 50%) !important; /* Center the image and make it full width */
+                  margin-left: calc(-50vw + 50%) !important;
                   margin-right: calc(-50vw + 50%) !important;
                   border-radius: 0 !important;
                   padding: 0 !important;
                   box-shadow: none !important;
+                  background-color: #f0f0f0 !important;
               }
               h1, h2, h3 {
                   font-weight: bold;
                   margin-top: 1.5em;
                   margin-bottom: 0.5em;
+              }
+              .apropos-image-credit {
+                  text-align: center !important;
+                  margin: -0.25em auto 1.5em auto !important;
+                  padding: 0 !important;
+              }
+              .apropos-image-credit span {
+                  display: inline-block !important;
+                  font-size: 12px !important;
+                  line-height: 1.3 !important;
+                  color: #666666 !important;
+                  background: rgba(0, 0, 0, 0.06) !important;
+                  padding: 4px 12px !important;
+                  border-radius: 999px !important;
+              }
+              figcaption {
+                  text-align: center !important;
+                  margin: -0.25em auto 1.5em auto !important;
+                  font-size: 12px !important;
+                  color: #666666 !important;
               }
               /* Spotify link styling */
               a[href*="spotify.com"], a[href*="open.spotify.com"] {
@@ -110,6 +146,16 @@ struct HTMLTextView: UIViewRepresentable {
                       color: white !important;
                       background-color: transparent !important;
                   }
+                  img {
+                      background-color: #2a2a2a !important;
+                  }
+                  .apropos-image-credit span {
+                      color: #aaaaaa !important;
+                      background: rgba(255, 255, 255, 0.1) !important;
+                  }
+                  figcaption {
+                      color: #aaaaaa !important;
+                  }
               }
           </style>
         """
@@ -120,7 +166,7 @@ struct HTMLTextView: UIViewRepresentable {
             <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
             \(css)
         </head>
-        <body>\(cleanedHTML)</body>
+        <body>\(sanitizedHTML)</body>
         </html>
         """
 
@@ -129,7 +175,12 @@ struct HTMLTextView: UIViewRepresentable {
             dynamicHeight = 100
             return
         }
-        
+
+        // Critical perf guard: avoid reloading identical HTML on every parent state update.
+        if FeatureFlags.htmlDiffGuardEnabled && context.coordinator.lastLoadedHTML == htmlString {
+            return
+        }
+        context.coordinator.lastLoadedHTML = htmlString
         uiView.loadHTMLString(htmlString, baseURL: nil)
     }
 
@@ -139,6 +190,7 @@ struct HTMLTextView: UIViewRepresentable {
 
     class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var parent: HTMLTextView
+        var lastLoadedHTML: String?
 
         init(_ parent: HTMLTextView) {
             self.parent = parent
@@ -216,18 +268,10 @@ struct HTMLTextView: UIViewRepresentable {
                 }
             });
             """
-            webView.evaluateJavaScript(js, completionHandler: { result, error in
-                if let error = error {
-                    print("JavaScript evaluation error: \(error)")
-                }
-            })
+            webView.evaluateJavaScript(js, completionHandler: nil)
         }
         
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-            // Only log significant errors, not WEBP decoding issues
-            if !error.localizedDescription.contains("WEBP") && !error.localizedDescription.contains("makeImagePlus") {
-                print("WebView navigation failed: \(error)")
-            }
             // Set a default height if navigation fails
             DispatchQueue.main.async {
                 self.parent.dynamicHeight = 100

@@ -108,7 +108,6 @@ struct AuthorCardView: View {
     private func fetchAuthor(by id: String) {
         // Safety check: ensure ID is not empty
         guard !id.isEmpty else {
-            print("❌ Author ID is empty")
             isLoading = false
             return
         }
@@ -124,11 +123,8 @@ struct AuthorCardView: View {
                 switch result {
                 case .success(let fetchedAuthor):
                     author = fetchedAuthor
-                case .failure(let error):
-                    // Avoid spamming the console with repeated errors for the same author
-                    if author == nil {
-                        print("❌ Failed to fetch author \(id): \(error.localizedDescription)")
-                    }
+                case .failure:
+                    break
                 }
             }
         }
