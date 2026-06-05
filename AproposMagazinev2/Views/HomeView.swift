@@ -14,15 +14,20 @@ struct HomeView: View {
     @ObservedObject private var podcastRepository = PodcastRepository.shared
     private let podcastPlayerManager = PodcastPlayerManager.shared
     @Environment(\.navigationCoordinator) private var navigationCoordinator
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var articleHeroNamespace: Namespace.ID? = nil
     // Temporarily removed RecommendationEngine to fix crash
     // @EnvironmentObject var recommendationEngine: RecommendationEngine
     @State private var selectedHero = 0
     @State private var didLoad = false
     @State private var showGlassTopBar = false
     @State private var topSafeAreaInset: CGFloat = 0
+    @State private var heroScrollOffset: CGFloat = 0
+    @State private var didRequestRecommendations = false
     @Environment(\.colorScheme) var colorScheme
     
-    init() {
+    init(articleHeroNamespace: Namespace.ID? = nil) {
+        self.articleHeroNamespace = articleHeroNamespace
         UIScrollView.appearance().bounces = false
     }
     
@@ -35,6 +40,9 @@ struct HomeView: View {
     }
 
     private var recommendedArticles: [Article] {
+        if !viewModel.personalizedRecommendations.isEmpty {
+            return viewModel.personalizedRecommendations.map(\.0)
+        }
         if viewModel.section.count > 1 {
             return viewModel.section
         }
@@ -55,7 +63,6 @@ struct HomeView: View {
         ZStack(alignment: .top) {
             // ✅ GLAS-TOPBAR (indhold placeret inden i glass effekt)
             ZStack(alignment: .top) {
-                // 👇 Glass overlay bag ved alt
                 if showGlassTopBar {
                     Rectangle()
                         .fill(.ultraThinMaterial)
@@ -98,7 +105,7 @@ struct HomeView: View {
                             .onChange(of: geo.frame(in: .named("homeScroll")).minY) { _, newValue in
                                 let shouldShow = newValue < -16
                                 if shouldShow != showGlassTopBar {
-                                    withAnimation(.easeOut(duration: 0.16)) {
+                                    withAnimation(AppMotion.easeOut(duration: 0.16, reduceMotion: reduceMotion)) {
                                         showGlassTopBar = shouldShow
                                     }
                                 }
@@ -128,12 +135,13 @@ struct HomeView: View {
                     }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .scrollHomeToTop)) { _ in
-                    withAnimation(.easeOut(duration: 0.25)) {
+                    withAnimation(AppMotion.easeOut(duration: 0.25, reduceMotion: reduceMotion)) {
                         scrollProxy.scrollTo("homeScrollTop", anchor: .top)
                     }
                     showGlassTopBar = false
                 }
             }
+            .onPreferenceChange(HeroScrollOffsetKey.self) { heroScrollOffset = $0 }
             .coordinateSpace(name: "homeScroll")
             .scrollContentBackground(.hidden)
             .contentMargins(.top, 0, for: .scrollContent)
@@ -313,11 +321,22 @@ struct HomeView: View {
                     articles: viewModel.heroArticles,
                     selectedHero: $selectedHero,
                     heroHeight: heroHeight,
+                    scrollOffset: heroScrollOffset,
+                    heroTransitionNamespace: articleHeroNamespace,
                     onFavorite: { article in
                         viewModel.toggleFavorite(for: article)
                     }
                 )
                 .padding(.top, -topSafeAreaInset)
+                .background {
+                    GeometryReader { geo in
+                        Color.clear
+                            .preference(
+                                key: HeroScrollOffsetKey.self,
+                                value: geo.frame(in: .named("homeScroll")).minY
+                            )
+                    }
+                }
             }
 
             if !podcastPairs.isEmpty {
@@ -355,9 +374,28 @@ struct HomeView: View {
             if !recommendedArticles.isEmpty {
                 ArticleSectionView(
                     title: "Anbefalet til dig",
-                    articles: recommendedArticles, istopic: false
+                    articles: viewModel.personalizedRecommendations.isEmpty
+                        ? recommendedArticles
+                        : viewModel.personalizedRecommendations.map(\.0),
+                    istopic: false,
+                    recommendationReasons: Dictionary(
+                        uniqueKeysWithValues: viewModel.personalizedRecommendations.map { ($0.0.id, $0.1) }
+                    )
                 )
                 .padding(.top, 20)
+                .onAppear {
+                    guard !didRequestRecommendations else { return }
+                    didRequestRecommendations = true
+                    viewModel.fetchPersonalizedRecommendationsIfNeeded()
+                }
+            } else {
+                Color.clear
+                    .frame(height: 1)
+                    .onAppear {
+                        guard !didRequestRecommendations else { return }
+                        didRequestRecommendations = true
+                        viewModel.fetchPersonalizedRecommendationsIfNeeded()
+                    }
             }
 
             if !viewModel.allAnmeldelser.isEmpty {
@@ -400,7 +438,7 @@ struct HomeView: View {
                 .padding(.top, 40)
             }
             Color.clear
-                .frame(height: 56)
+                .frame(height: PodcastMiniPlayerLayout.feedBottomPadding(isPlayerVisible: podcastPlayerManager.hasActiveEpisode))
         }
     }
 
@@ -416,39 +454,45 @@ struct HeroSwipeBar: View {
     let articles: [Article]
     @Binding var selectedHero: Int
     let heroHeight: CGFloat
+    let scrollOffset: CGFloat
+    let heroTransitionNamespace: Namespace.ID?
     let onFavorite: (Article) -> Void
     @EnvironmentObject var viewModel: ArticleViewModel
     @Environment(\.colorScheme) var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     
     var body: some View {
         ZStack(alignment: .top) {
-            // Swipable Cards with enhanced snapping
-            TabView(selection: $selectedHero) {
-                ForEach(Array(articles.enumerated()), id: \.0) { (index, article) in
-                    NavigationLink(value: article) {
-                        HeroCardView(
-                            article: article,
-                            height: heroHeight,
-                            selectedHero: $selectedHero,
-                            index: index,
-                            totalCount: articles.count
-                        )
-                        .tag(index)
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                }
-            }
-            .tabViewStyle(PageTabViewStyle(indexDisplayMode: .never))
-            .frame(height: heroHeight)
-                                .onChange(of: selectedHero) { _, newValue in
-                        // Ensure smooth snapping animation
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            selectedHero = newValue
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 0) {
+                    ForEach(Array(articles.enumerated()), id: \.offset) { index, article in
+                        NavigationLink(value: article) {
+                            HeroCardView(
+                                article: article,
+                                height: heroHeight,
+                                scrollOffset: scrollOffset,
+                                heroTransitionNamespace: heroTransitionNamespace,
+                                selectedHero: $selectedHero,
+                                index: index,
+                                totalCount: articles.count
+                            )
+                            .frame(width: UIScreen.main.bounds.width, height: heroHeight)
                         }
-                        
-                        // Pre-load adjacent articles for smooth swiping
-                        preloadAdjacentArticles(currentIndex: newValue)
+                        .buttonStyle(PlainButtonStyle())
+                        .id(index)
+                        .scrollTransition(.interactive, axis: .horizontal) { content, phase in
+                            content
+                                .opacity(HeroSwipeBar.slideOpacity(for: phase, reduceMotion: reduceMotion))
+                                .scaleEffect(HeroSwipeBar.slideScale(for: phase, reduceMotion: reduceMotion))
+                        }
                     }
+                }
+                .scrollTargetLayout()
+            }
+            .scrollTargetBehavior(.paging)
+            .scrollPosition(id: heroScrollPosition)
+            .scrollClipDisabled()
+            .frame(height: heroHeight)
             
             // Fixed Dots (Page Indicator)
             VStack {
@@ -465,9 +509,9 @@ struct HeroSwipeBar: View {
                                 RoundedRectangle(cornerRadius: isSelected ? 0 : 4)
                             )
                             .padding(.top , 10) // Prevent clipping
-                            .animation(.easeInOut(duration: 0.25), value: selectedHero)
                     }
                 }
+                .animation(AppMotion.heroCarouselSpring(reduceMotion: reduceMotion), value: selectedHero)
                 .padding(.bottom, 70)
             }
             .padding(.bottom, 20)
@@ -478,6 +522,31 @@ struct HeroSwipeBar: View {
         .onAppear {
             CacheManager.shared.preloadImages(for: Array(articles.prefix(2)))
         }
+    }
+
+    private var heroScrollPosition: Binding<Int?> {
+        Binding(
+            get: { selectedHero },
+            set: { newValue in
+                guard let newValue, newValue != selectedHero else { return }
+                selectedHero = newValue
+                preloadAdjacentArticles(currentIndex: newValue)
+            }
+        )
+    }
+
+    private static func slideOpacity(for phase: ScrollTransitionPhase, reduceMotion: Bool) -> Double {
+        guard !reduceMotion else { return 1 }
+        guard !phase.isIdentity else { return 1 }
+        let distance = min(abs(phase.value), 1)
+        return Double(1 - distance * 0.72)
+    }
+
+    private static func slideScale(for phase: ScrollTransitionPhase, reduceMotion: Bool) -> CGFloat {
+        guard !reduceMotion else { return 1 }
+        guard !phase.isIdentity else { return 1 }
+        let distance = min(abs(phase.value), 1)
+        return 1 - distance * 0.015
     }
     
     // MARK: - Pre-loading Methods
@@ -497,11 +566,14 @@ struct HeroSwipeBar: View {
 struct HeroCardView: View {
     let article: Article
     let height: CGFloat
+    let scrollOffset: CGFloat
+    let heroTransitionNamespace: Namespace.ID?
     @State private var imageFailed = false
     @State private var heroImageIndex = 0
     @Binding var selectedHero: Int
     @EnvironmentObject var viewModel: ArticleViewModel
     @Environment(\.colorScheme) var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let index: Int
     let totalCount: Int
     
@@ -574,7 +646,7 @@ struct HeroCardView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            ArticleImagePlaceholder(showShimmer: !imageFailed, cornerRadius: 0)
+            ArticleImagePlaceholder(mode: imageFailed ? .offline : .loading, cornerRadius: 0)
                 .frame(width: UIScreen.main.bounds.width, height: height)
 
             if !imageFailed {
@@ -595,6 +667,8 @@ struct HeroCardView: View {
                     .aspectRatio(contentMode: .fill)
                     .frame(width: UIScreen.main.bounds.width, height: height)
                     .clipped()
+                    .heroParallax(scrollOffset: scrollOffset, height: height)
+                    .heroTransitionSource(id: article.id, namespace: heroTransitionNamespace)
                     .opacity(1)
             }
 
@@ -617,7 +691,7 @@ struct HeroCardView: View {
                 VStack(alignment: .center, spacing: 30) {
                     // Tagline (max 2 categories)
                     Text(Array(articleCategories.prefix(2)).joined(separator: " | "))
-                        .font(.custom("SFProText-Semibold", size: 15))
+                        .font(.system(size: 15, weight: .semibold))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
                         .background(Color.clear)
@@ -626,7 +700,7 @@ struct HeroCardView: View {
                         
                     // Title
                     Text(article.name ?? "Titel")
-                        .font(.custom("SFProText-Bold", size: 34))
+                        .font(.system(size: 34, weight: .bold))
                         .fontWeight(.bold)
                         .foregroundColor(.white)
                         .shadow(radius: 4)
@@ -751,6 +825,7 @@ import SwiftUI
         let title: String
         let articles: [Article]
         var istopic: Bool
+        var recommendationReasons: [String: String] = [:]
         @EnvironmentObject var viewModel: ArticleViewModel
 
         var body: some View {
@@ -823,7 +898,8 @@ import SwiftUI
                                 isFavorite: viewModel.favorites.contains(article),
                                 cardHeight: cardHeight,
                                 showStars: isSection,
-                                showTopic: istopic
+                                showTopic: istopic,
+                                recommendationReason: recommendationReasons[article.id]
                             ) { article in
                                 viewModel.toggleFavorite(for: article)
                             }
@@ -957,6 +1033,7 @@ struct ArticleStaticCell: View {
     var hasRoundedImage: Bool = true
     @EnvironmentObject var viewModel: ArticleViewModel
     @State private var imageLoaded = false
+    @State private var imageFailed = false
 
     // Get categories for this article
     private var articleCategories: [String] {
@@ -981,6 +1058,12 @@ struct ArticleStaticCell: View {
         return categories.isEmpty ? ["Generelt"] : categories
     }
 
+    private var placeholderMode: ArticleImagePlaceholderMode {
+        if imageFailed { return .offline }
+        if imageLoaded { return .idle }
+        return .loading
+    }
+
     var body: some View {
         NavigationLink(value: article) {
             // Prevents default blue arrow/highlight
@@ -989,16 +1072,27 @@ struct ArticleStaticCell: View {
                     // Thumbnail
                     var mutableArticle = article
                     ZStack {
-                        ArticleImagePlaceholder(showShimmer: !imageLoaded, cornerRadius: hasRoundedImage ? 8 : 0)
+                        ArticleImagePlaceholder(mode: placeholderMode, cornerRadius: hasRoundedImage ? 8 : 0)
 
-                        AsyncImage(url: URL(string: mutableArticle.thumbnailURL)) { phase in
-                            if let image = phase.image {
-                                image
-                                    .resizable()
-                                    .scaledToFill()
-                                    .onAppear {
-                                        imageLoaded = true
-                                    }
+                        if !imageFailed {
+                            AsyncImage(url: URL(string: mutableArticle.thumbnailURL)) { phase in
+                                switch phase {
+                                case .success(let image):
+                                    image
+                                        .resizable()
+                                        .scaledToFill()
+                                        .onAppear {
+                                            imageLoaded = true
+                                        }
+                                case .failure:
+                                    Color.clear
+                                        .onAppear {
+                                            imageFailed = true
+                                            imageLoaded = false
+                                        }
+                                default:
+                                    Color.clear
+                                }
                             }
                         }
                     }
@@ -1007,6 +1101,7 @@ struct ArticleStaticCell: View {
                     .cornerRadius(hasRoundedImage ? 8 : 0)
                     .onChange(of: article.id) { _, _ in
                         imageLoaded = false
+                        imageFailed = false
                     }
                     
                     // Title & Category

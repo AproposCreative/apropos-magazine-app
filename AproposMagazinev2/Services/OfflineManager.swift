@@ -60,19 +60,27 @@ class OfflineManager: ObservableObject {
     
     func saveArticleForOffline(_ article: Article) {
         var offlineArticles = getOfflineArticles()
-        
-        // Add new article
+        offlineArticles.removeAll { $0.id == article.id }
         offlineArticles.append(article)
         
         // Prune to max 50 articles by removing oldest if needed
         if offlineArticles.count > 50 {
-            offlineArticles.removeFirst(offlineArticles.count - 50)
+            let excess = offlineArticles.count - 50
+            let removedArticles = offlineArticles.prefix(excess)
+            for removed in removedArticles {
+                OfflineArticleImageCache.shared.removeImages(for: removed.id)
+                removePodcastFromOffline(removed.id)
+            }
+            offlineArticles.removeFirst(excess)
         }
         
         // Save to UserDefaults
         if let data = try? JSONEncoder().encode(offlineArticles) {
             userDefaults.set(data, forKey: offlineArticlesKey)
         }
+
+        OfflineArticleImageCache.shared.scheduleCacheImages(for: article)
+        savePodcastForOffline(article)
     }
     
     func removeArticleFromOffline(_ articleId: String) {
@@ -82,6 +90,27 @@ class OfflineManager: ObservableObject {
         if let data = try? JSONEncoder().encode(offlineArticles) {
             userDefaults.set(data, forKey: offlineArticlesKey)
         }
+
+        OfflineArticleImageCache.shared.removeImages(for: articleId)
+        removePodcastFromOffline(articleId)
+    }
+
+    func savePodcastForOffline(_ article: Article) {
+        guard let episode = PodcastRepository.shared.episode(for: article),
+              let audioURL = episode.audioURL else {
+            return
+        }
+        PodcastAudioCache.shared.pinAndDownload(articleId: article.id, remoteURL: audioURL)
+    }
+
+    func savePodcastsForOffline(_ articles: [Article]) {
+        for article in articles {
+            savePodcastForOffline(article)
+        }
+    }
+
+    func removePodcastFromOffline(_ articleId: String) {
+        PodcastAudioCache.shared.unpin(articleId: articleId)
     }
     
     func getOfflineArticles() -> [Article] {
@@ -227,13 +256,18 @@ class OfflineManager: ObservableObject {
     
     func getOfflineStorageSize() -> String {
         let articles = getOfflineArticles()
-        let estimatedSize = articles.count * 50 // Rough estimate: 50KB per article
-        return ByteCountFormatter.string(fromByteCount: Int64(estimatedSize * 1024), countStyle: .file)
+        let articleDataSize = (try? JSONEncoder().encode(articles).count) ?? 0
+        let imageSize = OfflineArticleImageCache.shared.totalCacheSizeBytes()
+        let podcastSize = PodcastAudioCache.shared.totalCacheSizeBytes()
+        let total = Int64(articleDataSize) + imageSize + podcastSize
+        return ByteCountFormatter.string(fromByteCount: total, countStyle: .file)
     }
     
     func clearOfflineStorage() {
         userDefaults.removeObject(forKey: offlineArticlesKey)
         userDefaults.removeObject(forKey: pendingActionsKey)
+        OfflineArticleImageCache.shared.removeAllCachedImages()
+        PodcastAudioCache.shared.removeAllCachedFiles()
     }
     
     private func notificationPreferencesDictionary(from preferences: NotificationPreferences) -> [String: Any] {

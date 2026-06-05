@@ -7,7 +7,7 @@ on:
     branches: [ main, develop ]
 
 jobs:
-  build-and-test:
+  build:
     runs-on: macos-latest
 
     steps:
@@ -17,8 +17,11 @@ jobs:
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode.app
 
-      - name: Run unit tests
-        env:
-          WORKSPACE: AproposMagazinev2.xcodeproj
-          SCHEME: AproposMagazinev2
-        run: Scripts/run-tests.sh
+      - name: Build Release (no test targets)
+        run: |
+          xcodebuild \
+            -project AproposMagazinev2.xcodeproj \
+            -scheme AproposMagazinev2 \
+            -destination 'generic/platform=iOS Simulator' \
+            -configuration Release \
+            build

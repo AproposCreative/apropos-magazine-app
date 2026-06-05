@@ -51,6 +51,14 @@
 				<string>com.frederikkragh.aproposmagazinev2</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>aproposmagazine</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>aproposmagazine</string>
+			</array>
+		</dict>
 	</array>
 	<key>UIBackgroundModes</key>
 	<array>
@@ -66,15 +74,7 @@
 	<false/>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
-	<key>UIAppFonts</key>
-	<array>
-		<string>SFProText-Bold.ttf</string>
-		<string>SFProText-Heavy.ttf</string>
-		<string>FontsFree-Net-SFProDisplay-Regular.ttf</string>
-		<string>SFProText-Light.ttf</string>
-		<string>SFProText-Medium.ttf</string>
-		<string>SFProText-Regular.ttf</string>
-		<string>SFProText-Semibold.ttf</string>
-	</array>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 </dict>
 </plist>

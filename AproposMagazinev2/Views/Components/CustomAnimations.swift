@@ -280,19 +280,24 @@ struct ButtonGlowAnimation: ViewModifier {
 
 struct ListItemAnimation: ViewModifier {
     let index: Int
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isVisible = false
     
     func body(content: Content) -> some View {
         content
             .opacity(isVisible ? 1.0 : 0.0)
-            .offset(x: isVisible ? 0 : 50)
-            .animation(
-                .easeOut(duration: 0.5)
-                .delay(Double(index) * 0.1),
-                value: isVisible
-            )
+            .offset(x: reduceMotion ? 0 : (isVisible ? 0 : 50))
             .onAppear {
-                isVisible = true
+                if reduceMotion {
+                    isVisible = true
+                } else {
+                    withAnimation(
+                        .easeOut(duration: 0.5)
+                            .delay(Double(index) * 0.1)
+                    ) {
+                        isVisible = true
+                    }
+                }
             }
     }
 }

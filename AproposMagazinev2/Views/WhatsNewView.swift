@@ -60,11 +60,12 @@ struct WhatsNewView: View {
             }
             .padding(.top, 48)
             .padding(.bottom, 24)
+            .staggeredReveal(index: 0)
 
             ScrollView {
                 VStack(spacing: 32) {
-                    ForEach(sortedEntries) { entry in
-                        WhatsNewVersionSection(entry: entry)
+                    ForEach(Array(sortedEntries.enumerated()), id: \.element.id) { index, entry in
+                        WhatsNewVersionSection(entry: entry, sectionIndex: index)
                     }
                 }
                 .padding(.horizontal, 24)
@@ -82,6 +83,7 @@ struct WhatsNewView: View {
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 28)
+            .staggeredReveal(index: sortedEntries.count + 1, baseDelay: 0.08)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(backgroundGradient.ignoresSafeArea())
@@ -90,6 +92,7 @@ struct WhatsNewView: View {
 
 private struct WhatsNewVersionSection: View {
     let entry: WhatsNewEntry
+    let sectionIndex: Int
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -108,8 +111,9 @@ private struct WhatsNewVersionSection: View {
             
             // Items
             VStack(spacing: 20) {
-                ForEach(entry.items) { item in
+                ForEach(Array(entry.items.enumerated()), id: \.element.id) { index, item in
                     WhatsNewRow(item: item)
+                        .staggeredReveal(index: index, baseDelay: 0.05)
                 }
             }
         }
@@ -119,6 +123,7 @@ private struct WhatsNewVersionSection: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color(.systemBackground).opacity(0.6))
         )
+        .staggeredReveal(index: sectionIndex + 1, baseDelay: 0.06)
     }
 }
 

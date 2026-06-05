@@ -171,6 +171,7 @@ final class PodcastPlayerManager: ObservableObject {
         startPlaybackCompletionObservationIfNeeded()
         refreshNowPlayingMetadataIfNeeded(force: true)
         updateNowPlayingPlaybackState()
+        PodcastLiveActivityService.shared.startActivity(episode: episode)
     }
 
     func pause() {
@@ -243,6 +244,7 @@ final class PodcastPlayerManager: ObservableObject {
         cachedArtworkIdentifier = nil
         resetPlaybackMetrics()
         updatePublishedPlaybackState()
+        PodcastLiveActivityService.shared.endActivity()
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         MPNowPlayingInfoCenter.default().playbackState = .stopped
     }
@@ -406,6 +408,18 @@ final class PodcastPlayerManager: ObservableObject {
                 recordStallIfNeeded(reason: "cannot_keep_up")
             }
         }
+
+        updateLiveActivityIfNeeded()
+    }
+
+    private func updateLiveActivityIfNeeded() {
+        guard currentEpisode != nil else { return }
+        PodcastLiveActivityService.shared.updateActivity(
+            isPlaying: isPlaying,
+            elapsed: currentTime,
+            duration: duration,
+            episode: currentEpisode
+        )
     }
 
     private func startPlayerObservationIfNeeded() {

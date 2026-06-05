@@ -92,14 +92,18 @@ API keys og secrets håndteres via `SecureConfig`:
 
 ## 🧪 Testing
 
-Kør tests:
-```bash
-./Scripts/run-tests.sh
-```
+Projektet har ingen automatiske unit/UI-test targets lige nu. Brug manuel test på simulator eller fysisk enhed før release.
 
-Eller i Xcode:
-- ⌘U for at køre alle tests
-- ⌘⌥U for at køre tests med coverage
+### Smoke test (før TestFlight)
+
+- [ ] App starter uden crash
+- [ ] Forside loader artikler og hero vises korrekt
+- [ ] Artikel: afsnit, billeder, kreditter, “Læs også”
+- [ ] Min side: login/logout og gemte artikler
+- [ ] Kategorier uden unødig scroll
+- [ ] Push-notifikationer og podcast-afspilning (hvis relevant)
+
+Se [DEVELOPMENT.md](./DEVELOPMENT.md) for fuld checkliste og debugging.
 
 ## 🛠️ Udvikling
 

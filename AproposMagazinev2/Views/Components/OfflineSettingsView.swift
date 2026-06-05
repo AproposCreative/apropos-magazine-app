@@ -105,7 +105,7 @@ struct OfflineSettingsView: View {
                 offlineManager.clearOfflineStorage()
             }
         } message: {
-            Text("Dette vil slette alle offline gemte artikler. Er du sikker?")
+            Text("Dette vil slette alle offline gemte artikler, billeder og podcast-lyd. Er du sikker?")
         }
     }
 }

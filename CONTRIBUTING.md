@@ -45,34 +45,28 @@ Thank you for your interest in contributing to the Apropos Magazine iOS app! Thi
 
 ## 🧪 Testing
 
-### Unit Tests
-- Write unit tests for all ViewModels
-- Test business logic and data transformations
-- Aim for >80% code coverage
-- Use descriptive test names
+### Manual testing
+- Test critical user flows on simulator or a physical device
+- Verify navigation, login, favorites, and notifications
+- Run through the checklist in `AproposMagazinev2/DEVELOPMENT.md` before TestFlight
 
-### UI Tests
-- Test critical user flows
-- Verify navigation works correctly
-- Test accessibility features
-- Ensure proper error handling
-
-### Running Tests
+### Verify build
 ```bash
-# Run all tests
-xcodebuild test -scheme AproposMagazinev2
-
-# Run specific test target
-xcodebuild test -scheme AproposMagazinev2 -only-testing:AproposMagazinev2Tests
+xcodebuild \
+  -project AproposMagazinev2.xcodeproj \
+  -scheme AproposMagazinev2 \
+  -destination 'generic/platform=iOS Simulator' \
+  -configuration Release \
+  build
 ```
 
 ## 🔧 Pull Request Process
 
 ### Before Submitting
 1. **Create a feature branch** from `main`
-2. **Write tests** for new functionality
-3. **Update documentation** if needed
-4. **Run tests** to ensure everything passes
+2. **Update documentation** if needed
+3. **Manual smoke test** on simulator or device (see `AproposMagazinev2/DEVELOPMENT.md`)
+4. **Verify Release build** with `xcodebuild` (see above)
 5. **Check code style** with SwiftLint
 
 ### Pull Request Guidelines

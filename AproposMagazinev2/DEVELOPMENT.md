@@ -275,42 +275,29 @@ Filtrer logs i Console app:
 
 ## 🧪 Testing
 
-### Unit Tests
-
-Tests ligger i `AproposMagazinev2Tests/`:
-```swift
-func testArticleViewModel() {
-    let viewModel = ArticleViewModel()
-    XCTAssertTrue(viewModel.articles.isEmpty)
-}
-```
-
-Kør tests:
-```bash
-./Scripts/run-tests.sh
-```
-
-### UI Tests
-
-UI tests ligger i `AproposMagazinev2UITests/`:
-```swift
-func testHomeView() {
-    let app = XCUIApplication()
-    app.launch()
-    // Test UI interactions
-}
-```
+Projektet har **ingen automatiske test targets** (unit/UI). Verificer ændringer manuelt på simulator eller fysisk iPhone før TestFlight.
 
 ### Manual Testing Checklist
 
 - [ ] App launches successfully
 - [ ] Articles load from Webflow
-- [ ] Navigation works correctly
-- [ ] Favorites sync with Firestore
+- [ ] Home hero edge-to-edge (ingen hvidt gap)
+- [ ] Article typography, inline images, image credits
+- [ ] “Læs også” cards aligned correctly
+- [ ] Navigation works correctly (tabs, back, home)
+- [ ] Min side: logged out + Google login + favorites
+- [ ] Categories fit without unwanted bounce/scroll
+- [ ] Favorites sync with Firestore when logged in
 - [ ] Offline mode works
 - [ ] Push notifications work
+- [ ] Podcast playback and mini player
 - [ ] Dark/Light mode switching
 - [ ] Image loading and caching
+- [ ] What's New vises én gang efter opdatering
+
+### Fremtidige automatiske tests
+
+Hvis vi tilføjer tests igen, start med små unit tests for ren logik (fx `ArticleHTMLProcessor`, podcast manifest parsing) — ikke Xcode-skabelon-tests.
 
 ## 🚀 Build & Deployment
 

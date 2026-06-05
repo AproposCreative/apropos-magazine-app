@@ -16,6 +16,7 @@ struct NotificationOnboardingView: View {
                 .font(.system(size: 52))
                 .foregroundStyle(.primary, .secondary)
                 .accessibilityHidden(true)
+                .staggeredReveal(index: 0)
             
             VStack(spacing: 12) {
                 Text("Hold dig opdateret")
@@ -28,6 +29,7 @@ struct NotificationOnboardingView: View {
                     .multilineTextAlignment(.center)
             }
             .padding(.horizontal, 8)
+            .staggeredReveal(index: 1, baseDelay: 0.05)
             
             Spacer()
             
@@ -68,6 +70,7 @@ struct NotificationOnboardingView: View {
                 .foregroundStyle(.secondary)
                 .disabled(isProcessing)
             }
+            .staggeredReveal(index: 2, baseDelay: 0.1)
         }
         .padding(24)
         .presentationDetents([.medium])

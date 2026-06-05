@@ -89,7 +89,7 @@ struct CategoryListView: View {
                 Spacer()
                 
                 Text(categoryTitle)
-                    .font(.custom("SFProDisplay-Bold", size: 24))
+                    .font(.system(size: 24, weight: .bold))
                     .foregroundColor(.primary)
                 
                 Spacer()
@@ -252,7 +252,7 @@ struct GridArticleCard: View {
                 
                 // Title
                 Text(article.name ?? "Titel")
-                    .font(.custom("SFProDisplay-Bold", size: 16))
+                    .font(.system(size: 16, weight: .bold))
                     .foregroundColor(.primary)
                     .lineLimit(3)
                     .multilineTextAlignment(.leading)
@@ -330,7 +330,7 @@ struct ListArticleCard: View {
                 
                 // Title
                 Text(article.name ?? "Titel")
-                    .font(.custom("SFProDisplay-Bold", size: 18))
+                    .font(.system(size: 18, weight: .bold))
                     .foregroundColor(.primary)
                     .lineLimit(3)
                     .multilineTextAlignment(.leading)
@@ -419,7 +419,7 @@ struct MasonryArticleCard: View {
                 
                 // Title
                 Text(article.name ?? "Titel")
-                    .font(.custom("SFProDisplay-Bold", size: 16))
+                    .font(.system(size: 16, weight: .bold))
                     .foregroundColor(.primary)
                     .lineLimit(3)
                     .multilineTextAlignment(.leading)

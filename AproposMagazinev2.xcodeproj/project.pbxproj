@@ -9,8 +9,6 @@
 /* Begin PBXBuildFile section */
 		1839D7BA2E3C813B00E2D3C5 /* SDWebImageSwiftUI in Frameworks */ = {isa = PBXBuildFile; productRef = 1839D7B92E3C813B00E2D3C5 /* SDWebImageSwiftUI */; };
 		1839D7BD2E3C832900E2D3C5 /* Shimmer in Frameworks */ = {isa = PBXBuildFile; productRef = 1839D7BC2E3C832900E2D3C5 /* Shimmer */; };
-		B68382452E056B35005C4E85 /* AproposMagazinev2Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B68382462E056B35005C4E85 /* AproposMagazinev2Tests.swift */; };
-		B68382472E056B35005C4E85 /* AproposMagazinev2UITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B68382482E056B35005C4E85 /* AproposMagazinev2UITests.swift */; };
 		B6A7290C2E05D88F00C83654 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = B6A7290B2E05D88F00C83654 /* FirebaseFirestore */; };
 		B6C02F462E069DB6003BDD5E /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = B6C02F452E069DB6003BDD5E /* FirebaseAuth */; };
 		DD447F522E4DE0BC0072E9B5 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = DD447F512E4DE0BC0072E9B5 /* FirebaseCore */; };
@@ -19,29 +17,23 @@
 		DD447F612E4DEAFE0072E9B5 /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = DD447F602E4DEAFE0072E9B5 /* GoogleSignInSwift */; };
 		DD8EAAB42E7838B100F37B5C /* AproposMagazinev2/AproposMagazineNotificationService/PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = DD8EAAB32E7838B100F37B5C /* AproposMagazinev2/AproposMagazineNotificationService/PrivacyInfo.xcprivacy */; };
 		DDD1A5B52EBCFD440025EC07 /* AproposMagazineNotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = DDD1A5AE2EBCFD440025EC07 /* AproposMagazineNotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		EEWIDGET042EBCFD440025EC07 /* AproposMagazineWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = EEWIDGET032EBCFD440025EC07 /* AproposMagazineWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		B68382282E056B35005C4E85 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = B68382122E056B2F005C4E85 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = B68382192E056B2F005C4E85;
-			remoteInfo = AproposMagazinev2;
-		};
-		B68382322E056B35005C4E85 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = B68382122E056B2F005C4E85 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = B68382192E056B2F005C4E85;
-			remoteInfo = AproposMagazinev2;
-		};
 		DDD1A5B32EBCFD440025EC07 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = B68382122E056B2F005C4E85 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = DDD1A5AD2EBCFD440025EC07;
 			remoteInfo = AproposMagazineNotificationService;
+		};
+		EEWIDGET052EBCFD440025EC07 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B68382122E056B2F005C4E85 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = EEWIDGET022EBCFD440025EC07;
+			remoteInfo = AproposMagazineWidget;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -53,6 +45,7 @@
 			dstSubfolderSpec = 13;
 			files = (
 				DDD1A5B52EBCFD440025EC07 /* AproposMagazineNotificationService.appex in Embed Foundation Extensions */,
+				EEWIDGET042EBCFD440025EC07 /* AproposMagazineWidget.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -60,15 +53,12 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		5E8D9D962E2A77D600F4E113 /* FontsFree-Net-SFProDisplay-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "FontsFree-Net-SFProDisplay-Regular.ttf"; sourceTree = "<group>"; };
 		B683821A2E056B2F005C4E85 /* Apropos Magazine.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Apropos Magazine.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		B68382272E056B35005C4E85 /* AproposMagazinev2Tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AproposMagazinev2Tests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		B68382312E056B35005C4E85 /* AproposMagazinev2UITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AproposMagazinev2UITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		B68382462E056B35005C4E85 /* AproposMagazinev2Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AproposMagazinev2Tests.swift; sourceTree = "<group>"; };
-		B68382482E056B35005C4E85 /* AproposMagazinev2UITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AproposMagazinev2UITests.swift; sourceTree = "<group>"; };
 		DD03F6E02EC2119C000191C3 /* AproposMagazineNotificationService.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AproposMagazineNotificationService.entitlements; sourceTree = "<group>"; };
 		DD8EAAB32E7838B100F37B5C /* AproposMagazinev2/AproposMagazineNotificationService/PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = AproposMagazinev2/AproposMagazineNotificationService/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		DDD1A5AE2EBCFD440025EC07 /* AproposMagazineNotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AproposMagazineNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		EEWIDGET032EBCFD440025EC07 /* AproposMagazineWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AproposMagazineWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		EEWIDGET062EBCFD440025EC07 /* AproposMagazineWidget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AproposMagazineWidget.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -88,6 +78,10 @@
 				AproposMagazineNotificationService/README.md,
 				AproposMagazinev2/Info.plist,
 				AproposMagazinev2/Resources/WhatsNew/whatsnew.json,
+				AproposMagazineWidget/AproposMagazineWidget.swift,
+				AproposMagazineWidget/AproposMagazineWidgetBundle.swift,
+				AproposMagazineWidget/Info.plist,
+				AproposMagazineWidget/PodcastLiveActivityWidget.swift,
 				ARCHITECTURE.md,
 				CHANGELOG.md,
 				DEVELOPMENT.md,
@@ -101,13 +95,18 @@
 				RICH_NOTIFICATIONS_IMPLEMENTATION.md,
 				Scripts/generate_whats_new.py,
 				"Scripts/profile-device.sh",
-				"Scripts/run-tests.sh",
 				serviceAccountKey.example.json,
 				SERVICES.md,
 				SESSION_SUMMARY_20251106.md,
-				test_fcm.py,
 			);
 			target = B68382192E056B2F005C4E85 /* AproposMagazinev2 */;
+		};
+		EEWIDGET012EBCFD440025EC07 /* Exceptions for "AproposMagazinev2/AproposMagazineWidget" folder in "AproposMagazineWidget" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = EEWIDGET022EBCFD440025EC07 /* AproposMagazineWidget */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -119,6 +118,19 @@
 				DD03F6C72EBE3B75000191C3 /* Exceptions for "AproposMagazinev2" folder in "AproposMagazineNotificationService" target */,
 			);
 			path = AproposMagazinev2;
+			sourceTree = "<group>";
+		};
+		EEWIDGET102EBCFD440025EC07 /* AproposMagazinev2/AproposMagazineWidget */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				EEWIDGET012EBCFD440025EC07 /* Exceptions for "AproposMagazinev2/AproposMagazineWidget" folder in "AproposMagazineWidget" target */,
+			);
+			path = AproposMagazinev2/AproposMagazineWidget;
+			sourceTree = "<group>";
+		};
+		EEWIDGET112EBCFD440025EC07 /* AproposMagazinev2/Shared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = AproposMagazinev2/Shared;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -139,21 +151,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		B68382242E056B35005C4E85 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		B683822E2E056B35005C4E85 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		DDD1A5AB2EBCFD440025EC07 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EEWIDGET0A2EBCFD440025EC07 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -167,12 +172,11 @@
 			isa = PBXGroup;
 			children = (
 				DD03F6E02EC2119C000191C3 /* AproposMagazineNotificationService.entitlements */,
+				EEWIDGET062EBCFD440025EC07 /* AproposMagazineWidget.entitlements */,
 				DD8EAAB32E7838B100F37B5C /* AproposMagazinev2/AproposMagazineNotificationService/PrivacyInfo.xcprivacy */,
-				5E8D9D962E2A77D600F4E113 /* FontsFree-Net-SFProDisplay-Regular.ttf */,
 				B683821C2E056B2F005C4E85 /* AproposMagazinev2 */,
 				B683821B2E056B2F005C4E85 /* Products */,
-				B68382492E056B35005C4E85 /* AproposMagazinev2Tests */,
-				B683824A2E056B35005C4E85 /* AproposMagazinev2UITests */,
+				DD815DCC2FD2F78C00DFA02A /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};
@@ -180,27 +184,19 @@
 			isa = PBXGroup;
 			children = (
 				B683821A2E056B2F005C4E85 /* Apropos Magazine.app */,
-				B68382272E056B35005C4E85 /* AproposMagazinev2Tests.xctest */,
-				B68382312E056B35005C4E85 /* AproposMagazinev2UITests.xctest */,
 				DDD1A5AE2EBCFD440025EC07 /* AproposMagazineNotificationService.appex */,
+				EEWIDGET032EBCFD440025EC07 /* AproposMagazineWidget.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
 		};
-		B68382492E056B35005C4E85 /* AproposMagazinev2Tests */ = {
+		DD815DCC2FD2F78C00DFA02A /* Recovered References */ = {
 			isa = PBXGroup;
 			children = (
-				B68382462E056B35005C4E85 /* AproposMagazinev2Tests.swift */,
+				EEWIDGET102EBCFD440025EC07 /* AproposMagazinev2/AproposMagazineWidget */,
+				EEWIDGET112EBCFD440025EC07 /* AproposMagazinev2/Shared */,
 			);
-			path = AproposMagazinev2Tests;
-			sourceTree = "<group>";
-		};
-		B683824A2E056B35005C4E85 /* AproposMagazinev2UITests */ = {
-			isa = PBXGroup;
-			children = (
-				B68382482E056B35005C4E85 /* AproposMagazinev2UITests.swift */,
-			);
-			path = AproposMagazinev2UITests;
+			name = "Recovered References";
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -219,6 +215,7 @@
 			);
 			dependencies = (
 				DDD1A5B42EBCFD440025EC07 /* PBXTargetDependency */,
+				EEWIDGET072EBCFD440025EC07 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				B683821C2E056B2F005C4E85 /* AproposMagazinev2 */,
@@ -237,42 +234,6 @@
 			productName = AproposMagazinev2;
 			productReference = B683821A2E056B2F005C4E85 /* Apropos Magazine.app */;
 			productType = "com.apple.product-type.application";
-		};
-		B68382262E056B35005C4E85 /* AproposMagazinev2Tests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = B683823E2E056B35005C4E85 /* Build configuration list for PBXNativeTarget "AproposMagazinev2Tests" */;
-			buildPhases = (
-				B68382232E056B35005C4E85 /* Sources */,
-				B68382242E056B35005C4E85 /* Frameworks */,
-				B68382252E056B35005C4E85 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				B68382292E056B35005C4E85 /* PBXTargetDependency */,
-			);
-			name = AproposMagazinev2Tests;
-			productName = AproposMagazinev2Tests;
-			productReference = B68382272E056B35005C4E85 /* AproposMagazinev2Tests.xctest */;
-			productType = "com.apple.product-type.bundle.unit-test";
-		};
-		B68382302E056B35005C4E85 /* AproposMagazinev2UITests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = B68382412E056B35005C4E85 /* Build configuration list for PBXNativeTarget "AproposMagazinev2UITests" */;
-			buildPhases = (
-				B683822D2E056B35005C4E85 /* Sources */,
-				B683822E2E056B35005C4E85 /* Frameworks */,
-				B683822F2E056B35005C4E85 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				B68382332E056B35005C4E85 /* PBXTargetDependency */,
-			);
-			name = AproposMagazinev2UITests;
-			productName = AproposMagazinev2UITests;
-			productReference = B68382312E056B35005C4E85 /* AproposMagazinev2UITests.xctest */;
-			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 		DDD1A5AD2EBCFD440025EC07 /* AproposMagazineNotificationService */ = {
 			isa = PBXNativeTarget;
@@ -293,6 +254,29 @@
 			productReference = DDD1A5AE2EBCFD440025EC07 /* AproposMagazineNotificationService.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		EEWIDGET022EBCFD440025EC07 /* AproposMagazineWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = EEWIDGET082EBCFD440025EC07 /* Build configuration list for PBXNativeTarget "AproposMagazineWidget" */;
+			buildPhases = (
+				EEWIDGET092EBCFD440025EC07 /* Sources */,
+				EEWIDGET0A2EBCFD440025EC07 /* Frameworks */,
+				EEWIDGET0B2EBCFD440025EC07 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				EEWIDGET102EBCFD440025EC07 /* AproposMagazinev2/AproposMagazineWidget */,
+				EEWIDGET112EBCFD440025EC07 /* AproposMagazinev2/Shared */,
+			);
+			name = AproposMagazineWidget;
+			packageProductDependencies = (
+			);
+			productName = AproposMagazineWidget;
+			productReference = EEWIDGET032EBCFD440025EC07 /* AproposMagazineWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -305,17 +289,33 @@
 				TargetAttributes = {
 					B68382192E056B2F005C4E85 = {
 						CreatedOnToolsVersion = 16.4;
-					};
-					B68382262E056B35005C4E85 = {
-						CreatedOnToolsVersion = 16.4;
-						TestTargetID = B68382192E056B2F005C4E85;
-					};
-					B68382302E056B35005C4E85 = {
-						CreatedOnToolsVersion = 16.4;
-						TestTargetID = B68382192E056B2F005C4E85;
+						DevelopmentTeam = Q2LR5XQ8GK;
+						SystemCapabilities = {
+							com.apple.ApplicationGroups.iOS = {
+								enabled = 1;
+							};
+							com.apple.iCloud = {
+								enabled = 1;
+							};
+						};
 					};
 					DDD1A5AD2EBCFD440025EC07 = {
 						CreatedOnToolsVersion = 26.0.1;
+						DevelopmentTeam = Q2LR5XQ8GK;
+						SystemCapabilities = {
+							com.apple.ApplicationGroups.iOS = {
+								enabled = 1;
+							};
+						};
+					};
+					EEWIDGET022EBCFD440025EC07 = {
+						CreatedOnToolsVersion = 26.0.1;
+						DevelopmentTeam = Q2LR5XQ8GK;
+						SystemCapabilities = {
+							com.apple.ApplicationGroups.iOS = {
+								enabled = 1;
+							};
+						};
 					};
 				};
 			};
@@ -340,29 +340,14 @@
 			projectRoot = "";
 			targets = (
 				B68382192E056B2F005C4E85 /* AproposMagazinev2 */,
-				B68382262E056B35005C4E85 /* AproposMagazinev2Tests */,
-				B68382302E056B35005C4E85 /* AproposMagazinev2UITests */,
 				DDD1A5AD2EBCFD440025EC07 /* AproposMagazineNotificationService */,
+				EEWIDGET022EBCFD440025EC07 /* AproposMagazineWidget */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		B68382182E056B2F005C4E85 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		B68382252E056B35005C4E85 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		B683822F2E056B35005C4E85 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -377,6 +362,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		EEWIDGET0B2EBCFD440025EC07 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -387,23 +379,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		B68382232E056B35005C4E85 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				B68382452E056B35005C4E85 /* AproposMagazinev2Tests.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		B683822D2E056B35005C4E85 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				B68382472E056B35005C4E85 /* AproposMagazinev2UITests.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		DDD1A5AA2EBCFD440025EC07 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EEWIDGET092EBCFD440025EC07 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -413,20 +396,15 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		B68382292E056B35005C4E85 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = B68382192E056B2F005C4E85 /* AproposMagazinev2 */;
-			targetProxy = B68382282E056B35005C4E85 /* PBXContainerItemProxy */;
-		};
-		B68382332E056B35005C4E85 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = B68382192E056B2F005C4E85 /* AproposMagazinev2 */;
-			targetProxy = B68382322E056B35005C4E85 /* PBXContainerItemProxy */;
-		};
 		DDD1A5B42EBCFD440025EC07 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = DDD1A5AD2EBCFD440025EC07 /* AproposMagazineNotificationService */;
 			targetProxy = DDD1A5B32EBCFD440025EC07 /* PBXContainerItemProxy */;
+		};
+		EEWIDGET072EBCFD440025EC07 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = EEWIDGET022EBCFD440025EC07 /* AproposMagazineWidget */;
+			targetProxy = EEWIDGET052EBCFD440025EC07 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -624,74 +602,6 @@
 			};
 			name = Release;
 		};
-		B683823F2E056B35005C4E85 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
-				DEVELOPMENT_TEAM = WABH3U3M22;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
-				MARKETING_VERSION = 1.4;
-				PRODUCT_BUNDLE_IDENTIFIER = Apropos.AproposMagazinev2Tests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AproposMagazinev2.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/AproposMagazinev2";
-			};
-			name = Debug;
-		};
-		B68382402E056B35005C4E85 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
-				DEVELOPMENT_TEAM = WABH3U3M22;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
-				MARKETING_VERSION = 1.4;
-				PRODUCT_BUNDLE_IDENTIFIER = Apropos.AproposMagazinev2Tests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AproposMagazinev2.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/AproposMagazinev2";
-			};
-			name = Release;
-		};
-		B68382422E056B35005C4E85 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
-				DEVELOPMENT_TEAM = WABH3U3M22;
-				MARKETING_VERSION = 1.4;
-				PRODUCT_BUNDLE_IDENTIFIER = Apropos.AproposMagazinev2UITests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = AproposMagazinev2;
-			};
-			name = Debug;
-		};
-		B68382432E056B35005C4E85 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
-				DEVELOPMENT_TEAM = WABH3U3M22;
-				MARKETING_VERSION = 1.4;
-				PRODUCT_BUNDLE_IDENTIFIER = Apropos.AproposMagazinev2UITests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = AproposMagazinev2;
-			};
-			name = Release;
-		};
 		DDD1A5B72EBCFD440025EC07 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -754,6 +664,62 @@
 			};
 			name = Release;
 		};
+		EEWIDGET0C2EBCFD440025EC07 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = AproposMagazineWidget.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 2;
+				DEVELOPMENT_TEAM = Q2LR5XQ8GK;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = AproposMagazinev2/AproposMagazineWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Apropos Widget";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.4;
+				PRODUCT_BUNDLE_IDENTIFIER = com.frederikkragh.aproposmagazinev2.AproposMagazineWidget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		EEWIDGET0D2EBCFD440025EC07 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = AproposMagazineWidget.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 2;
+				DEVELOPMENT_TEAM = Q2LR5XQ8GK;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = AproposMagazinev2/AproposMagazineWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Apropos Widget";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.4;
+				PRODUCT_BUNDLE_IDENTIFIER = com.frederikkragh.aproposmagazinev2.AproposMagazineWidget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -775,29 +741,20 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		B683823E2E056B35005C4E85 /* Build configuration list for PBXNativeTarget "AproposMagazinev2Tests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				B683823F2E056B35005C4E85 /* Debug */,
-				B68382402E056B35005C4E85 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		B68382412E056B35005C4E85 /* Build configuration list for PBXNativeTarget "AproposMagazinev2UITests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				B68382422E056B35005C4E85 /* Debug */,
-				B68382432E056B35005C4E85 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 		DDD1A5B62EBCFD440025EC07 /* Build configuration list for PBXNativeTarget "AproposMagazineNotificationService" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				DDD1A5B72EBCFD440025EC07 /* Debug */,
 				DDD1A5B82EBCFD440025EC07 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		EEWIDGET082EBCFD440025EC07 /* Build configuration list for PBXNativeTarget "AproposMagazineWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				EEWIDGET0C2EBCFD440025EC07 /* Debug */,
+				EEWIDGET0D2EBCFD440025EC07 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

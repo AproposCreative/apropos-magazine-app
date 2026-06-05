@@ -135,8 +135,13 @@ class NavigationCoordinator: ObservableObject {
     /// Switch to home tab and reset its navigation stack to the root feed.
     func navigateToHomeRoot() {
         selectedTab = .home
-        goToRoot(in: .home)
-        homeStackID = UUID()
+
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            goToRoot(in: .home)
+        }
+
         NotificationCenter.default.post(name: .scrollHomeToTop, object: nil)
     }
     
@@ -154,6 +159,20 @@ class NavigationCoordinator: ObservableObject {
         }
     }
     
+    /// Navigate to category detail
+    func navigateToSeries(_ series: ContentSeries, in tab: Tab) {
+        switch tab {
+        case .home:
+            homePath.append(series)
+        case .search:
+            searchPath.append(series)
+        case .categories:
+            categoriesPath.append(series)
+        case .favorites:
+            favoritesPath.append(series)
+        }
+    }
+
     /// Navigate to category detail
     func navigateToCategory(_ categoryName: String, in tab: Tab) {
         let route = AppRoute.categoryDetail(categoryName)

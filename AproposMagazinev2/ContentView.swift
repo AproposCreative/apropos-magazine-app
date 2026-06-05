@@ -14,6 +14,8 @@ struct ContentView: View {
     @EnvironmentObject var viewModel: ArticleViewModel
     @StateObject private var themeManager = ThemeManager.shared
     @StateObject private var podcastPlayerManager = PodcastPlayerManager.shared
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Namespace private var articleHeroNamespace
     // Temporarily removed RecommendationEngine to fix crash
     // @StateObject private var recommendationEngine = RecommendationEngine.shared
     @State private var showWhatsNew = false
@@ -49,14 +51,30 @@ struct ContentView: View {
             TabView(selection: tabSelection) {
                 // Home Tab
                 NavigationStack(path: navigationCoordinator.path(for: .home)) {
-                    HomeView()
+                    HomeView(articleHeroNamespace: articleHeroNamespace)
                         .environmentObject(viewModel)
                         .navigationDestination(for: Article.self) { article in
                             ArticleDetailView(article: article)
                                 .environmentObject(viewModel)
+                                .navigationTransition(.zoom(sourceID: article.id, in: articleHeroNamespace))
+                                .transaction { transaction in
+                                    if reduceMotion {
+                                        transaction.disablesAnimations = true
+                                    }
+                                }
                         }
                         .navigationDestination(for: AppRoute.self) { route in
                             destinationView(for: route)
+                        }
+                        .navigationDestination(for: ContentSeries.self) { series in
+                            SeriesDetailView(
+                                series: series,
+                                articles: series.articleIds.compactMap { id in
+                                    viewModel.articles.first(where: { $0.id == id })
+                                }
+                            )
+                            .environmentObject(viewModel)
+                            .environment(\.navigationCoordinator, navigationCoordinator)
                         }
                 }
                 .id(navigationCoordinator.homeStackID)
@@ -121,7 +139,7 @@ struct ContentView: View {
             .safeAreaInset(edge: .bottom) {
                 if podcastPlayerManager.hasActiveEpisode {
                     Color.clear
-                        .frame(height: 62)
+                        .frame(height: PodcastMiniPlayerLayout.scrollBottomInset)
                 }
             }
             
@@ -131,8 +149,18 @@ struct ContentView: View {
                     .padding(.horizontal, 24)
                     .padding(.bottom, 88)
                     .zIndex(2)
+                    .transition(
+                        .asymmetric(
+                            insertion: .move(edge: .bottom).combined(with: .opacity),
+                            removal: .move(edge: .bottom).combined(with: .opacity)
+                        )
+                    )
             }
         }
+        .animation(
+            reduceMotion ? nil : .spring(response: 0.48, dampingFraction: 0.84),
+            value: podcastPlayerManager.hasActiveEpisode
+        )
         .accentColor(.primary) // Use primary color for active tabs (black in light mode, white in dark mode)
         .environmentObject(viewModel)
         .environmentObject(podcastPlayerManager)

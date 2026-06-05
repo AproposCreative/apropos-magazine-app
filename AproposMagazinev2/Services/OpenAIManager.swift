@@ -89,4 +89,88 @@ class OpenAIManager {
         }
         task.resume()
     }
+
+    struct RecommendationReasonPayload: Codable {
+        let articleId: String
+        let reason: String
+    }
+
+    func generateRecommendationReasons(
+        topTopics: [String],
+        candidates: [(id: String, title: String, topics: [String])],
+        completion: @escaping ([String: String]) -> Void
+    ) {
+        let apiKey = SecureConfig.shared.openAIAPIKey
+        guard !apiKey.isEmpty, !candidates.isEmpty else {
+            DispatchQueue.main.async { completion([:]) }
+            return
+        }
+
+        let candidateLines = candidates.map { candidate in
+            "- id: \(candidate.id), title: \(candidate.title), topics: \(candidate.topics.joined(separator: ", "))"
+        }.joined(separator: "\n")
+
+        let prompt = """
+        Du er redaktør på Apropos Magazine. Skriv én kort dansk sætning per artikel (max 12 ord) der forklarer hvorfor den anbefales.
+        Brugerens top-emner: \(topTopics.joined(separator: ", "))
+        Kandidater:
+        \(candidateLines)
+        Svar KUN med JSON array: [{"articleId":"...","reason":"..."}]
+        """
+
+        let requestBody: [String: Any] = [
+            "model": "gpt-4o-mini",
+            "messages": [
+                ["role": "system", "content": "Du svarer kun med valid JSON."],
+                ["role": "user", "content": prompt]
+            ],
+            "max_tokens": 600,
+            "temperature": 0.6
+        ]
+
+        guard let url = URL(string: endpoint),
+              let httpBody = try? JSONSerialization.data(withJSONObject: requestBody) else {
+            completion([:])
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = httpBody
+
+        URLSession.shared.dataTask(with: request) { data, _, error in
+            guard let data, error == nil else {
+                DispatchQueue.main.async { completion([:]) }
+                return
+            }
+
+            let mapped = Self.parseRecommendationReasons(from: data)
+            DispatchQueue.main.async { completion(mapped) }
+        }.resume()
+    }
+
+    private static func parseRecommendationReasons(from data: Data) -> [String: String] {
+        guard
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let choices = json["choices"] as? [[String: Any]],
+            let message = choices.first?["message"] as? [String: Any],
+            let content = message["content"] as? String
+        else {
+            return [:]
+        }
+
+        let trimmed = content
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "```json", with: "")
+            .replacingOccurrences(of: "```", with: "")
+
+        guard let payloadData = trimmed.data(using: .utf8),
+              let reasons = try? JSONDecoder().decode([RecommendationReasonPayload].self, from: payloadData) else {
+            return [:]
+        }
+
+        return Dictionary(uniqueKeysWithValues: reasons.map { ($0.articleId, $0.reason) })
+    }
 }

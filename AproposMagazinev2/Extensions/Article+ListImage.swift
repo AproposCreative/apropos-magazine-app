@@ -18,4 +18,13 @@ extension Article {
         guard !fallback.isEmpty else { return nil }
         return URL(string: fallback)
     }
+
+    /// Returns a locally cached file URL when the article is saved offline; otherwise the remote URL.
+    func offlineDisplayImageURL(for remote: URL?) -> URL? {
+        OfflineArticleImageCache.shared.displayURL(for: remote, articleId: id)
+    }
+
+    var offlineListThumbnailURL: URL? {
+        offlineDisplayImageURL(for: listThumbnailURL)
+    }
 }

@@ -10,6 +10,7 @@ struct ArticleCardView_Enhanced: View {
     let isFavorite: Bool
     let cardHeight: CGFloat
     let showStars: Bool
+    let recommendationReason: String?
     var bottom = Int()
     @State private var isLoaded = false
     @State private var loadFailed = false
@@ -30,13 +31,22 @@ struct ArticleCardView_Enhanced: View {
     }
     // MARK: - Initialization
     
-    init(article: Article, isFavorite: Bool = false, cardHeight: CGFloat = 200, showStars: Bool = false, showTopic: Bool = true, onFavorite: ((Article) -> Void)? = nil) {
+    init(
+        article: Article,
+        isFavorite: Bool = false,
+        cardHeight: CGFloat = 200,
+        showStars: Bool = false,
+        showTopic: Bool = true,
+        recommendationReason: String? = nil,
+        onFavorite: ((Article) -> Void)? = nil
+    ) {
         self.article = article
         self.isFavorite = isFavorite
         self.cardHeight = cardHeight
         self.onFavorite = onFavorite
         self.showStars = showStars
         self.showTopic = showTopic
+        self.recommendationReason = recommendationReason
     }
 
     
@@ -66,7 +76,7 @@ private extension ArticleCardView_Enhanced {
         GeometryReader { geometry in
             let cardImageURL = article.mobileImageURL ?? article.thumbURL ?? article.coverURL
             ZStack {
-                ArticleImagePlaceholder(showShimmer: !loadFailed, cornerRadius: 8)
+                ArticleImagePlaceholder(mode: loadFailed ? .offline : .loading, cornerRadius: 8)
 
                 if !loadFailed, let cardImageURL {
                     WebImage(url: cardImageURL, options: [.retryFailed, .continueInBackground])
@@ -182,7 +192,7 @@ private extension ArticleCardView_Enhanced {
             
             if showTopic {
                 Text(articleCategories.first ?? "Generelt")
-                    .font(.custom("SFProText-Semibold", size: 12))
+                    .font(.system(size: 12, weight: .semibold))
                     .textCase(.uppercase)
                     .foregroundColor(.primary)
                     .lineLimit(2)
@@ -204,7 +214,7 @@ private extension ArticleCardView_Enhanced {
             
             // Title
             Text(article.name ?? "Titel")
-                .font(.custom("SFProText-Regular", size: 16))
+                .font(.system(size: 16, weight: .regular))
                 .lineLimit(showTopic ? 3 : 2) // 3 lines for large cards (Musik section), 2 for small cards
                 .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
@@ -216,18 +226,24 @@ private extension ArticleCardView_Enhanced {
                 if let intro = article.intro, !intro.isEmpty {
                     Text(intro)
                         .aproposArticleSubtitle()
-                        .font(.custom("SFProText-Regular", size: 12))
+                        .font(.system(size: 12, weight: .regular))
                         .lineLimit(3) // 3 lines for large cards (Musik section)
                         .clipped()
                         
                 }
             }
             if !showTopic {
-                // Intro – up to 3 lines, no ellipsis
-                if let intro = article.intro, !intro.isEmpty {
+                if let recommendationReason, !recommendationReason.isEmpty {
+                    Text(recommendationReason)
+                        .aproposArticleSubtitle()
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(2)
+                } else if let intro = article.intro, !intro.isEmpty {
                     Text(intro)
                         .aproposArticleSubtitle()
-                        .font(.custom("SFProText-Regular", size: 12))
+                        .font(.system(size: 12, weight: .regular))
                         .fixedSize(horizontal: false, vertical: true) // allow full height
                         .padding(.bottom, intro.count >= 20 ? 10 : 5)
                         .lineLimit(2)
@@ -249,7 +265,7 @@ private extension ArticleCardView_Enhanced {
             // Date
             if let date = article.date {
                 Text(date)
-                    .font(.custom("SFProDisplay-Bold", size: 15))
+                    .font(.system(size: 15, weight: .bold))
                     .foregroundColor(.secondary)
             }
         }

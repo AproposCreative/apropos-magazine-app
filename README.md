@@ -101,17 +101,19 @@ nano .env
 
 ## 🧪 Testing
 
-### Unit Tests
+Projektet har ingen automatiske unit/UI-test targets. Verificer ændringer manuelt på simulator eller device før merge.
+
 ```bash
-# Run unit tests
-xcodebuild test -scheme AproposMagazinev2 -destination 'platform=iOS Simulator,name=iPhone 15'
+# Release build (samme som CI)
+xcodebuild \
+  -project AproposMagazinev2.xcodeproj \
+  -scheme AproposMagazinev2 \
+  -destination 'generic/platform=iOS Simulator' \
+  -configuration Release \
+  build
 ```
 
-### UI Tests
-```bash
-# Run UI tests
-xcodebuild test -scheme AproposMagazinev2UITests -destination 'platform=iOS Simulator,name=iPhone 15'
-```
+Se `AproposMagazinev2/DEVELOPMENT.md` for smoke test-checkliste.
 
 ## 📦 Dependencies
 

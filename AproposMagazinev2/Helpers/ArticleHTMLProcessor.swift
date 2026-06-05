@@ -34,6 +34,24 @@ enum ArticleHTMLProcessor {
         return result
     }
 
+    static func imageURLs(in html: String) -> [String] {
+        guard let regex = try? NSRegularExpression(pattern: imgTagPattern, options: [.caseInsensitive]) else {
+            return []
+        }
+
+        let nsHTML = html as NSString
+        var urls: [String] = []
+        let matches = regex.matches(in: html, range: NSRange(location: 0, length: nsHTML.length))
+
+        for match in matches where match.numberOfRanges >= 3 {
+            let src = nsHTML.substring(with: match.range(at: 2)).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !src.isEmpty, src.hasPrefix("http://") || src.hasPrefix("https://") else { continue }
+            urls.append(src)
+        }
+
+        return urls
+    }
+
     static func wrapImageCredits(in html: String) -> String {
         guard let regex = try? NSRegularExpression(pattern: creditPattern, options: []) else {
             return html
@@ -75,7 +93,7 @@ enum ArticleHTMLProcessor {
         return true
     }
 
-    private static func optimizedImageURL(from src: String) -> String {
+    static func optimizedImageURL(from src: String) -> String {
         guard var components = URLComponents(string: src) else { return src }
 
         let targetWidth = min(1200, Int(UIScreen.main.bounds.width * UIScreen.main.scale))

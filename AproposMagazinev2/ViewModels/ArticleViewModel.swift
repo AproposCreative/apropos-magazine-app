@@ -7,6 +7,7 @@ import OSLog
 class ArticleViewModel: ObservableObject {
     @Published var articles: [Article] = []
     @Published var aiRecommendations: [Article] = []
+    @Published var personalizedRecommendations: [(Article, String)] = []
     @Published var isLoading: Bool = false
     @Published var fetchError: Error? = nil
     @Published var isLoadingAI: Bool = false
@@ -97,10 +98,12 @@ class ArticleViewModel: ObservableObject {
             fetchMetadataInBackground()
         }
 
-        // Lazy load AI recommendations (not critical for initial load)
+        // Lazy load cached recommendations only (fetch on scroll in HomeView)
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 second delay
-            fetchAIRecommendations()
+            if let cached = RecommendationService.shared.loadCached() {
+                personalizedRecommendations = cached
+            }
+            await SeriesService.shared.fetchSeries()
         }
 
         // Overvåg UserManager ændringer og synkroniser favoritter
@@ -149,8 +152,6 @@ class ArticleViewModel: ObservableObject {
             return
         }
         
-        // WebflowService.shared is always available, so no need to check
-        
         let startTime = Date()
         
         // Try cache first for fast startup (unless force refresh)
@@ -175,7 +176,7 @@ class ArticleViewModel: ObservableObject {
             isLoading = true
             fetchError = nil
             
-            WebflowService.shared.fetchArticles { [weak self] result in
+            fetchRemoteArticles { [weak self] result in
                 guard let self = self else { return }
                 
                 let elapsed = Date().timeIntervalSince(startTime)
@@ -187,29 +188,7 @@ class ArticleViewModel: ObservableObject {
                 DispatchQueue.main.asyncAfter(deadline: .now() + remainingTime) { [weak self] in
                     guard let self = self else { return }
                     self.isLoading = false
-                    
-                    switch result {
-                    case .success(let articles):
-                        // Sort articles by date (newest first)
-                        let sortedArticles = self.sortedNewestFirst(articles)
-                        
-                        self.articles = sortedArticles
-                        CacheManager.shared.cacheArticles(sortedArticles)
-                        
-                        // Keep launch light: only warm the first few visible images.
-                        CacheManager.shared.preloadImages(for: Array(sortedArticles.prefix(5)))
-                        
-                        // Load favorites after articles are available
-                        Task { [weak self] in await self?.syncFavoritesWithFirestore() }
-                        
-                        if articles.isEmpty {
-                            self.fetchError = NSError(domain: "ViewModel", code: -1, userInfo: [NSLocalizedDescriptionKey: "Ingen artikler fundet."])
-                        }
-                    case .failure(let error):
-                        logger.error("Fejl ved hentning af artikler: \(error.localizedDescription, privacy: .public)")
-                        self.fetchError = error
-                        self.articles = []
-                    }
+                    self.handleRemoteArticlesResult(result, clearOnEmptyFailure: !forceRefresh)
                 }
             }
         }
@@ -220,6 +199,47 @@ class ArticleViewModel: ObservableObject {
         await PodcastRepository.shared.refreshManifest(force: true)
     }
     
+    private func fetchRemoteArticles(completion: @escaping (Result<[Article], Error>) -> Void) {
+        FirestoreArticleService.shared.fetchArticles { result in
+            switch result {
+            case .success:
+                completion(result)
+            case .failure(FirestoreArticleError.empty):
+                self.logger.info("Firestore articles empty – falling back to Webflow")
+                WebflowService.shared.fetchArticles(completion: completion)
+            case .failure(let error):
+                completion(.failure(error))
+            }
+        }
+    }
+
+    private func handleRemoteArticlesResult(_ result: Result<[Article], Error>, clearOnEmptyFailure: Bool) {
+        switch result {
+        case .success(let articles):
+            let sortedArticles = sortedNewestFirst(articles)
+            self.articles = sortedArticles
+            CacheManager.shared.cacheArticles(sortedArticles)
+            CacheManager.shared.preloadImages(for: Array(sortedArticles.prefix(5)))
+            Task { [weak self] in await self?.syncFavoritesWithFirestore() }
+
+            if articles.isEmpty {
+                self.fetchError = NSError(
+                    domain: "ViewModel",
+                    code: -1,
+                    userInfo: [NSLocalizedDescriptionKey: "Ingen artikler fundet."]
+                )
+            } else {
+                self.fetchError = nil
+            }
+        case .failure(let error):
+            logger.error("Fejl ved hentning af artikler: \(error.localizedDescription, privacy: .public)")
+            self.fetchError = error
+            if clearOnEmptyFailure && self.articles.isEmpty {
+                self.articles = []
+            }
+        }
+    }
+    
     /// Silently refresh articles in background without showing loading state
     private func refreshArticlesInBackground() {
         Task { [weak self] in
@@ -228,39 +248,50 @@ class ArticleViewModel: ObservableObject {
             // Wait a bit to not interfere with initial load
             try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
             
-            WebflowService.shared.fetchArticles { [weak self] result in
+            fetchRemoteArticles { [weak self] result in
                 guard let self = self else { return }
                 
                 switch result {
                 case .success(let articles):
-                    // Only update if we got articles and they're different
                     let sortedArticles = self.sortedNewestFirst(articles)
                     
                     Task { @MainActor in
-                        // Only update if article count changed or we have new articles
-                        if sortedArticles.count != self.articles.count || 
+                        if sortedArticles.count != self.articles.count ||
                            sortedArticles.first?.id != self.articles.first?.id {
                             self.articles = sortedArticles
                             CacheManager.shared.cacheArticles(sortedArticles)
                         }
                     }
-                case .failure:
-                    break
+                case .failure(let error):
+                    self.logger.error("Baggrundsopdatering af artikler fejlede: \(error.localizedDescription, privacy: .public)")
                 }
             }
         }
     }
     
     func fetchAIRecommendations() {
-        // Safety check: ensure we're not already loading
-        guard !isLoadingAI else {
-            return
-        }
-        
+        fetchPersonalizedRecommendationsIfNeeded(force: true)
+    }
+
+    func fetchPersonalizedRecommendationsIfNeeded(force: Bool = false) {
+        guard force || personalizedRecommendations.isEmpty else { return }
+        guard !isLoadingAI else { return }
+
         isLoadingAI = true
-        // AI recommendations logic here
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
-            self?.isLoadingAI = false
+        aiError = nil
+
+        Task { @MainActor in
+            let readIds = iCloudSyncService.shared.readArticleIds
+            let subscribedCategories = UserManager.shared.currentUser?.favoriteCategories ?? []
+            let recommendations = await RecommendationService.shared.generateRecommendations(
+                articles: articles,
+                favorites: favorites,
+                subscribedCategoryIds: subscribedCategories,
+                readArticleIds: readIds
+            )
+            personalizedRecommendations = recommendations
+            aiRecommendations = recommendations.map(\.0)
+            isLoadingAI = false
         }
     }
     
@@ -351,12 +382,25 @@ class ArticleViewModel: ObservableObject {
     }
     
     func fetchArticle(by id: String, completion: @escaping (Result<Article, Error>) -> Void) {
-        // Safety check: ensure ID is not empty
         guard !id.isEmpty else {
             completion(.failure(NSError(domain: "Invalid ID", code: 0, userInfo: [NSLocalizedDescriptionKey: "Article ID is empty"])))
             return
         }
-        
+
+        FirestoreArticleService.shared.fetchArticle(by: id) { result in
+            switch result {
+            case .success(let article):
+                completion(.success(article))
+            case .failure(FirestoreArticleError.empty):
+                self.logger.info("Firestore article \(id, privacy: .public) missing – falling back to Webflow")
+                self.fetchArticleFromWebflow(by: id, completion: completion)
+            case .failure(let error):
+                completion(.failure(error))
+            }
+        }
+    }
+
+    private func fetchArticleFromWebflow(by id: String, completion: @escaping (Result<Article, Error>) -> Void) {
         let urlString = "https://api.webflow.com/v2/collections/67dbf17ba540975b5b21c2a6/items/\(id)"
         guard let url = URL(string: urlString) else {
             completion(.failure(NSError(domain: "Invalid URL", code: 0)))
@@ -655,8 +699,10 @@ class ArticleViewModel: ObservableObject {
         
         if wasFavorite {
             favorites.removeAll { $0.id == article.id }
+            OfflineManager.shared.removeArticleFromOffline(article.id)
         } else {
             favorites.append(article)
+            OfflineManager.shared.saveArticleForOffline(article)
         }
         
         // Always save to UserDefaults for local persistence (works for logged out users)
@@ -698,6 +744,8 @@ class ArticleViewModel: ObservableObject {
         if let data = UserDefaults.standard.data(forKey: favoritesKey),
            let decoded = try? JSONDecoder().decode([Article].self, from: data) {
             favorites = decoded
+            OfflineArticleImageCache.shared.scheduleCacheImages(for: favorites)
+            OfflineManager.shared.savePodcastsForOffline(favorites)
         }
         
         // Firebase sync is delayed until after launch to keep the first frame responsive.
@@ -713,6 +761,8 @@ class ArticleViewModel: ObservableObject {
 
             self.favorites = articles
             self.saveFavorites()
+            OfflineArticleImageCache.shared.scheduleCacheImages(for: articles)
+            OfflineManager.shared.savePodcastsForOffline(articles)
         }
     }
     
@@ -750,6 +800,9 @@ class ArticleViewModel: ObservableObject {
                 }
                 self.favorites = firebaseFavorites + localFavorites
                 self.saveFavorites()
+                for article in self.favorites {
+                    OfflineManager.shared.saveArticleForOffline(article)
+                }
                 self.isLoadingFavorites = false
                 // print("✅ Synced favorites: \(self.favorites.count) total")
             }

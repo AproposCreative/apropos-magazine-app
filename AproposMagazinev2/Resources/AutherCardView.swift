@@ -33,13 +33,13 @@ struct AuthorCardView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         if !author.name.isEmpty {
                             Text(author.name)
-                                .font(.custom("SFProText-Medium", size: 20))
+                                .font(.system(size: 20, weight: .medium))
                                 .foregroundColor(.primary)
                         }
                         
                         if !author.position.isEmpty {
                             Text(author.position)
-                                .font(.custom("SFProText-Regular", size: 17))
+                                .font(.system(size: 17, weight: .regular))
                                 .foregroundColor(.secondary)
                                 .lineLimit(2)
                         }
@@ -60,7 +60,7 @@ struct AuthorCardView: View {
                     
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Henter forfatter…")
-                            .font(.custom("SFProText-Medium", size: 18))
+                            .font(.system(size: 18, weight: .medium))
                             .foregroundColor(.secondary)
                     }
                     

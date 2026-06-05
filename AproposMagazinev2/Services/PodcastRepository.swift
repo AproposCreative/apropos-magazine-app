@@ -32,6 +32,7 @@ final class PodcastRepository: PodcastProviding, ObservableObject {
     func refreshManifest(force: Bool = false) async {
         let refreshed = await manifestService.refreshEpisodes(force: force)
         episodes = refreshed
+        OfflineManager.shared.savePodcastsForOffline(OfflineManager.shared.getOfflineArticles())
     }
 
     func episode(for article: Article) -> PodcastEpisode? {

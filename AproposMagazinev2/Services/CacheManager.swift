@@ -126,6 +126,24 @@ class CacheManager: ObservableObject {
             } catch {
             }
 
+            WidgetDataStore.saveLatestArticles(
+                articles.prefix(5).map { article in
+                    WidgetArticle(
+                        id: article.id,
+                        name: article.name ?? "Artikel",
+                        slug: article.slug ?? article.id,
+                        thumbURL: {
+                            if let url = article.thumbURL ?? article.mobileImageURL ?? article.coverURL {
+                                return url.absoluteString
+                            }
+                            return ""
+                        }(),
+                        intro: article.intro ?? "",
+                        date: article.lastPublished ?? article.createdOn ?? article.date ?? ""
+                    )
+                }
+            )
+
         } catch {
         }
     }

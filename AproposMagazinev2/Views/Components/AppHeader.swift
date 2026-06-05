@@ -56,7 +56,7 @@ struct AppHeader: View {
                     .frame(height: 22)
             } else if let title = title {
                 Text(title)
-                    .font(.custom("SFProDisplay-Bold", size: 18))
+                    .font(.system(size: 18, weight: .bold))
                     .fontWeight(.semibold)
                     .foregroundColor(.primary)
             }

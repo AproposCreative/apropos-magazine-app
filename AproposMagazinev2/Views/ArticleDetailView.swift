@@ -296,17 +296,29 @@ struct ArticleDetailView: View {
     @State private var shouldRenderHeavyContent = false
     @State private var shouldShowRelatedArticles = false
     @State private var showShareSheet = false
-    @State private var shareURL: URL?
-    @State private var showGlassTopBar = false
+    @State private var shareItems: [Any] = []
+    @State private var isGeneratingShareCard = false
     @State private var intelligentRelatedArticles: [Article] = []
     @State private var displayCategories: [String] = []
+    @State private var headerImageFailed = false
+    @State private var didRevealHeader = false
+    @State private var showGlassTopBar = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     
-    private var progress: CGFloat { showGlassTopBar ? 1 : 0 }
     let optionId = "b9a5ef043f1f58db54c41ed6fe3e746e"
-    
-    // Computed property for intelligent related articles
+
+    private var progress: CGFloat {
+        showGlassTopBar ? 1 : 0
+    }
+
     private var bestRelatedArticles: [Article] {
         Array(intelligentRelatedArticles.prefix(3))
+    }
+
+    private var bottomScrollPadding: CGFloat {
+        PodcastMiniPlayerLayout.articleBottomPadding(
+            isPlayerVisible: podcastPlayerManager.hasActiveEpisode
+        )
     }
 
     private var latestPodcastEpisode: PodcastEpisode? {
@@ -321,11 +333,10 @@ struct ArticleDetailView: View {
         ZStack(alignment: .top) {
             // ✅ GLAS-TOPBAR (indhold placeret inden i glass effekt)
             ZStack(alignment: .top) {
-                // 👇 Glass overlay bag ved alt
                 Rectangle()
                     .fill(.ultraThinMaterial)
-                    .opacity(progress) // 🔧 START MED 0% OG BLIVER 100% HURTIGT
-                    .frame(height: 104) // 60 + 44 for safe area
+                    .opacity(progress)
+                    .frame(height: 104)
                     .ignoresSafeArea(edges: .top)
                 
                 // 👇 Topbar-indhold placeret INDEN i glass effekt
@@ -366,7 +377,7 @@ struct ArticleDetailView: View {
                         // 👇 Højre knapper - samme faste størrelse
                         HStack(spacing: 8) {
                             Button(action: {
-                                showShareSheet = true
+                                shareArticle()
                             }) {
                                 Image(systemName: "square.and.arrow.up")
                                     .font(.system(size: 18)) // 2 pixels mindre ikon
@@ -375,6 +386,7 @@ struct ArticleDetailView: View {
                                     .background(Color.gray.opacity(0.1))
                                     .clipShape(Circle())
                             }
+                            .disabled(isGeneratingShareCard)
 
                             SafeFavoriteButton(
                                 article: article,
@@ -402,10 +414,13 @@ struct ArticleDetailView: View {
                         .onChange(of: geo.frame(in: .named("scroll")).minY) { _, newValue in
                             let shouldShow = newValue < -16
                             if shouldShow != showGlassTopBar {
-                                withAnimation(.easeOut(duration: 0.16)) {
+                                withAnimation(AppMotion.easeOut(duration: 0.16, reduceMotion: reduceMotion)) {
                                     showGlassTopBar = shouldShow
                                 }
                             }
+
+                            let progress = min(max(-newValue / 1800, 0), 1)
+                            iCloudSyncService.shared.saveProgress(progress, for: resolvedArticle.id)
                         }
                 }
                 .frame(height: 0.1)
@@ -416,7 +431,7 @@ struct ArticleDetailView: View {
                     
                     // ✅ All your content - Dynamic categories from CMS
                     Text(displayCategories.joined(separator: " | "))
-                        .font(.custom("SFProText-Semibold", size: 15))
+                        .font(.system(size: 15, weight: .semibold))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
                         .foregroundColor(textColor)
@@ -425,7 +440,7 @@ struct ArticleDetailView: View {
                     // Safety check for article name
                     if let articleName = resolvedArticle.name, !articleName.isEmpty {
                         Text(articleName)
-                            .font(.custom("SFProText-Bold", size: 34).bold())
+                            .font(.system(size: 34, weight: .bold))
                             .lineSpacing(4) // Reduced from 8 to 4 for even tighter spacing
                             .foregroundColor(textColor)
                             .multilineTextAlignment(.center)
@@ -435,7 +450,7 @@ struct ArticleDetailView: View {
                     
                     if let subtitle = resolvedArticle.subtitle, !subtitle.isEmpty {
                         Text(subtitle)
-                            .font(.custom("SFProText-Medium", size: 18))
+                            .font(.system(size: 18, weight: .medium))
                             .foregroundColor(textColor)
                             .padding(.horizontal)
                             .frame(maxWidth: .infinity)
@@ -517,21 +532,31 @@ struct ArticleDetailView: View {
                     var mutableArticle = resolvedArticle
                     let thumbnailURL = mutableArticle.thumbnailURL
                     ZStack {
-                        ArticleImagePlaceholder(showShimmer: true, cornerRadius: 14)
+                        ArticleImagePlaceholder(
+                            mode: headerImageFailed ? .offline : .loading,
+                            cornerRadius: 14
+                        )
 
-                        if let url = URL(string: thumbnailURL), !thumbnailURL.isEmpty {
+                        if let remoteURL = URL(string: thumbnailURL.trimmingCharacters(in: .whitespacesAndNewlines)),
+                           !thumbnailURL.isEmpty,
+                           !headerImageFailed,
+                           let url = resolvedArticle.offlineDisplayImageURL(for: remoteURL) {
                             WebImage(url: url, options: [.retryFailed, .refreshCached])
+                                .onFailure { _ in
+                                    headerImageFailed = true
+                                }
                                 .resizable()
                                 .aspectRatio(contentMode: .fill)
                         }
                     }
+                    .articleHeaderReveal(isRevealed: $didRevealHeader)
                     .frame(maxWidth: .infinity, minHeight: 220, maxHeight: 340)
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .padding(.horizontal, 16)
 
                     if let imageCaption = resolvedArticle.intro, !imageCaption.isEmpty {
                         Text(imageCaption)
-                            .font(.custom("SFProText-Medium", size: 20))
+                            .font(.system(size: 20, weight: .medium))
                             .foregroundColor(textColor)
                             .kerning(-0.43)
                             .lineSpacing(6)
@@ -555,30 +580,32 @@ struct ArticleDetailView: View {
                     .padding(.bottom, 20)
                     
                     if shouldRenderHeavyContent, let content = resolvedArticle.content, !content.isEmpty {
-                        HTMLTextView(html: content, dynamicHeight: $htmlHeight)
-                            .frame(height: max(htmlHeight, 240))
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, 10)
+                        VStack(spacing: 0) {
+                            HTMLTextView(html: content, articleId: resolvedArticle.id, dynamicHeight: $htmlHeight)
+                                .frame(height: max(htmlHeight, 240))
+                                .padding(.horizontal, 16)
 
-                        if let trailer = resolvedArticle.trailer, !trailer.isEmpty {
-                            LazyVStack {
-                                TrailerWebView(trailer: trailer)
-                                    .frame(height: 220)
-                                    .cornerRadius(12)
-                                    .clipped()
-                            }
-                            .padding(.top, 10)
-                            .padding(.horizontal, 16)
-                            Rectangle()
-                                .fill(Color.gray.opacity(0.3))
-                                .frame(height: 1)
+                            if let trailer = resolvedArticle.trailer, !trailer.isEmpty {
+                                LazyVStack {
+                                    TrailerWebView(trailer: trailer)
+                                        .frame(height: 220)
+                                        .cornerRadius(12)
+                                        .clipped()
+                                }
                                 .padding(.top, 10)
                                 .padding(.horizontal, 16)
-                        }
+                                Rectangle()
+                                    .fill(Color.gray.opacity(0.3))
+                                    .frame(height: 1)
+                                    .padding(.top, 10)
+                                    .padding(.horizontal, 16)
+                            }
 
-                        if let authorID = resolvedArticle.authorID, !authorID.isEmpty {
-                            AuthorCardView(authorID: authorID)
-                                .padding(.horizontal, 16)
+                            if let authorID = resolvedArticle.authorID, !authorID.isEmpty {
+                                AuthorCardView(authorID: authorID)
+                                    .padding(.horizontal, 16)
+                                    .padding(.top, 4)
+                            }
                         }
                     } else if !shouldRenderHeavyContent {
                         ProgressView()
@@ -589,7 +616,7 @@ struct ArticleDetailView: View {
                     if shouldShowRelatedArticles && !bestRelatedArticles.isEmpty {
                         Text("Læs også")
                             .foregroundColor(Color("SerialNumberColorBOX"))
-                            .font(.custom("SFProDisplay-Bold", size: 25))
+                            .font(.system(size: 25, weight: .bold))
                             .padding(.leading, 16)
                             .padding(.bottom, 0)
 
@@ -602,9 +629,10 @@ struct ArticleDetailView: View {
                             .padding(.horizontal, 16)
                         }
                         .padding(.top, 0)
-
-                        Spacer(minLength: 2)
                     }
+
+                    Color.clear
+                        .frame(height: bottomScrollPadding)
                     
                 }
             }
@@ -614,22 +642,21 @@ struct ArticleDetailView: View {
         .navigationBarBackButtonHidden(true)
         .enhancedSwipeToGoBack(isEnabled: true)
         .sheet(isPresented: $showShareSheet) {
-            if let url = shareURL {
-                let shareText = createRichShareText()
-                ActivityView(activityItems: [shareText, url])
+            if !shareItems.isEmpty {
+                ActivityView(activityItems: shareItems)
             }
         }
         .task(id: article.id) {
             shouldRenderHeavyContent = false
             shouldShowRelatedArticles = false
             htmlHeight = 240
+            didRevealHeader = false
+            showGlassTopBar = false
             
             let resolvedCategories = viewModel.categories(for: resolvedArticle)
             displayCategories = resolvedCategories.isEmpty ? ["Generelt"] : resolvedCategories
-            
-            if let articleURL = URL(string: "https://aproposmagazine.com/article/\(article.id)") {
-                shareURL = articleURL
-            }
+
+            iCloudSyncService.shared.markAsRead(articleId: article.id)
             
             if !didLoadFullArticle {
                 didLoadFullArticle = true
@@ -637,6 +664,9 @@ struct ArticleDetailView: View {
             }
             
             await Task.yield()
+            withAnimation(AppMotion.spring(response: 0.52, damping: 0.86, reduceMotion: reduceMotion)) {
+                didRevealHeader = true
+            }
             shouldRenderHeavyContent = true
             
             try? await Task.sleep(nanoseconds: 350_000_000)
@@ -655,6 +685,29 @@ struct ArticleDetailView: View {
 
 // MARK: - Helper Functions
 extension ArticleDetailView {
+    private func shareArticle() {
+        guard !isGeneratingShareCard else { return }
+        isGeneratingShareCard = true
+        HapticManager.shared.lightImpact()
+
+        Task {
+            let article = resolvedArticle
+            var items: [Any] = [createRichShareText()]
+            if let url = ShareCardGenerator.shareURL(for: article) {
+                items.append(url)
+            }
+            if let image = await ShareCardGenerator.generate(article: article) {
+                items.insert(image, at: 0)
+            }
+
+            await MainActor.run {
+                shareItems = items
+                isGeneratingShareCard = false
+                showShareSheet = true
+            }
+        }
+    }
+
     private func openPodcast(for episode: PodcastEpisode) {
         podcastPlayerManager.play(episode: episode)
     }
@@ -736,6 +789,7 @@ extension ArticleDetailView {
 struct RelatedArticleCard: View {
     let article: Article
     @Environment(\.colorScheme) var colorScheme
+    @State private var imageFailed = false
     
     var body: some View {
         NavigationLink(value: article) {
@@ -743,7 +797,7 @@ struct RelatedArticleCard: View {
                 relatedImage
                 
                 Text(article.name ?? "")
-                    .font(.custom("SFProText-Bold", size: 14))
+                    .font(.system(size: 14, weight: .bold))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
@@ -760,16 +814,22 @@ struct RelatedArticleCard: View {
         let thumbnailURL = mutableArticle.thumbnailURL
 
         ZStack {
-            ArticleImagePlaceholder(showShimmer: true, cornerRadius: 8)
+            ArticleImagePlaceholder(mode: imageFailed ? .offline : .loading, cornerRadius: 8)
 
-            if let imageURL = URL(string: thumbnailURL), !thumbnailURL.isEmpty {
+            if let imageURL = URL(string: thumbnailURL), !thumbnailURL.isEmpty, !imageFailed {
                 WebImage(url: imageURL, options: [.retryFailed, .scaleDownLargeImages])
+                    .onFailure { _ in
+                        imageFailed = true
+                    }
                     .resizable()
                     .aspectRatio(contentMode: .fill)
             }
         }
         .frame(width: 200, height: 120)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .onChange(of: article.id) { _, _ in
+            imageFailed = false
+        }
     }
 }
 

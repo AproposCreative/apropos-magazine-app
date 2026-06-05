@@ -281,9 +281,9 @@ struct FavoriteArticleRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
             ZStack {
-                ArticleImagePlaceholder(showShimmer: !imageFailed, cornerRadius: 8)
+                ArticleImagePlaceholder(mode: imageFailed ? .offline : .loading, cornerRadius: 8)
 
-                if let url = article.listThumbnailURL, !imageFailed {
+                if let url = article.offlineListThumbnailURL, !imageFailed {
                     WebImage(url: url, options: [.retryFailed, .continueInBackground, .scaleDownLargeImages])
                         .resizable()
                         .onFailure { _ in

@@ -3,6 +3,7 @@ import WebKit
 
 struct HTMLTextView: UIViewRepresentable {
     var html: String
+    var articleId: String? = nil
     @Binding var dynamicHeight: CGFloat
 
     func makeUIView(context: Context) -> WKWebView {
@@ -33,6 +34,12 @@ struct HTMLTextView: UIViewRepresentable {
         // Fjern alle <style>...</style> tags fra HTML
         let cleanedHTML = html.replacingOccurrences(of: "<style[\\s\\S]*?</style>", with: "", options: .regularExpression)
         let sanitizedHTML = ArticleHTMLProcessor.process(cleanedHTML)
+        let offlinePrepared = OfflineArticleImageCache.shared.prepareHTMLForOfflineDisplay(
+            sanitizedHTML,
+            articleId: articleId
+        )
+        let displayHTML = offlinePrepared.html
+        let offlineBaseURL = offlinePrepared.baseURL
 
         let css = """
           <style>
@@ -56,7 +63,14 @@ struct HTMLTextView: UIViewRepresentable {
                   margin: 0 0 1.25em 0 !important;
                   padding: 0 !important;
               }
-              p:last-child {
+              p:last-child,
+              p:last-of-type {
+                  margin-bottom: 0 !important;
+              }
+              .apropos-image-credit:last-child,
+              .apropos-image-credit:last-of-type,
+              figcaption:last-child,
+              figcaption:last-of-type {
                   margin-bottom: 0 !important;
               }
               img {
@@ -70,7 +84,43 @@ struct HTMLTextView: UIViewRepresentable {
                   border-radius: 0 !important;
                   padding: 0 !important;
                   box-shadow: none !important;
-                  background-color: #f0f0f0 !important;
+                  background-color: #0a0a0a !important;
+              }
+              .apropos-offline-media {
+                  width: 100vw !important;
+                  max-width: 100vw !important;
+                  min-height: 200px !important;
+                  margin: 0 !important;
+                  margin-left: calc(-50vw + 50%) !important;
+                  margin-right: calc(-50vw + 50%) !important;
+                  padding: 36px 24px !important;
+                  box-sizing: border-box !important;
+                  display: flex !important;
+                  flex-direction: column !important;
+                  align-items: center !important;
+                  justify-content: center !important;
+                  gap: 8px !important;
+                  background: #0a0a0a !important;
+                  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+                  box-shadow: 0 0 24px rgba(255, 255, 255, 0.04) inset !important;
+              }
+              .apropos-offline-media__title {
+                  font-size: 13px !important;
+                  font-weight: 600 !important;
+                  line-height: 1.35 !important;
+                  color: rgba(255, 255, 255, 0.72) !important;
+                  text-align: center !important;
+                  text-shadow: 0 0 12px rgba(255, 255, 255, 0.28) !important;
+                  margin: 0 !important;
+              }
+              .apropos-offline-media__subtitle {
+                  font-size: 12px !important;
+                  font-weight: 400 !important;
+                  line-height: 1.4 !important;
+                  color: rgba(255, 255, 255, 0.42) !important;
+                  text-align: center !important;
+                  text-shadow: 0 0 10px rgba(255, 255, 255, 0.16) !important;
+                  margin: 0 !important;
               }
               h1, h2, h3 {
                   font-weight: bold;
@@ -147,7 +197,11 @@ struct HTMLTextView: UIViewRepresentable {
                       background-color: transparent !important;
                   }
                   img {
-                      background-color: #2a2a2a !important;
+                      background-color: #0a0a0a !important;
+                  }
+                  .apropos-offline-media {
+                      background: #0a0a0a !important;
+                      border-color: rgba(255, 255, 255, 0.14) !important;
                   }
                   .apropos-image-credit span {
                       color: #aaaaaa !important;
@@ -166,7 +220,7 @@ struct HTMLTextView: UIViewRepresentable {
             <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
             \(css)
         </head>
-        <body>\(sanitizedHTML)</body>
+        <body>\(displayHTML)</body>
         </html>
         """
 
@@ -176,12 +230,13 @@ struct HTMLTextView: UIViewRepresentable {
             return
         }
 
+        let cacheKey = "\(articleId ?? "")|\(htmlString)"
         // Critical perf guard: avoid reloading identical HTML on every parent state update.
-        if FeatureFlags.htmlDiffGuardEnabled && context.coordinator.lastLoadedHTML == htmlString {
+        if FeatureFlags.htmlDiffGuardEnabled && context.coordinator.lastLoadedHTML == cacheKey {
             return
         }
-        context.coordinator.lastLoadedHTML = htmlString
-        uiView.loadHTMLString(htmlString, baseURL: nil)
+        context.coordinator.lastLoadedHTML = cacheKey
+        uiView.loadHTMLString(htmlString, baseURL: offlineBaseURL)
     }
 
     func makeCoordinator() -> Coordinator {
@@ -216,7 +271,16 @@ struct HTMLTextView: UIViewRepresentable {
             let js = """
             function sendHeight() {
                 try {
-                    var height = document.documentElement.scrollHeight;
+                    var body = document.body;
+                    var height = body ? body.scrollHeight : document.documentElement.scrollHeight;
+                    if (body && body.lastElementChild) {
+                        var lastRect = body.lastElementChild.getBoundingClientRect();
+                        var bodyRect = body.getBoundingClientRect();
+                        var contentBottom = lastRect.bottom - bodyRect.top;
+                        if (contentBottom > 0) {
+                            height = Math.ceil(contentBottom);
+                        }
+                    }
                     if (height && height > 0) {
                         window.webkit.messageHandlers.heightHandler.postMessage(height);
                     }
@@ -231,14 +295,47 @@ struct HTMLTextView: UIViewRepresentable {
                     document.addEventListener('DOMContentLoaded', fn);
                 }
             }
+            function replaceBrokenImage(img) {
+                if (!img || img.dataset.approposOfflineHandled === '1') return;
+                img.dataset.approposOfflineHandled = '1';
+                var box = document.createElement('div');
+                box.className = 'apropos-offline-media';
+                box.innerHTML = '<p class="apropos-offline-media__title">Medie offline</p><p class="apropos-offline-media__subtitle">Tjek din internetforbindelse</p>';
+                if (img.parentNode) {
+                    img.parentNode.replaceChild(box, img);
+                }
+                sendHeight();
+            }
+            function attachOfflineFallbacks() {
+                try {
+                    var imgs = Array.from(document.images);
+                    imgs.forEach(function(img) {
+                        if (img.dataset.approposOfflineHandled === '1') return;
+                        if (img.complete && img.naturalWidth === 0) {
+                            replaceBrokenImage(img);
+                            return;
+                        }
+                        img.addEventListener('error', function() {
+                            replaceBrokenImage(img);
+                        });
+                    });
+                } catch (e) {
+                    console.error('Error attaching offline fallbacks:', e);
+                }
+            }
             ready(function() {
                 try {
+                    attachOfflineFallbacks();
                     var imgs = Array.from(document.images);
                     if (imgs.length === 0) {
                         sendHeight();
                     } else {
                         var loaded = 0;
                         imgs.forEach(function(img) {
+                            if (img.dataset.approposOfflineHandled === '1') {
+                                loaded++;
+                                return;
+                            }
                             if (img.complete) {
                                 loaded++;
                             } else {
@@ -260,8 +357,14 @@ struct HTMLTextView: UIViewRepresentable {
                             sendHeight();
                         }
                     }
-                    setTimeout(sendHeight, 500);
-                    setTimeout(sendHeight, 1500);
+                    setTimeout(function() {
+                        attachOfflineFallbacks();
+                        sendHeight();
+                    }, 500);
+                    setTimeout(function() {
+                        attachOfflineFallbacks();
+                        sendHeight();
+                    }, 1500);
                     window.addEventListener('resize', sendHeight);
                 } catch (e) {
                     console.error('Error in ready function:', e);

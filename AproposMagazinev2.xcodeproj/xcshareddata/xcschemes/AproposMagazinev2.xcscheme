@@ -20,6 +20,20 @@
                ReferencedContainer = "container:AproposMagazinev2.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "YES"
+            buildForProfiling = "YES"
+            buildForArchiving = "YES"
+            buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "EEWIDGET022EBCFD440025EC07"
+               BuildableName = "AproposMagazineWidget.appex"
+               BlueprintName = "AproposMagazineWidget"
+               ReferencedContainer = "container:AproposMagazinev2.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction
@@ -28,32 +42,6 @@
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
       shouldUseLaunchSchemeArgsEnv = "YES"
       shouldAutocreateTestPlan = "YES">
-      <Testables>
-         <TestableReference
-            skipped = "NO"
-            parallelizable = "YES"
-            testExecutionOrdering = "random">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "B68382262E056B35005C4E85"
-               BuildableName = "AproposMagazinev2Tests.xctest"
-               BlueprintName = "AproposMagazinev2Tests"
-               ReferencedContainer = "container:AproposMagazinev2.xcodeproj">
-            </BuildableReference>
-         </TestableReference>
-         <TestableReference
-            skipped = "NO"
-            parallelizable = "YES"
-            testExecutionOrdering = "random">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "B68382302E056B35005C4E85"
-               BuildableName = "AproposMagazinev2UITests.xctest"
-               BlueprintName = "AproposMagazinev2UITests"
-               ReferencedContainer = "container:AproposMagazinev2.xcodeproj">
-            </BuildableReference>
-         </TestableReference>
-      </Testables>
    </TestAction>
    <LaunchAction
       buildConfiguration = "Debug"

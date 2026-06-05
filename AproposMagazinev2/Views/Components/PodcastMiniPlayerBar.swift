@@ -1,10 +1,30 @@
 import SDWebImageSwiftUI
 import SwiftUI
 
+enum PodcastMiniPlayerLayout {
+    static let barHeight: CGFloat = 56
+    static let contentGap: CGFloat = 20
+
+    /// Reserved scroll inset above the tab bar when the mini player is visible.
+    static var scrollBottomInset: CGFloat {
+        barHeight + contentGap
+    }
+
+    static func articleBottomPadding(isPlayerVisible: Bool) -> CGFloat {
+        isPlayerVisible ? scrollBottomInset + 40 : 2
+    }
+
+    static func feedBottomPadding(isPlayerVisible: Bool) -> CGFloat {
+        isPlayerVisible ? scrollBottomInset + 8 : 56
+    }
+}
+
 struct PodcastMiniPlayerBar: View {
     @EnvironmentObject private var podcastPlayer: PodcastPlayerManager
     @EnvironmentObject private var viewModel: ArticleViewModel
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isPressed = false
     
     private var backgroundTint: Color {
         colorScheme == .dark ? Color.black.opacity(0.42) : Color.black.opacity(0.18)
@@ -110,11 +130,21 @@ struct PodcastMiniPlayerBar: View {
                     .stroke(.white.opacity(colorScheme == .dark ? 0.1 : 0.14), lineWidth: 0.8)
             )
             .shadow(color: .black.opacity(colorScheme == .dark ? 0.18 : 0.12), radius: 6, x: 0, y: 1)
+            .scaleEffect(isPressed && !reduceMotion ? 0.985 : 1)
             .contentShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
             .onTapGesture {
+                if !reduceMotion {
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.72)) {
+                        isPressed = true
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                        withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
+                            isPressed = false
+                        }
+                    }
+                }
                 podcastPlayer.openFullPlayer()
             }
-            .transition(.move(edge: .bottom).combined(with: .opacity))
         }
     }
 }
