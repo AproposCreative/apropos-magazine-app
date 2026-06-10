@@ -47,7 +47,7 @@ class SmartNotificationService: NSObject, ObservableObject {
     // MARK: - Smart Notifications
     
     func scheduleReadingReminder() {
-        guard isAuthorized else { return }
+        guard isAuthorized, notificationSettings.readingReminders else { return }
         
         let content = UNMutableNotificationContent()
         content.title = "Læsning påkrævet"
@@ -62,17 +62,15 @@ class SmartNotificationService: NSObject, ObservableObject {
         dateComponents.minute = 0
         
         let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: true)
-        let request = UNNotificationRequest(identifier: "reading_reminder", content: content, trigger: trigger)
-        
-        UNUserNotificationCenter.current().add(request) { error in
-            if let error = error {
-                self.logger.error("Fejl ved planlægning af læsepåmindelse: \(error.localizedDescription, privacy: .public)")
-            }
-        }
+        scheduleLocalNotificationIfAllowed(
+            identifier: "reading_reminder",
+            content: content,
+            trigger: trigger
+        )
     }
     
     func schedulePersonalizedRecommendations() {
-        guard isAuthorized else { return }
+        guard isAuthorized, notificationSettings.personalizedRecommendations else { return }
         
         let content = UNMutableNotificationContent()
         content.title = "Nye artikler for dig"
@@ -87,13 +85,11 @@ class SmartNotificationService: NSObject, ObservableObject {
         dateComponents.minute = 0
         
         let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: true)
-        let request = UNNotificationRequest(identifier: "personalized_recommendations", content: content, trigger: trigger)
-        
-        UNUserNotificationCenter.current().add(request) { error in
-            if let error = error {
-                self.logger.error("Fejl ved planlægning af personlige anbefalinger: \(error.localizedDescription, privacy: .public)")
-            }
-        }
+        scheduleLocalNotificationIfAllowed(
+            identifier: "personalized_recommendations",
+            content: content,
+            trigger: trigger
+        )
     }
     
     func scheduleFestivalReminder(festivalName: String, date: Date) {
@@ -113,17 +109,11 @@ class SmartNotificationService: NSObject, ObservableObject {
             repeats: false
         )
         
-        let request = UNNotificationRequest(
+        scheduleLocalNotificationIfAllowed(
             identifier: "festival_\(festivalName)",
             content: content,
             trigger: trigger
         )
-        
-        UNUserNotificationCenter.current().add(request) { error in
-            if let error = error {
-                self.logger.error("Fejl ved planlægning af festivalpåmindelse: \(error.localizedDescription, privacy: .public)")
-            }
-        }
     }
     
     func scheduleBreakingNewsAlert(title: String, body: String) {
@@ -138,17 +128,11 @@ class SmartNotificationService: NSObject, ObservableObject {
         content.threadIdentifier = "breaking_news" // Group all breaking news
         
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
-        let request = UNNotificationRequest(
+        scheduleLocalNotificationIfAllowed(
             identifier: "breaking_news_\(UUID().uuidString)",
             content: content,
             trigger: trigger
         )
-        
-        UNUserNotificationCenter.current().add(request) { error in
-            if let error = error {
-                self.logger.error("Fejl ved planlægning af breaking news: \(error.localizedDescription, privacy: .public)")
-            }
-        }
     }
     
     func scheduleWeeklyDigest() {
@@ -168,11 +152,27 @@ class SmartNotificationService: NSObject, ObservableObject {
         dateComponents.minute = 0
         
         let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: true)
-        let request = UNNotificationRequest(identifier: "weekly_digest", content: content, trigger: trigger)
-        
+        scheduleLocalNotificationIfAllowed(
+            identifier: "weekly_digest",
+            content: content,
+            trigger: trigger
+        )
+    }
+    
+    private func scheduleLocalNotificationIfAllowed(
+        identifier: String,
+        content: UNMutableNotificationContent,
+        trigger: UNNotificationTrigger
+    ) {
+        guard NotificationDeliveryPolicy.shouldScheduleLocalNotification(settings: notificationSettings) else {
+            logger.info("Skipped local notification \(identifier, privacy: .public) due to delivery policy")
+            return
+        }
+
+        let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
         UNUserNotificationCenter.current().add(request) { error in
             if let error = error {
-                self.logger.error("Fejl ved planlægning af weekly digest: \(error.localizedDescription, privacy: .public)")
+                self.logger.error("Fejl ved planlægning af \(identifier, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
         }
     }
@@ -186,13 +186,10 @@ class SmartNotificationService: NSObject, ObservableObject {
         let readingStats = ReadingProgressManager.shared.readingStats
         
         if readingStats?.totalArticlesRead == 0 {
-            // New user - send welcome notification
             scheduleWelcomeNotification()
         } else if readingStats?.totalArticlesRead ?? 0 < 5 {
-            // Casual reader - gentle reminders
             scheduleGentleReminders()
-        } else {
-            // Active reader - personalized content
+        } else if notificationSettings.personalizedRecommendations || notificationSettings.weeklyDigest {
             schedulePersonalizedContent()
         }
     }
@@ -205,14 +202,12 @@ class SmartNotificationService: NSObject, ObservableObject {
         content.categoryIdentifier = "WELCOME"
         content.threadIdentifier = "welcome" // Group welcome notifications
         
-        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 3600, repeats: false) // 1 hour delay
-        let request = UNNotificationRequest(identifier: "welcome", content: content, trigger: trigger)
-        
-        UNUserNotificationCenter.current().add(request) { error in
-            if let error = error {
-                self.logger.error("Fejl ved planlægning af velkomstnotifikation: \(error.localizedDescription, privacy: .public)")
-            }
-        }
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 3600, repeats: false)
+        scheduleLocalNotificationIfAllowed(
+            identifier: "welcome",
+            content: content,
+            trigger: trigger
+        )
     }
     
     private func scheduleGentleReminders() {
@@ -229,19 +224,20 @@ class SmartNotificationService: NSObject, ObservableObject {
         dateComponents.minute = 0
         
         let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: true)
-        let request = UNNotificationRequest(identifier: "gentle_reminder", content: content, trigger: trigger)
-        
-        UNUserNotificationCenter.current().add(request) { error in
-            if let error = error {
-                self.logger.error("Fejl ved planlægning af gentle reminder: \(error.localizedDescription, privacy: .public)")
-            }
-        }
+        scheduleLocalNotificationIfAllowed(
+            identifier: "gentle_reminder",
+            content: content,
+            trigger: trigger
+        )
     }
     
     private func schedulePersonalizedContent() {
-        // Schedule more frequent, personalized notifications
-        schedulePersonalizedRecommendations()
-        scheduleWeeklyDigest()
+        if notificationSettings.personalizedRecommendations {
+            schedulePersonalizedRecommendations()
+        }
+        if notificationSettings.weeklyDigest {
+            scheduleWeeklyDigest()
+        }
     }
     
     // MARK: - Notification Categories

@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.5] - 2026-05-28
+
+- **Artikel-push virker igen**
+  - Fjernet klient-side undertrykkelse af notifikationer når artiklen allerede lå i cache.
+- **Push-status i Indstillinger**
+  - Viser iOS-tilladelse, FCM-token, tilmeldte emner og knap til Synkroniser push igen.
+- **Podcast-notifikationer**
+  - Separat toggle for Nye podcasts uafhængigt af artikel-notifikationer.
+- **Fortsæt podcast**
+  - Banner på forsiden og Fortsæt-knap; afspilning genoptages hvor du slap.
+- **Hero-rækkefølge**
+  - Nyeste artikler først på forsiden (CMS Created-dato).
+- **Hvad er nyt**
+  - Viser kun ændringer for den installerede app-version.
+
 ## [1.4] - 2026-06-04
 
 - **Bedre artikel-læsning**

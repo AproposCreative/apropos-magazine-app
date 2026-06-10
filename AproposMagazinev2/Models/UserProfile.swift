@@ -109,10 +109,41 @@ struct UserProfile: Codable {
 
 struct NotificationPreferences: Codable, Equatable {
     var newArticles: Bool = true
+    var newPodcasts: Bool = true
     var festivalReminders: Bool = true
     var breakingNews: Bool = true
     var weeklyDigest: Bool = false
     var quietHours: QuietHours = QuietHours()
+
+    enum CodingKeys: String, CodingKey {
+        case newArticles, newPodcasts, festivalReminders, breakingNews, weeklyDigest, quietHours
+    }
+
+    init(
+        newArticles: Bool = true,
+        newPodcasts: Bool = true,
+        festivalReminders: Bool = true,
+        breakingNews: Bool = true,
+        weeklyDigest: Bool = false,
+        quietHours: QuietHours = QuietHours()
+    ) {
+        self.newArticles = newArticles
+        self.newPodcasts = newPodcasts
+        self.festivalReminders = festivalReminders
+        self.breakingNews = breakingNews
+        self.weeklyDigest = weeklyDigest
+        self.quietHours = quietHours
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        newArticles = try container.decodeIfPresent(Bool.self, forKey: .newArticles) ?? true
+        newPodcasts = try container.decodeIfPresent(Bool.self, forKey: .newPodcasts) ?? newArticles
+        festivalReminders = try container.decodeIfPresent(Bool.self, forKey: .festivalReminders) ?? true
+        breakingNews = try container.decodeIfPresent(Bool.self, forKey: .breakingNews) ?? true
+        weeklyDigest = try container.decodeIfPresent(Bool.self, forKey: .weeklyDigest) ?? false
+        quietHours = try container.decodeIfPresent(QuietHours.self, forKey: .quietHours) ?? QuietHours()
+    }
 }
 
 struct QuietHours: Codable, Equatable {

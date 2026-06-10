@@ -50,6 +50,14 @@ final class PodcastRepository: PodcastProviding, ObservableObject {
         .map { enrich($0, with: article) }
     }
 
+    func episode(forSlug slug: String) -> PodcastEpisode? {
+        guard let normalizedSlug = normalized(slug) else { return nil }
+        return episodes.first { episode in
+            normalized(episode.articleSlug) == normalizedSlug
+                || normalized(episode.id) == normalizedSlug
+        }
+    }
+
     func latestPodcastPairs(from articles: [Article], limit: Int = 5) -> [PodcastArticlePair] {
         articles
             .sorted { $0.feedSortDate > $1.feedSortDate }
@@ -59,6 +67,25 @@ final class PodcastRepository: PodcastProviding, ObservableObject {
             }
             .prefix(limit)
             .map { $0 }
+    }
+
+    func resumablePair(from articles: [Article]) -> PodcastArticlePair? {
+        guard let episodeId = PodcastPlaybackProgressStore.lastPlayedEpisodeId(),
+              PodcastPlaybackProgressStore.hasResumableProgress(for: episodeId),
+              let episode = episodes.first(where: { $0.id == episodeId && $0.hasPlayableAudioURL }) else {
+            return nil
+        }
+
+        if let articleId = PodcastPlaybackProgressStore.lastPlayedArticleId(),
+           let article = articles.first(where: { $0.id == articleId }) {
+            return PodcastArticlePair(article: article, episode: enrich(episode, with: article))
+        }
+
+        if let article = PodcastEpisode.matchingArticle(for: episode, in: articles) {
+            return PodcastArticlePair(article: article, episode: enrich(episode, with: article))
+        }
+
+        return nil
     }
 
     func latestPodcastPairsIncludingPending(from articles: [Article], limit: Int = 5) -> [PodcastArticlePair] {

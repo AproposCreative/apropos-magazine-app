@@ -17,6 +17,7 @@
 		DD447F612E4DEAFE0072E9B5 /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = DD447F602E4DEAFE0072E9B5 /* GoogleSignInSwift */; };
 		DD8EAAB42E7838B100F37B5C /* AproposMagazinev2/AproposMagazineNotificationService/PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = DD8EAAB32E7838B100F37B5C /* AproposMagazinev2/AproposMagazineNotificationService/PrivacyInfo.xcprivacy */; };
 		DDD1A5B52EBCFD440025EC07 /* AproposMagazineNotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = DDD1A5AE2EBCFD440025EC07 /* AproposMagazineNotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		EEANALYT012EBCFD440025EC07 /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = EEANALYT022EBCFD440025EC07 /* FirebaseAnalytics */; };
 		EEWIDGET042EBCFD440025EC07 /* AproposMagazineWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = EEWIDGET032EBCFD440025EC07 /* AproposMagazineWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -34,6 +35,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = EEWIDGET022EBCFD440025EC07;
 			remoteInfo = AproposMagazineWidget;
+		};
+		FFTEST062EBCFD440025EC07 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B68382122E056B2F005C4E85 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B68382192E056B2F005C4E85;
+			remoteInfo = AproposMagazinev2;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -59,6 +67,7 @@
 		DDD1A5AE2EBCFD440025EC07 /* AproposMagazineNotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AproposMagazineNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		EEWIDGET032EBCFD440025EC07 /* AproposMagazineWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AproposMagazineWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		EEWIDGET062EBCFD440025EC07 /* AproposMagazineWidget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AproposMagazineWidget.entitlements; sourceTree = "<group>"; };
+		FFTEST012EBCFD440025EC07 /* AproposMagazineTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AproposMagazineTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -72,16 +81,23 @@
 		DD8EAA322E7830FF00F37B5C /* Exceptions for "AproposMagazinev2" folder in "AproposMagazinev2" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				.firebaserc,
+				.github/workflows/ci.yml,
+				.gitignore,
 				AproposMagazineNotificationService/Info.plist,
 				AproposMagazineNotificationService/NotificationService.swift,
 				AproposMagazineNotificationService/PrivacyInfo.xcprivacy,
 				AproposMagazineNotificationService/README.md,
+				AproposMagazinev2/.vscode/settings.json,
 				AproposMagazinev2/Info.plist,
 				AproposMagazinev2/Resources/WhatsNew/whatsnew.json,
 				AproposMagazineWidget/AproposMagazineWidget.swift,
 				AproposMagazineWidget/AproposMagazineWidgetBundle.swift,
+				AproposMagazineWidget/Assets.xcassets,
 				AproposMagazineWidget/Info.plist,
 				AproposMagazineWidget/PodcastLiveActivityWidget.swift,
+				AproposMagazineWidget/WidgetArticleCardView.swift,
+				AproposMagazineWidget/WidgetArticleCoverView.swift,
 				ARCHITECTURE.md,
 				CHANGELOG.md,
 				DEVELOPMENT.md,
@@ -92,12 +108,14 @@
 				fix_xcode_targets.sh,
 				HVORDAN_PROBLEMET_OPSTOD.md,
 				README.md,
+				Resources/Secrets.example.plist,
 				RICH_NOTIFICATIONS_IMPLEMENTATION.md,
 				Scripts/generate_whats_new.py,
 				"Scripts/profile-device.sh",
 				serviceAccountKey.example.json,
 				SERVICES.md,
 				SESSION_SUMMARY_20251106.md,
+				"Views/07. iOS App - Apropos Magazine.code-workspace",
 			);
 			target = B68382192E056B2F005C4E85 /* AproposMagazinev2 */;
 		};
@@ -133,6 +151,11 @@
 			path = AproposMagazinev2/Shared;
 			sourceTree = "<group>";
 		};
+		FFTEST032EBCFD440025EC07 /* AproposMagazineTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = AproposMagazineTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -145,6 +168,7 @@
 				DD447F5F2E4DEAFE0072E9B5 /* GoogleSignIn in Frameworks */,
 				1839D7BD2E3C832900E2D3C5 /* Shimmer in Frameworks */,
 				DD447F542E4DE0BC0072E9B5 /* FirebaseMessaging in Frameworks */,
+				EEANALYT012EBCFD440025EC07 /* FirebaseAnalytics in Frameworks */,
 				B6A7290C2E05D88F00C83654 /* FirebaseFirestore in Frameworks */,
 				DD447F522E4DE0BC0072E9B5 /* FirebaseCore in Frameworks */,
 				B6C02F462E069DB6003BDD5E /* FirebaseAuth in Frameworks */,
@@ -165,6 +189,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		FFTEST052EBCFD440025EC07 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -175,6 +206,7 @@
 				EEWIDGET062EBCFD440025EC07 /* AproposMagazineWidget.entitlements */,
 				DD8EAAB32E7838B100F37B5C /* AproposMagazinev2/AproposMagazineNotificationService/PrivacyInfo.xcprivacy */,
 				B683821C2E056B2F005C4E85 /* AproposMagazinev2 */,
+				FFTEST032EBCFD440025EC07 /* AproposMagazineTests */,
 				B683821B2E056B2F005C4E85 /* Products */,
 				DD815DCC2FD2F78C00DFA02A /* Recovered References */,
 			);
@@ -186,6 +218,7 @@
 				B683821A2E056B2F005C4E85 /* Apropos Magazine.app */,
 				DDD1A5AE2EBCFD440025EC07 /* AproposMagazineNotificationService.appex */,
 				EEWIDGET032EBCFD440025EC07 /* AproposMagazineWidget.appex */,
+				FFTEST012EBCFD440025EC07 /* AproposMagazineTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -228,6 +261,7 @@
 				1839D7BC2E3C832900E2D3C5 /* Shimmer */,
 				DD447F512E4DE0BC0072E9B5 /* FirebaseCore */,
 				DD447F532E4DE0BC0072E9B5 /* FirebaseMessaging */,
+				EEANALYT022EBCFD440025EC07 /* FirebaseAnalytics */,
 				DD447F5E2E4DEAFE0072E9B5 /* GoogleSignIn */,
 				DD447F602E4DEAFE0072E9B5 /* GoogleSignInSwift */,
 			);
@@ -277,6 +311,28 @@
 			productReference = EEWIDGET032EBCFD440025EC07 /* AproposMagazineWidget.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		FFTEST022EBCFD440025EC07 /* AproposMagazineTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = FFTEST082EBCFD440025EC07 /* Build configuration list for PBXNativeTarget "AproposMagazineTests" */;
+			buildPhases = (
+				FFTEST042EBCFD440025EC07 /* Sources */,
+				FFTEST052EBCFD440025EC07 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				FFTEST072EBCFD440025EC07 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				FFTEST032EBCFD440025EC07 /* AproposMagazineTests */,
+			);
+			name = AproposMagazineTests;
+			packageProductDependencies = (
+			);
+			productName = AproposMagazineTests;
+			productReference = FFTEST012EBCFD440025EC07 /* AproposMagazineTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -292,6 +348,9 @@
 						DevelopmentTeam = Q2LR5XQ8GK;
 						SystemCapabilities = {
 							com.apple.ApplicationGroups.iOS = {
+								enabled = 1;
+							};
+							com.apple.Push = {
 								enabled = 1;
 							};
 							com.apple.iCloud = {
@@ -316,6 +375,11 @@
 								enabled = 1;
 							};
 						};
+					};
+					FFTEST022EBCFD440025EC07 = {
+						CreatedOnToolsVersion = 26.0.1;
+						DevelopmentTeam = Q2LR5XQ8GK;
+						TestTargetID = B68382192E056B2F005C4E85;
 					};
 				};
 			};
@@ -342,6 +406,7 @@
 				B68382192E056B2F005C4E85 /* AproposMagazinev2 */,
 				DDD1A5AD2EBCFD440025EC07 /* AproposMagazineNotificationService */,
 				EEWIDGET022EBCFD440025EC07 /* AproposMagazineWidget */,
+				FFTEST022EBCFD440025EC07 /* AproposMagazineTests */,
 			);
 		};
 /* End PBXProject section */
@@ -393,6 +458,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		FFTEST042EBCFD440025EC07 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -405,6 +477,11 @@
 			isa = PBXTargetDependency;
 			target = EEWIDGET022EBCFD440025EC07 /* AproposMagazineWidget */;
 			targetProxy = EEWIDGET052EBCFD440025EC07 /* PBXContainerItemProxy */;
+		};
+		FFTEST072EBCFD440025EC07 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B68382192E056B2F005C4E85 /* AproposMagazinev2 */;
+			targetProxy = FFTEST062EBCFD440025EC07 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -540,7 +617,7 @@
 				CODE_SIGN_ENTITLEMENTS = AproposMagazinev2/AproposMagazinev2.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = Q2LR5XQ8GK;
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = AproposMagazinev2/AproposMagazinev2/Info.plist;
@@ -557,7 +634,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.4;
+				MARKETING_VERSION = 1.5;
 				PRODUCT_BUNDLE_IDENTIFIER = com.frederikkragh.aproposmagazinev2;
 				PRODUCT_NAME = "Apropos Magazine";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -575,7 +652,7 @@
 				CODE_SIGN_ENTITLEMENTS = AproposMagazinev2/AproposMagazinev2Release.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = Q2LR5XQ8GK;
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = AproposMagazinev2/AproposMagazinev2/Info.plist;
@@ -592,7 +669,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.4;
+				MARKETING_VERSION = 1.5;
 				PRODUCT_BUNDLE_IDENTIFIER = com.frederikkragh.aproposmagazinev2;
 				PRODUCT_NAME = "Apropos Magazine";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -608,7 +685,7 @@
 				CODE_SIGN_ENTITLEMENTS = AproposMagazineNotificationService.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = Q2LR5XQ8GK;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AproposMagazinev2/AproposMagazineNotificationService/Info.plist;
@@ -620,7 +697,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.4;
+				MARKETING_VERSION = 1.5;
 				PRODUCT_BUNDLE_IDENTIFIER = com.frederikkragh.aproposmagazinev2.AproposMagazineNotificationService;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -639,7 +716,7 @@
 				CODE_SIGN_ENTITLEMENTS = AproposMagazineNotificationService.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = Q2LR5XQ8GK;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AproposMagazinev2/AproposMagazineNotificationService/Info.plist;
@@ -651,7 +728,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.4;
+				MARKETING_VERSION = 1.5;
 				PRODUCT_BUNDLE_IDENTIFIER = com.frederikkragh.aproposmagazinev2.AproposMagazineNotificationService;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -670,7 +747,7 @@
 				CODE_SIGN_ENTITLEMENTS = AproposMagazineWidget.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = Q2LR5XQ8GK;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AproposMagazinev2/AproposMagazineWidget/Info.plist;
@@ -682,7 +759,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.4;
+				MARKETING_VERSION = 1.5;
 				PRODUCT_BUNDLE_IDENTIFIER = com.frederikkragh.aproposmagazinev2.AproposMagazineWidget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -698,7 +775,7 @@
 				CODE_SIGN_ENTITLEMENTS = AproposMagazineWidget.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = Q2LR5XQ8GK;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AproposMagazinev2/AproposMagazineWidget/Info.plist;
@@ -710,13 +787,59 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.4;
+				MARKETING_VERSION = 1.5;
 				PRODUCT_BUNDLE_IDENTIFIER = com.frederikkragh.aproposmagazinev2.AproposMagazineWidget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		FFTEST092EBCFD440025EC07 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Q2LR5XQ8GK;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.aproposmagazine.app.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Apropos Magazine.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Apropos Magazine";
+			};
+			name = Debug;
+		};
+		FFTEST0A2EBCFD440025EC07 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Q2LR5XQ8GK;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.aproposmagazine.app.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Apropos Magazine.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Apropos Magazine";
 			};
 			name = Release;
 		};
@@ -755,6 +878,15 @@
 			buildConfigurations = (
 				EEWIDGET0C2EBCFD440025EC07 /* Debug */,
 				EEWIDGET0D2EBCFD440025EC07 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		FFTEST082EBCFD440025EC07 /* Build configuration list for PBXNativeTarget "AproposMagazineTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				FFTEST092EBCFD440025EC07 /* Debug */,
+				FFTEST0A2EBCFD440025EC07 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -836,6 +968,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = DD447F5D2E4DEAFE0072E9B5 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
 			productName = GoogleSignInSwift;
+		};
+		EEANALYT022EBCFD440025EC07 /* FirebaseAnalytics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B6A729082E05D88F00C83654 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAnalytics;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

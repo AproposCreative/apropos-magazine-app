@@ -18,6 +18,8 @@ struct SearchView_Enhanced: View {
     @State private var scrollOffset: CGFloat = 0
     @State private var showNavTitle = false
     @State private var searchText = ""
+    @State private var debouncedSearchText = ""
+    @State private var searchDebounceTask: Task<Void, Never>?
     @State private var selectedSort: ArticleSortOption = .newest
     @State private var showSearchBar = false
     @State private var showSortMenu = false
@@ -30,14 +32,14 @@ struct SearchView_Enhanced: View {
     
     // Computed properties for filtered and sorted articles
     private var filteredArticles: [Article] {
-        if searchText.isEmpty {
+        if debouncedSearchText.isEmpty {
             return viewModel.articles
         } else {
             return viewModel.articles.filter { article in
                 let title = article.name?.lowercased() ?? ""
                 let intro = article.intro?.lowercased() ?? ""
                 let author = article.author?.name.lowercased() ?? ""
-                let searchQuery = searchText.lowercased()
+                let searchQuery = debouncedSearchText.lowercased()
                 return title.contains(searchQuery) || intro.contains(searchQuery) || author.contains(searchQuery)
             }
         }
@@ -271,10 +273,17 @@ struct SearchView_Enhanced: View {
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             showNavTitle = false
+            debouncedSearchText = searchText
             loadInitialArticles()
         }
-        .onChange(of: searchText) { _, _ in
-            resetPagination()
+        .onChange(of: searchText) { _, newValue in
+            searchDebounceTask?.cancel()
+            searchDebounceTask = Task {
+                try? await Task.sleep(nanoseconds: 300_000_000)
+                guard !Task.isCancelled else { return }
+                debouncedSearchText = newValue
+                resetPagination()
+            }
         }
         .onChange(of: selectedSort) { _, _ in
             resetPagination()

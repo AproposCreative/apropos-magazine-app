@@ -9,6 +9,9 @@ struct AproposMagazinev2App: App {
         WindowGroup {
             BootloaderView()
                 .environmentObject(viewModel)
+                .onOpenURL { url in
+                    NavigationCoordinator.shared.handleDeepLink(url)
+                }
         }
     }
 }

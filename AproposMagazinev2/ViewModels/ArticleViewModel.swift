@@ -1,4 +1,5 @@
 import Combine
+import FirebaseAuth
 import FirebaseFirestore
 import Foundation
 import OSLog
@@ -37,6 +38,7 @@ class ArticleViewModel: ObservableObject {
     private var didStartFavoritesListener = false
     
     private var notificationObserverTokens: [NSObjectProtocol] = []
+    private var pendingNotificationPayload: NotificationNavigation.Payload?
     private let logger = Logger(subsystem: "com.aproposmagazine.app", category: "ArticleViewModel")
     
     init() {
@@ -47,16 +49,30 @@ class ArticleViewModel: ObservableObject {
             queue: .main
         ) { [weak self] notification in
             guard let self = self else { return }
-            
-            // Try articleId first
+
+            if let payload = NotificationNavigation.payload(from: notification.userInfo ?? [:]) {
+                Task { @MainActor in
+                    await AppReadiness.waitUntilUIReady()
+                    self.navigateFromNotification(payload: payload)
+                }
+                return
+            }
+
             if let articleId = notification.userInfo?["articleId"] as? String, !articleId.isEmpty {
                 Task { @MainActor in
-                    self.navigateToArticleFromNotification(articleId: articleId)
+                    await AppReadiness.waitUntilUIReady()
+                    self.navigateFromNotification(
+                        payload: NotificationNavigation.Payload(
+                            articleIdentifier: articleId,
+                            articleSlug: nil,
+                            type: "general",
+                            podcastTitle: nil
+                        )
+                    )
                 }
-            }
-            // Fallback: search by article name
-            else if let articleName = notification.userInfo?["articleName"] as? String, !articleName.isEmpty {
+            } else if let articleName = notification.userInfo?["articleName"] as? String, !articleName.isEmpty {
                 Task { @MainActor in
+                    await AppReadiness.waitUntilUIReady()
                     self.navigateToArticleByName(articleName: articleName)
                 }
             }
@@ -126,12 +142,6 @@ class ArticleViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            guard UserManager.shared.currentUser != nil else { return }
-            startFavoritesListenerIfNeeded()
-            await syncFavoritesWithFirestore()
-        }
     }
     
     deinit {
@@ -147,21 +157,20 @@ class ArticleViewModel: ObservableObject {
     }
     
     func fetchArticles(forceRefresh: Bool = false) {
-        // Safety check: ensure we're not already loading
-        guard !isLoading else {
+        guard !isLoading || forceRefresh else {
             return
         }
-        
-        let startTime = Date()
         
         // Try cache first for fast startup (unless force refresh)
         if !forceRefresh, let cached = CacheManager.shared.getCachedArticles(), !cached.isEmpty {
             // Sort cached articles by date (newest first)
-            let sortedCached = sortedNewestFirst(cached)
+            let sortedCached = sortedNewestFirst(cached.filter(\.isPubliclyPublished))
             
             // Show cached articles immediately (no loading state)
             self.articles = sortedCached
             self.isLoading = false
+            CacheManager.shared.syncWidgetFeed(from: sortedCached)
+            self.retryPendingNotificationNavigationIfNeeded()
             
             // Keep launch light: only warm the first few visible images.
             CacheManager.shared.preloadImages(for: Array(sortedCached.prefix(5)))
@@ -171,32 +180,62 @@ class ArticleViewModel: ObservableObject {
             
             // Silently refresh in background (don't show loading state)
             refreshArticlesInBackground()
-        } else {
-            // No cached articles or force refresh - show loading state
-            isLoading = true
-            fetchError = nil
-            
-            fetchRemoteArticles { [weak self] result in
-                guard let self = self else { return }
-                
-                let elapsed = Date().timeIntervalSince(startTime)
-                // Only show minimum loading time if fetch was very fast (< 0.3s)
-                // This prevents UI flicker but doesn't slow down the app unnecessarily
-                let minLoadingTime: TimeInterval = elapsed < 0.3 ? 0.3 : 0
-                let remainingTime = max(0, minLoadingTime - elapsed)
-                
-                DispatchQueue.main.asyncAfter(deadline: .now() + remainingTime) { [weak self] in
-                    guard let self = self else { return }
-                    self.isLoading = false
-                    self.handleRemoteArticlesResult(result, clearOnEmptyFailure: !forceRefresh)
-                }
-            }
+            return
+        }
+
+        Task { [weak self] in
+            await self?.performRemoteArticleFetch(forceRefresh: forceRefresh, minimumLoadingDuration: 0.3)
         }
     }
 
     func refreshArticles() async {
-        fetchArticles(forceRefresh: true)
+        await performRemoteArticleFetch(forceRefresh: true, minimumLoadingDuration: 0)
         await PodcastRepository.shared.refreshManifest(force: true)
+    }
+
+    private func performRemoteArticleFetch(
+        forceRefresh: Bool,
+        minimumLoadingDuration: TimeInterval
+    ) async {
+        guard !isLoading || forceRefresh else { return }
+
+        isLoading = true
+        fetchError = nil
+        let startTime = Date()
+
+        let result: Result<[Article], Error> = await withCheckedContinuation { continuation in
+            fetchRemoteArticles { result in
+                continuation.resume(returning: result)
+            }
+        }
+
+        let elapsed = Date().timeIntervalSince(startTime)
+        let remainingTime = max(0, minimumLoadingDuration - elapsed)
+        if remainingTime > 0 {
+            try? await Task.sleep(nanoseconds: UInt64(remainingTime * 1_000_000_000))
+        }
+
+        isLoading = false
+        handleRemoteArticlesResult(result, clearOnEmptyFailure: !forceRefresh)
+        resumeArticleLoadWaiters()
+    }
+
+    private var articleLoadWaiters: [CheckedContinuation<Void, Never>] = []
+
+    /// Waits until the current article fetch cycle completes.
+    func waitForArticleLoadCycle() async {
+        if !isLoading { return }
+        await withCheckedContinuation { continuation in
+            articleLoadWaiters.append(continuation)
+        }
+    }
+
+    private func resumeArticleLoadWaiters() {
+        guard !articleLoadWaiters.isEmpty else { return }
+        for waiter in articleLoadWaiters {
+            waiter.resume()
+        }
+        articleLoadWaiters.removeAll()
     }
     
     private func fetchRemoteArticles(completion: @escaping (Result<[Article], Error>) -> Void) {
@@ -216,10 +255,11 @@ class ArticleViewModel: ObservableObject {
     private func handleRemoteArticlesResult(_ result: Result<[Article], Error>, clearOnEmptyFailure: Bool) {
         switch result {
         case .success(let articles):
-            let sortedArticles = sortedNewestFirst(articles)
+            let sortedArticles = sortedNewestFirst(articles.filter(\.isPubliclyPublished))
             self.articles = sortedArticles
             CacheManager.shared.cacheArticles(sortedArticles)
             CacheManager.shared.preloadImages(for: Array(sortedArticles.prefix(5)))
+            self.retryPendingNotificationNavigationIfNeeded()
             Task { [weak self] in await self?.syncFavoritesWithFirestore() }
 
             if articles.isEmpty {
@@ -253,7 +293,7 @@ class ArticleViewModel: ObservableObject {
                 
                 switch result {
                 case .success(let articles):
-                    let sortedArticles = self.sortedNewestFirst(articles)
+                    let sortedArticles = self.sortedNewestFirst(articles.filter(\.isPubliclyPublished))
                     
                     Task { @MainActor in
                         if sortedArticles.count != self.articles.count ||
@@ -401,7 +441,7 @@ class ArticleViewModel: ObservableObject {
     }
 
     private func fetchArticleFromWebflow(by id: String, completion: @escaping (Result<Article, Error>) -> Void) {
-        let urlString = "https://api.webflow.com/v2/collections/67dbf17ba540975b5b21c2a6/items/\(id)"
+        let urlString = "https://api.webflow.com/v2/collections/67dbf17ba540975b5b21c2a6/items/\(id)/live"
         guard let url = URL(string: urlString) else {
             completion(.failure(NSError(domain: "Invalid URL", code: 0)))
             return
@@ -431,6 +471,14 @@ class ArticleViewModel: ObservableObject {
             do {
                 let decoder = JSONDecoder()
                 let article = try decoder.decode(Article.self, from: data)
+                guard article.isPubliclyPublished else {
+                    completion(.failure(NSError(
+                        domain: "WebflowService",
+                        code: 404,
+                        userInfo: [NSLocalizedDescriptionKey: "Article is not published"]
+                    )))
+                    return
+                }
                 completion(.success(article))
             } catch {
                 completion(.failure(error))
@@ -677,15 +725,8 @@ class ArticleViewModel: ObservableObject {
     private var favoritesListener: ListenerRegistration?
     
     func isFavorite(_ article: Article) -> Bool {
-        // Safety check: ensure we have a valid article and favorites array
-        guard let name = article.name, !name.isEmpty else { return false }
-        
-        // If no favorites loaded, return false to prevent crashes
-        guard !favorites.isEmpty else {
-            return false
-        }
-        
-        return favorites.contains(where: { $0.name == article.name })
+        guard !article.id.isEmpty else { return false }
+        return favorites.contains(where: { $0.id == article.id })
     }
     
     func toggleFavorite(for article: Article) {
@@ -708,9 +749,8 @@ class ArticleViewModel: ObservableObject {
         // Always save to UserDefaults for local persistence (works for logged out users)
         saveFavorites()
         
-        // Sync with Firebase and UserManager only if user is logged in
-        if let user = UserManager.shared.currentUser {
-            // Sync with Firebase
+        // Sync with Firebase when auth is ready
+        if Auth.auth().currentUser != nil {
             Task {
                 do {
                     try await FirestoreService.shared.toggleFavorite(article, isFavorite: !wasFavorite)
@@ -718,8 +758,9 @@ class ArticleViewModel: ObservableObject {
                     self.logger.error("Favorit sync-fejl: \(error.localizedDescription, privacy: .public)")
                 }
             }
-            
-            // Sync with UserManager for cloud sync
+        }
+
+        if let user = UserManager.shared.currentUser {
             if !wasFavorite {
                 // Add to bookmarked articles in UserManager
                 if !user.bookmarkedArticles.contains(article.id) {
@@ -744,8 +785,13 @@ class ArticleViewModel: ObservableObject {
         if let data = UserDefaults.standard.data(forKey: favoritesKey),
            let decoded = try? JSONDecoder().decode([Article].self, from: data) {
             favorites = decoded
-            OfflineArticleImageCache.shared.scheduleCacheImages(for: favorites)
+            OfflineArticleImageCache.shared.pruneOrphanedCaches(
+                keeping: Set(decoded.map(\.id))
+            )
+            OfflineArticleImageCache.shared.scheduleCacheImages(for: decoded)
             OfflineManager.shared.savePodcastsForOffline(favorites)
+        } else {
+            OfflineArticleImageCache.shared.pruneOrphanedCaches(keeping: [])
         }
         
         // Firebase sync is delayed until after launch to keep the first frame responsive.
@@ -755,15 +801,32 @@ class ArticleViewModel: ObservableObject {
         guard !didStartFavoritesListener else { return }
         didStartFavoritesListener = true
 
-        favoritesListener = FirestoreService.shared.listenFavorites { [weak self] articles in
+        favoritesListener = FirestoreService.shared.listenFavorites { [weak self] articles, metadata in
             guard let self = self else { return }
-            guard !articles.isEmpty else { return }
-
-            self.favorites = articles
-            self.saveFavorites()
-            OfflineArticleImageCache.shared.scheduleCacheImages(for: articles)
-            OfflineManager.shared.savePodcastsForOffline(articles)
+            self.applyRemoteFavorites(articles, metadata: metadata)
         }
+    }
+
+    private func applyRemoteFavorites(_ remote: [Article], metadata: SnapshotMetadata?) {
+        if remote.isEmpty {
+            if let metadata, metadata.isFromCache, !metadata.hasPendingWrites {
+                // Transient empty Firestore cache — keep locally persisted favorites.
+                return
+            }
+            favorites = []
+        } else {
+            let localOnly = favorites.filter { localArticle in
+                !remote.contains { $0.id == localArticle.id }
+            }
+            favorites = remote + localOnly
+        }
+
+        saveFavorites()
+        OfflineArticleImageCache.shared.pruneOrphanedCaches(
+            keeping: Set(favorites.map(\.id))
+        )
+        OfflineArticleImageCache.shared.scheduleCacheImages(for: favorites)
+        OfflineManager.shared.savePodcastsForOffline(favorites)
     }
     
     private func syncFavoritesWithFirestore() async {
@@ -827,13 +890,15 @@ class ArticleViewModel: ObservableObject {
     }
     
     private func saveFavorites() {
-        // Safety check: ensure we have valid favorites to save
-        guard !favorites.isEmpty else {
+        if favorites.isEmpty {
+            UserDefaults.standard.removeObject(forKey: favoritesKey)
+            UserDefaults.standard.synchronize()
             return
         }
-        
+
         if let data = try? JSONEncoder().encode(favorites) {
             UserDefaults.standard.set(data, forKey: favoritesKey)
+            UserDefaults.standard.synchronize()
         } else {
             logger.error("Kunne ikke serialisere favoritter til disk")
         }
@@ -925,13 +990,21 @@ class ArticleViewModel: ObservableObject {
     
     // MARK: - Intelligent Article Filtering for HomeView
     
-    // Get hero articles (first 5 articles)
+    // Get hero articles (first 5 articles by CMS created date)
     var heroArticles: [Article] {
-        // If no articles loaded, return empty array to prevent crashes
         guard !articles.isEmpty else {
             return []
         }
-        return Array(sortedNewestFirst(articles).prefix(5))
+
+        let now = Date()
+        return Array(
+            Article.sortedByCreatedNewestFirst(articles.filter(\.isPubliclyPublished))
+                .filter { article in
+                    let displayDate = article.createdSortDate ?? article.feedSortDate
+                    return displayDate <= now
+                }
+                .prefix(5)
+        )
     }
     
     // Helper function to exclude articles by IDs
@@ -959,7 +1032,7 @@ class ArticleViewModel: ObservableObject {
     }
 
     private func sortedNewestFirst(_ articles: [Article]) -> [Article] {
-        articles.sorted { articleFeedDate($0) > articleFeedDate($1) }
+        Article.sortedByCreatedNewestFirst(articles)
     }
 
     private func articles(inSectionNamed sectionMatcher: (String) -> Bool) -> [Article] {
@@ -1221,37 +1294,179 @@ class ArticleViewModel: ObservableObject {
     }
     
     // MARK: - Notification Navigation
-    
-    /// Navigate to article from notification
-    private func navigateToArticleFromNotification(articleId: String) {
-        // First check if article is already loaded
-        if let existingArticle = articles.first(where: { $0.id == articleId }) {
-            navigateToArticle(existingArticle)
+
+    private func navigateFromNotification(payload: NotificationNavigation.Payload) {
+        pendingNotificationPayload = payload
+
+        if payload.isPodcastNotification {
+            navigateToPodcastFromNotification(payload: payload)
             return
         }
-        
-        // If not loaded, fetch it first
+
+        navigateToArticleFromNotification(payload: payload)
+    }
+
+    private func navigateToPodcastFromNotification(payload: NotificationNavigation.Payload) {
+        Task { @MainActor in
+            await PodcastRepository.shared.refreshManifest(force: true)
+            NavigationCoordinator.shared.selectedTab = .home
+
+            let slug = payload.articleSlug ?? payload.articleIdentifier
+            let article = articleMatching(identifier: payload.articleIdentifier)
+            let episode = article.flatMap { PodcastRepository.shared.episode(for: $0) }
+                ?? PodcastRepository.shared.episode(forSlug: slug)
+
+            guard let episode else {
+                logger.warning("Podcast-notifikation uden episode for \(payload.articleIdentifier, privacy: .public) — åbner artikel i stedet")
+                navigateToArticleFromNotification(payload: payload)
+                return
+            }
+
+            completePodcastNotificationNavigation(
+                episode: episode,
+                article: article,
+                payload: payload
+            )
+        }
+    }
+
+    private func completePodcastNotificationNavigation(
+        episode: PodcastEpisode,
+        article: Article?,
+        payload: NotificationNavigation.Payload
+    ) {
+        pendingNotificationPayload = nil
+        NavigationCoordinator.shared.clearPendingNotificationNavigation(for: payload.articleIdentifier)
+
+        let articleId = article?.id
+        PodcastPlayerManager.shared.play(episode: episode, articleId: articleId)
+        PodcastPlayerManager.shared.isFullPlayerPresented = true
+        AnalyticsService.shared.trackPodcastPlay(episode: episode, articleId: articleId)
+    }
+
+    /// Navigate to article from notification
+    private func navigateToArticleFromNotification(payload: NotificationNavigation.Payload) {
+        navigateToArticleFromNotification(articleId: payload.articleIdentifier)
+    }
+
+    private func navigateToArticleFromNotification(articleId: String) {
+        AnalyticsService.shared.setPendingArticleOpenSource(.notification)
+
+        if let existingArticle = articleMatching(identifier: articleId) {
+            completeArticleNotificationNavigation(to: existingArticle, articleId: articleId)
+            return
+        }
+
         fetchAndNavigateToArticle(articleId: articleId)
     }
+
+    private func completeArticleNotificationNavigation(to article: Article, articleId: String) {
+        pendingNotificationPayload = nil
+        NavigationCoordinator.shared.clearPendingNotificationNavigation(for: articleId)
+        navigateToArticle(article)
+    }
+
+    private func retryPendingNotificationNavigationIfNeeded() {
+        guard let payload = pendingNotificationPayload else { return }
+
+        if payload.isPodcastNotification {
+            navigateToPodcastFromNotification(payload: payload)
+            return
+        }
+
+        guard let article = articleMatching(identifier: payload.articleIdentifier) else { return }
+        completeArticleNotificationNavigation(to: article, articleId: payload.articleIdentifier)
+    }
+
+    private func articleMatching(identifier: String) -> Article? {
+        let normalizedIdentifier = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedIdentifier.isEmpty else { return nil }
+
+        let sources = articles + (CacheManager.shared.getCachedArticles() ?? [])
+        var seen = Set<String>()
+
+        for article in sources {
+            guard seen.insert(article.id).inserted else { continue }
+
+            if article.id == normalizedIdentifier {
+                return article
+            }
+
+            guard let slug = article.slug?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !slug.isEmpty else {
+                continue
+            }
+
+            if slug.compare(normalizedIdentifier, options: .caseInsensitive) == .orderedSame {
+                return article
+            }
+        }
+
+        return nil
+    }
     
+    private func retryNotificationNavigationAfterRefresh(articleId: String, error: Error) {
+        Task { @MainActor in
+            await performRemoteArticleFetch(forceRefresh: true, minimumLoadingDuration: 0)
+            retryPendingNotificationNavigationIfNeeded()
+            if pendingNotificationPayload != nil {
+                logger.error("Kunne ikke navigere til artikel \(articleId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
     /// Fetch article and navigate to it
     private func fetchAndNavigateToArticle(articleId: String) {
+        if let cached = articleMatching(identifier: articleId) {
+            if let payload = pendingNotificationPayload, payload.isPodcastNotification {
+                navigateToPodcastFromNotification(payload: payload)
+                return
+            }
+            completeArticleNotificationNavigation(to: cached, articleId: articleId)
+            return
+        }
+
         fetchArticle(by: articleId) { [weak self] result in
             guard let self = self else { return }
             switch result {
             case .success(let article):
-                self.navigateToArticle(article)
+                if let payload = self.pendingNotificationPayload, payload.isPodcastNotification {
+                    let episode = PodcastRepository.shared.episode(for: article)
+                        ?? PodcastRepository.shared.episode(forSlug: payload.articleSlug ?? payload.articleIdentifier)
+                    if let episode {
+                        self.completePodcastNotificationNavigation(
+                            episode: episode,
+                            article: article,
+                            payload: payload
+                        )
+                        return
+                    }
+                    self.logger.warning("Podcast-notifikation uden episode efter artikelhentning — åbner artikel i stedet")
+                }
+                self.completeArticleNotificationNavigation(to: article, articleId: articleId)
             case .failure(let error):
-                self.logger.error("Kunne ikke hente artikel \(articleId, privacy: .public) til navigation: \(error.localizedDescription, privacy: .public)")
+                if let slug = self.pendingNotificationPayload?.articleSlug,
+                   !slug.isEmpty,
+                   slug.compare(articleId, options: .caseInsensitive) != .orderedSame {
+                    self.fetchArticle(by: slug) { slugResult in
+                        switch slugResult {
+                        case .success(let article):
+                            self.completeArticleNotificationNavigation(to: article, articleId: article.id)
+                        case .failure:
+                            self.retryNotificationNavigationAfterRefresh(articleId: articleId, error: error)
+                        }
+                    }
+                    return
+                }
+                self.retryNotificationNavigationAfterRefresh(articleId: articleId, error: error)
             }
         }
     }
     
     /// Navigate to article using NavigationCoordinator
     private func navigateToArticle(_ article: Article) {
-        // Post notification to NavigationCoordinator
-        // Use DispatchQueue to ensure this happens on main thread
-        DispatchQueue.main.async {
+        Task { @MainActor in
+            await AppReadiness.waitUntilUIReady()
             NotificationCenter.default.post(
                 name: NSNotification.Name("NavigateToArticle"),
                 object: nil,
@@ -1264,70 +1479,40 @@ class ArticleViewModel: ObservableObject {
     private func navigateToArticleByName(articleName: String) {
         let searchName = articleName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         
-        // If "Ny artikel" or similar, we need to find the newest article
-        // But first, ensure we have fresh articles loaded
-        if searchName.contains("ny") || searchName.contains("new") {
-            // Force refresh articles to get the latest
-            fetchArticles()
-            
-            // Wait for articles to load, then find the newest
-            Task { @MainActor in
-                // Wait longer for articles to load from server
-                try? await Task.sleep(nanoseconds: 3_000_000_000) // 3 seconds
-                
-                // Get the newest article by the same editorial feed order as Home.
-                if let newestArticle = self.sortedNewestFirst(self.articles).first {
-                    self.navigateToArticle(newestArticle)
-                    return
+        Task { @MainActor in
+            if searchName.contains("ny") || searchName.contains("new") {
+                await performRemoteArticleFetch(forceRefresh: true, minimumLoadingDuration: 0)
+                if let newestArticle = sortedNewestFirst(articles).first {
+                    navigateToArticle(newestArticle)
                 }
+                return
             }
-            return
+
+            if let existingArticle = matchingArticle(named: searchName, in: articles) {
+                navigateToArticle(existingArticle)
+                return
+            }
+
+            await performRemoteArticleFetch(forceRefresh: false, minimumLoadingDuration: 0)
+            await waitForArticleLoadCycle()
+
+            if let foundArticle = matchingArticle(named: searchName, in: articles) {
+                navigateToArticle(foundArticle)
+            }
         }
-        
-        // For specific article names, try exact match first
-        if let existingArticle = articles.first(where: { 
-            let articleName = $0.name?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
-            return articleName == searchName
+    }
+
+    private func matchingArticle(named searchName: String, in articles: [Article]) -> Article? {
+        if let exact = articles.first(where: {
+            ($0.name?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? "") == searchName
         }) {
-            navigateToArticle(existingArticle)
-            return
+            return exact
         }
-        
-        // Try partial match (contains)
-        if let existingArticle = articles.first(where: { 
+
+        return articles.first(where: {
             let articleName = $0.name?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
             return articleName.contains(searchName) || searchName.contains(articleName)
-        }) {
-            navigateToArticle(existingArticle)
-            return
-        }
-        
-        // If not found, wait a bit for articles to load, then search again
-        Task { @MainActor in
-            // Refresh articles to ensure we have latest
-            self.fetchArticles()
-            
-            // Wait for articles to potentially load
-            try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
-            
-            // Try exact match again
-            if let foundArticle = self.articles.first(where: { 
-                let articleName = $0.name?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
-                return articleName == searchName
-            }) {
-                self.navigateToArticle(foundArticle)
-                return
-            }
-            
-            // Try partial match again
-            if let foundArticle = self.articles.first(where: { 
-                let articleName = $0.name?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
-                return articleName.contains(searchName) || searchName.contains(articleName)
-            }) {
-                self.navigateToArticle(foundArticle)
-                return
-            }
-        }
+        })
     }
 }
 

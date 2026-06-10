@@ -273,6 +273,7 @@ class OfflineManager: ObservableObject {
     private func notificationPreferencesDictionary(from preferences: NotificationPreferences) -> [String: Any] {
         return [
             "newArticles": preferences.newArticles,
+            "newPodcasts": preferences.newPodcasts,
             "festivalReminders": preferences.festivalReminders,
             "breakingNews": preferences.breakingNews,
             "weeklyDigest": preferences.weeklyDigest,

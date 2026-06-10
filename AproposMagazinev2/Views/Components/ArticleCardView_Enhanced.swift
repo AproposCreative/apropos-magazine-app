@@ -29,6 +29,15 @@ struct ArticleCardView_Enhanced: View {
         viewModel.toggleFavorite(for: article)
         onFavorite?(article)
     }
+
+    private func starImageName(isFilled: Bool) -> String {
+        let filledAsset = "DarkStar"
+        let emptyAsset = "DimStar"
+        if colorScheme == .light {
+            return isFilled ? emptyAsset : filledAsset
+        }
+        return isFilled ? filledAsset : emptyAsset
+    }
     // MARK: - Initialization
     
     init(
@@ -138,13 +147,22 @@ struct StarsFromText: View {
     let starText: String
     @Environment(\.colorScheme) var colorScheme
 
+    private func starImageName(isFilled: Bool) -> String {
+        let filledAsset = "DarkStar"
+        let emptyAsset = "DimStar"
+        if colorScheme == .light {
+            return isFilled ? emptyAsset : filledAsset
+        }
+        return isFilled ? filledAsset : emptyAsset
+    }
+
     var body: some View {
         let count = extractRating(from: starText)
         // Only show stars if there's a valid rating
         if count > 0 {
             HStack(spacing: 4) {
                 ForEach(0..<6) { index in
-                    Image(index < count ? "DarkStar" : "DimStar")
+                    Image(starImageName(isFilled: index < count))
                         .resizable()
                         .frame(width: 16, height: 16)
                 }
@@ -255,7 +273,7 @@ private extension ArticleCardView_Enhanced {
             if showStars, let rating = article.stjerne {
                 HStack(spacing: 4) {
                     ForEach(0..<6) { index in
-                        Image(index < rating ? "DarkStar" : "DimStar")
+                        Image(starImageName(isFilled: index < rating))
                             .resizable()
                             .frame(width: 16, height: 16)
                     }

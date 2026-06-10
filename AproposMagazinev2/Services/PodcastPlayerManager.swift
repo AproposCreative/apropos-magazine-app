@@ -77,6 +77,10 @@ final class PodcastPlayerManager: ObservableObject {
     private var wantsPlayback = false
     private var hasStartedAudioThisSession = false
     private var lastStallIncrementAt: Date?
+    private var pendingResumePosition: TimeInterval?
+    private var didApplyResumePosition = false
+    private var lastProgressPersistAt: Date?
+    private var currentArticleId: String?
     private var playerObservation: NSKeyValueObservation?
     private var itemObservations: [NSKeyValueObservation] = []
 
@@ -118,7 +122,7 @@ final class PodcastPlayerManager: ObservableObject {
         itemObservations.forEach { $0.invalidate() }
     }
 
-    func play(episode: PodcastEpisode) {
+    func play(episode: PodcastEpisode, articleId: String? = nil) {
         guard let audioURL = episode.audioURL,
               PodcastAudioURLValidator.isPlayableAudioURL(audioURL) else {
             return
@@ -135,9 +139,13 @@ final class PodcastPlayerManager: ObservableObject {
 
         configureAudioSessionIfNeeded()
 
+        currentArticleId = articleId ?? episode.articleId
+
         currentEpisode = episode
         currentAudioURL = audioURL
-        currentTime = 0
+        pendingResumePosition = PodcastPlaybackProgressStore.position(for: episode.id)
+        didApplyResumePosition = false
+        currentTime = pendingResumePosition ?? 0
         duration = 1
         resetPlaybackMetrics()
         playbackStartRequestedAt = Date()
@@ -161,7 +169,13 @@ final class PodcastPlayerManager: ObservableObject {
         volume = 1.0
         player.replaceCurrentItem(with: item)
         attachItemObservers(to: item)
-        beginPlayback(useImmediate: false)
+        let shouldDeferPlaybackForResume = (pendingResumePosition ?? 0) > 1
+        if shouldDeferPlaybackForResume {
+            wantsPlayback = true
+            updatePublishedPlaybackState()
+        } else {
+            beginPlayback(useImmediate: false)
+        }
         isFullPlayerPresented = true
 
         configureRemoteCommandsIfNeeded()
@@ -171,12 +185,14 @@ final class PodcastPlayerManager: ObservableObject {
         startPlaybackCompletionObservationIfNeeded()
         refreshNowPlayingMetadataIfNeeded(force: true)
         updateNowPlayingPlaybackState()
-        PodcastLiveActivityService.shared.startActivity(episode: episode)
+        PodcastLiveActivityService.shared.startActivity(episode: episode, articleId: currentArticleId)
+        AnalyticsService.shared.trackPodcastPlay(episode: episode, articleId: articleId)
     }
 
     func pause() {
         wantsPlayback = false
         player.pause()
+        persistPlaybackProgress(force: true)
         updatePublishedPlaybackState()
         if let episodeID = currentEpisode?.id {
             AppDiagnostics.breadcrumb("podcast_pause:\(episodeID)")
@@ -206,6 +222,7 @@ final class PodcastPlayerManager: ObservableObject {
         currentTime = bounded
         let time = CMTime(seconds: bounded, preferredTimescale: 600)
         player.seek(to: time)
+        persistPlaybackProgress(force: true)
     }
 
     func seekForward(seconds: TimeInterval = 15) {
@@ -226,11 +243,13 @@ final class PodcastPlayerManager: ObservableObject {
     }
 
     func closePlayer() {
+        persistPlaybackProgress(force: true)
         wantsPlayback = false
         player.pause()
         detachItemObservers()
         player.replaceCurrentItem(with: nil)
         currentEpisode = nil
+        currentArticleId = nil
         currentAudioURL = nil
         currentTime = 0
         duration = 1
@@ -399,6 +418,8 @@ final class PodcastPlayerManager: ObservableObject {
             recordFirstAudioIfNeeded()
         }
 
+        applyPendingResumePositionIfNeeded()
+
         if isBuffering && hasStartedAudioThisSession {
             if waiting {
                 recordStallIfNeeded(reason: "waiting")
@@ -418,7 +439,8 @@ final class PodcastPlayerManager: ObservableObject {
             isPlaying: isPlaying,
             elapsed: currentTime,
             duration: duration,
-            episode: currentEpisode
+            episode: currentEpisode,
+            articleId: currentArticleId
         )
     }
 
@@ -490,6 +512,8 @@ final class PodcastPlayerManager: ObservableObject {
                 if abs(observedTime - self.currentTime) >= uiPublishThreshold {
                     self.currentTime = observedTime
                 }
+
+                self.persistPlaybackProgress(force: false)
 
                 if let itemDuration = self.player.currentItem?.duration.seconds,
                    itemDuration.isFinite,
@@ -700,6 +724,52 @@ final class PodcastPlayerManager: ObservableObject {
 
         if #available(iOS 13.0, *) {
             MPNowPlayingInfoCenter.default().playbackState = isPlaying ? .playing : .paused
+        }
+    }
+
+    func persistPlaybackProgress(force: Bool) {
+        guard let episode = currentEpisode else { return }
+
+        if !force {
+            if let lastProgressPersistAt,
+               Date().timeIntervalSince(lastProgressPersistAt) < 10 {
+                return
+            }
+        }
+
+        lastProgressPersistAt = Date()
+        PodcastPlaybackProgressStore.markLastPlayed(
+            episodeId: episode.id,
+            articleId: currentArticleId
+        )
+        PodcastPlaybackProgressStore.save(
+            episodeId: episode.id,
+            seconds: currentTime,
+            duration: duration
+        )
+    }
+
+    private func applyPendingResumePositionIfNeeded() {
+        guard !didApplyResumePosition,
+              let position = pendingResumePosition,
+              position > 1,
+              player.currentItem?.status == .readyToPlay else {
+            return
+        }
+
+        didApplyResumePosition = true
+        pendingResumePosition = nil
+        let shouldStartPlayback = wantsPlayback
+        let time = CMTime(seconds: position, preferredTimescale: 600)
+        player.seek(to: time) { [weak self] finished in
+            Task { @MainActor [weak self] in
+                guard let self, finished else { return }
+                self.currentTime = position
+                if shouldStartPlayback {
+                    self.beginPlayback(useImmediate: true)
+                }
+                self.updateNowPlayingPlaybackState()
+            }
         }
     }
 }

@@ -12,7 +12,7 @@ import Shimmer
 struct HomeView: View {
     @EnvironmentObject var viewModel: ArticleViewModel
     @ObservedObject private var podcastRepository = PodcastRepository.shared
-    private let podcastPlayerManager = PodcastPlayerManager.shared
+    @ObservedObject private var podcastPlayerManager = PodcastPlayerManager.shared
     @Environment(\.navigationCoordinator) private var navigationCoordinator
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var articleHeroNamespace: Namespace.ID? = nil
@@ -57,6 +57,16 @@ struct HomeView: View {
 
     private var allPodcastPairs: [PodcastArticlePair] {
         PodcastRepository.shared.latestPodcastPairsIncludingPending(from: viewModel.articles, limit: 100)
+    }
+
+    private var resumablePodcastPair: PodcastArticlePair? {
+        guard let pair = PodcastRepository.shared.resumablePair(from: viewModel.articles) else {
+            return nil
+        }
+        if podcastPlayerManager.currentEpisode?.id == pair.episode.id {
+            return nil
+        }
+        return pair
     }
 
     var body: some View {
@@ -172,10 +182,13 @@ struct HomeView: View {
                 didLoad = true
                 preloadHeroArticles()
                 preloadVisibleHomeImages()
+                Task {
+                    await podcastRepository.refreshManifest()
+                }
             }
-            Task {
-                await podcastRepository.refreshManifest()
-            }
+        }
+        .onChange(of: viewModel.heroArticles.map(\.id)) { _, _ in
+            selectedHero = 0
         }
     }
     
@@ -339,6 +352,19 @@ struct HomeView: View {
                 }
             }
 
+            if let pair = resumablePodcastPair {
+                PodcastContinueListeningBanner(
+                    pair: pair,
+                    onContinue: {
+                        podcastPlayerManager.play(episode: pair.episode, articleId: pair.article.id)
+                    },
+                    onOpenArticle: {
+                        navigationCoordinator.navigateToArticle(pair.article, in: .home)
+                    }
+                )
+                .padding(.top, 20)
+            }
+
             if !podcastPairs.isEmpty {
                 PodcastSectionView(
                     pairs: podcastPairs,
@@ -365,7 +391,9 @@ struct HomeView: View {
                         navigationCoordinator.navigateToArticle(article, in: .home)
                     },
                     onPlayEpisode: { episode in
-                        podcastPlayerManager.play(episode: episode)
+                        let articleId = podcastPairs.first(where: { $0.episode.id == episode.id })?.article.id
+                            ?? allPodcastPairs.first(where: { $0.episode.id == episode.id })?.article.id
+                        podcastPlayerManager.play(episode: episode, articleId: articleId)
                     }
                 )
                 .padding(.top, 20)
@@ -380,7 +408,11 @@ struct HomeView: View {
                     istopic: false,
                     recommendationReasons: Dictionary(
                         uniqueKeysWithValues: viewModel.personalizedRecommendations.map { ($0.0.id, $0.1) }
-                    )
+                    ),
+                    onArticleSelected: { article in
+                        let reason = viewModel.personalizedRecommendations.first(where: { $0.0.id == article.id })?.1 ?? ""
+                        RecommendationService.shared.trackRecommendationTap(article: article, reason: reason)
+                    }
                 )
                 .padding(.top, 20)
                 .onAppear {
@@ -450,6 +482,20 @@ struct HomeView: View {
 
 // MARK: - Hero Swipe Bar
 
+private func heroSwipeSlideOpacity(for phase: ScrollTransitionPhase, reduceMotion: Bool) -> Double {
+    guard !reduceMotion else { return 1 }
+    guard !phase.isIdentity else { return 1 }
+    let distance = min(abs(phase.value), 1)
+    return Double(1 - distance * 0.72)
+}
+
+private func heroSwipeSlideScale(for phase: ScrollTransitionPhase, reduceMotion: Bool) -> CGFloat {
+    guard !reduceMotion else { return 1 }
+    guard !phase.isIdentity else { return 1 }
+    let distance = min(abs(phase.value), 1)
+    return 1 - distance * 0.015
+}
+
 struct HeroSwipeBar: View {
     let articles: [Article]
     @Binding var selectedHero: Int
@@ -462,6 +508,8 @@ struct HeroSwipeBar: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     
     var body: some View {
+        let prefersReducedMotion = reduceMotion
+
         ZStack(alignment: .top) {
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 0) {
@@ -482,8 +530,8 @@ struct HeroSwipeBar: View {
                         .id(index)
                         .scrollTransition(.interactive, axis: .horizontal) { content, phase in
                             content
-                                .opacity(HeroSwipeBar.slideOpacity(for: phase, reduceMotion: reduceMotion))
-                                .scaleEffect(HeroSwipeBar.slideScale(for: phase, reduceMotion: reduceMotion))
+                                .opacity(heroSwipeSlideOpacity(for: phase, reduceMotion: prefersReducedMotion))
+                                .scaleEffect(heroSwipeSlideScale(for: phase, reduceMotion: prefersReducedMotion))
                         }
                     }
                 }
@@ -511,7 +559,7 @@ struct HeroSwipeBar: View {
                             .padding(.top , 10) // Prevent clipping
                     }
                 }
-                .animation(AppMotion.heroCarouselSpring(reduceMotion: reduceMotion), value: selectedHero)
+                .animation(AppMotion.heroCarouselSpring(reduceMotion: prefersReducedMotion), value: selectedHero)
                 .padding(.bottom, 70)
             }
             .padding(.bottom, 20)
@@ -535,20 +583,6 @@ struct HeroSwipeBar: View {
         )
     }
 
-    private static func slideOpacity(for phase: ScrollTransitionPhase, reduceMotion: Bool) -> Double {
-        guard !reduceMotion else { return 1 }
-        guard !phase.isIdentity else { return 1 }
-        let distance = min(abs(phase.value), 1)
-        return Double(1 - distance * 0.72)
-    }
-
-    private static func slideScale(for phase: ScrollTransitionPhase, reduceMotion: Bool) -> CGFloat {
-        guard !reduceMotion else { return 1 }
-        guard !phase.isIdentity else { return 1 }
-        let distance = min(abs(phase.value), 1)
-        return 1 - distance * 0.015
-    }
-    
     // MARK: - Pre-loading Methods
     
     private func preloadAdjacentArticles(currentIndex: Int) {
@@ -606,6 +640,29 @@ struct HeroCardView: View {
 
     private var emptyStarColor: Color {
         colorScheme == .dark ? Color.white.opacity(0.24) : Color.black.opacity(0.14)
+    }
+
+    private var heroBottomGradient: LinearGradient {
+        if colorScheme == .dark {
+            return LinearGradient(
+                gradient: Gradient(colors: [.clear, .black.opacity(0.3), .black]),
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
+
+        return LinearGradient(
+            gradient: Gradient(stops: [
+                .init(color: .clear, location: 0.0),
+                .init(color: .clear, location: 0.42),
+                .init(color: .white.opacity(0.12), location: 0.62),
+                .init(color: .white.opacity(0.38), location: 0.78),
+                .init(color: .white.opacity(0.72), location: 0.9),
+                .init(color: .white, location: 1.0)
+            ]),
+            startPoint: .top,
+            endPoint: .bottom
+        )
     }
 
     private var heroImageCandidates: [URL] {
@@ -673,16 +730,8 @@ struct HeroCardView: View {
             }
 
             // Gradient Overlay
-            LinearGradient(
-                gradient: Gradient(colors: [
-                    .clear,
-                    colorScheme == .dark ? .black.opacity(0.3) : .white.opacity(0.1),
-                    colorScheme == .dark ? .black : .white
-                ]),
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .frame(maxWidth: .infinity, maxHeight: height)
+            heroBottomGradient
+                .frame(maxWidth: .infinity, maxHeight: height)
 
             // Foreground Content
             VStack(alignment: .leading, spacing: 12) {
@@ -797,7 +846,7 @@ struct HeroCardView: View {
         }
         .frame(height: height)
         .cornerRadius(0)
-        .shadow(radius: 10)
+        .shadow(color: colorScheme == .dark ? .black.opacity(0.25) : .clear, radius: colorScheme == .dark ? 10 : 0)
         .padding(.horizontal, 0)
         .ignoresSafeArea(edges: .top)
         .contentShape(Rectangle())
@@ -826,6 +875,7 @@ import SwiftUI
         let articles: [Article]
         var istopic: Bool
         var recommendationReasons: [String: String] = [:]
+        var onArticleSelected: ((Article) -> Void)? = nil
         @EnvironmentObject var viewModel: ArticleViewModel
 
         var body: some View {
@@ -907,6 +957,9 @@ import SwiftUI
                             .frame(height: sectionHeight - 8, alignment: .top)
                         }
                         .buttonStyle(PlainButtonStyle())
+                        .simultaneousGesture(TapGesture().onEnded {
+                            onArticleSelected?(article)
+                        })
                     }
                 }
                 .padding(.leading, 16) // Align with title padding

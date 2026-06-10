@@ -12,6 +12,8 @@ final class iCloudSyncService: ObservableObject {
     @Published private(set) var readArticleIds: [String] = []
     @Published private(set) var readingProgress: [String: Double] = [:]
 
+    private var progressPersistTask: Task<Void, Never>?
+
     private init() {
         loadFromStore()
         NotificationCenter.default.addObserver(
@@ -44,8 +46,22 @@ final class iCloudSyncService: ObservableObject {
     func saveProgress(_ progress: Double, for articleId: String) {
         guard !articleId.isEmpty else { return }
         let clamped = min(max(progress, 0), 1)
+
+        if let existing = readingProgress[articleId], abs(existing - clamped) < 0.02 {
+            return
+        }
+
         readingProgress[articleId] = clamped
-        persistReadingProgress()
+        scheduleReadingProgressPersist()
+    }
+
+    private func scheduleReadingProgressPersist() {
+        progressPersistTask?.cancel()
+        progressPersistTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            guard !Task.isCancelled else { return }
+            persistReadingProgress()
+        }
     }
 
     func getProgress(for articleId: String) -> Double? {

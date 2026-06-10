@@ -78,74 +78,18 @@ class NotificationServiceExtension: UNNotificationServiceExtension {
             return
         }
         
-        // Check if this is an article notification
-        // Try to get article_id from userInfo (required for duplicate check)
-        // FCM sends data in the 'data' field, which iOS converts to userInfo
-        
         var articleId: String?
         if let id = bestAttemptContent.userInfo["article_id"] as? String, !id.isEmpty {
             articleId = id
         } else if let slug = bestAttemptContent.userInfo["article_slug"] as? String, !slug.isEmpty {
             articleId = slug
-        } else {
-            // Check if data is nested in 'data' field (some FCM configurations)
-            if let dataDict = bestAttemptContent.userInfo["data"] as? [String: Any],
-               let id = dataDict["article_id"] as? String, !id.isEmpty {
-                articleId = id
-            }
+        } else if let dataDict = bestAttemptContent.userInfo["data"] as? [String: Any],
+                  let id = dataDict["article_id"] as? String, !id.isEmpty {
+            articleId = id
         }
         
-        // CRITICAL: Check if article is already published BEFORE processing
-        // This prevents duplicate notifications when articles are updated
-        if let articleId = articleId, !articleId.isEmpty {
-            let isAlreadyPublished = isArticleAlreadyPublished(articleId: articleId)
-            
-            if isAlreadyPublished {
-                // Article is already published - return empty notification to suppress it
-                let emptyContent = UNMutableNotificationContent()
-                emptyContent.title = ""
-                emptyContent.body = ""
-                emptyContent.sound = nil
-                emptyContent.badge = nil
-                contentHandler(emptyContent)
-                return
-            }
-        } else {
-            // No article_id provided - try to find article by name as fallback
-            // This happens when backend doesn't send article_id (e.g., when republishing in Webflow)
-            
-            // Try to find article by name as fallback
-            if let articleName = bestAttemptContent.userInfo["article_name"] as? String, !articleName.isEmpty {
-                // Try to find article in cache by name and get its ID
-                if let foundArticleId = findArticleIdByName(articleName: articleName) {
-                    // Now we have article_id - use it for duplicate check
-                    let isAlreadyPublished = isArticleAlreadyPublished(articleId: foundArticleId)
-                    
-                    if isAlreadyPublished {
-                        let emptyContent = UNMutableNotificationContent()
-                        emptyContent.title = ""
-                        emptyContent.body = ""
-                        emptyContent.sound = nil
-                        emptyContent.badge = nil
-                        contentHandler(emptyContent)
-                        return
-                    }
-                }
-            }
-            // Continue to show notification (either new article or can't determine)
-        }
-        
-        // Get thumbnail URL from userInfo
-        var thumbnailURL: URL?
-        
-        if let thumbnailURLString = bestAttemptContent.userInfo["thumbnail_url"] as? String,
-           let url = URL(string: thumbnailURLString) {
-            thumbnailURL = url
-        } else if let coverURLString = bestAttemptContent.userInfo["cover_url"] as? String,
-                  let url = URL(string: coverURLString) {
-            // Fallback to cover URL if thumbnail not available
-            thumbnailURL = url
-        }
+        // Get thumbnail URL from userInfo (supports FCM data + APNS payload nesting)
+        let thumbnailURL = Self.imageURL(from: bestAttemptContent.userInfo)
         
         guard let imageURL = thumbnailURL else {
             // No thumbnail URL available, send notification without attachment
@@ -190,124 +134,38 @@ class NotificationServiceExtension: UNNotificationServiceExtension {
         }
     }
     
-    // MARK: - Article Publication Check
-    
-    /// Check if an article is already published (has publishedDate in the past)
-    /// Uses App Group UserDefaults to access cached articles from main app
-    private func isArticleAlreadyPublished(articleId: String) -> Bool {
-        // Try App Group UserDefaults first (preferred method)
-        if let appGroupDefaults = UserDefaults(suiteName: "group.com.aproposmagazine.app") {
-            if let data = appGroupDefaults.data(forKey: "cached_articles"),
-               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let articlesArray = json["articles"] as? [[String: Any]] {
-
-                // Find article in simplified cache
-                // Try exact match first
-                if articlesArray.contains(where: { ($0["id"] as? String) == articleId }) {
-                    // CRITICAL: If article exists in cache, it means it was already published before
-                    // The cache only contains published articles that have been fetched from Webflow API
-                    // If an article is in cache, it means it was already published and fetched by the app
-                    // Therefore, this is a republish - don't send notification
-                    return true
-                }
-            }
-        } else {
-            // Fallback: Try standard UserDefaults (if App Group not available)
-            if let data = UserDefaults.standard.data(forKey: "cached_articles"),
-               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let articlesArray = json["articles"] as? [[String: Any]] {
-                if articlesArray.contains(where: { ($0["id"] as? String) == articleId }) {
-                    // CRITICAL: If article exists in cache, it means it was already published before
-                    // The cache only contains published articles that have been fetched from Webflow API
-                    // If an article is in cache, it means it was already published and fetched by the app
-                    // Therefore, this is a republish - don't send notification
-                    return true
-                }
-            }
-        }
-        
-        // Article not found or dates are in future - assume it's new
-        return false
-    }
-    
-    /// Find article ID by name in cache (fallback when article_id is missing from notification)
-    /// Returns article_id if found, nil otherwise
-    private func findArticleIdByName(articleName: String) -> String? {
-        // Try App Group UserDefaults first
-        if let appGroupDefaults = UserDefaults(suiteName: "group.com.aproposmagazine.app"),
-           let data = appGroupDefaults.data(forKey: "cached_articles"),
-           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let articlesArray = json["articles"] as? [[String: Any]] {
-            
-            // Search for article by name (case-insensitive)
-            let searchName = articleName.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-            
-            // First try exact match
-            if let articleDict = articlesArray.first(where: { 
-                if let name = $0["name"] as? String {
-                    return name.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) == searchName
-                }
-                return false
-            }), let articleId = articleDict["id"] as? String, !articleId.isEmpty {
-                return articleId
-            }
-            
-            // Try partial match (contains) - but be more strict
-            if let articleDict = articlesArray.first(where: { 
-                if let name = $0["name"] as? String {
-                    let normalizedName = name.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-                    // Check if searchName is contained in name or vice versa (but not too short)
-                    return (normalizedName.contains(searchName) || searchName.contains(normalizedName)) && searchName.count >= 3
-                }
-                return false
-            }), let articleId = articleDict["id"] as? String, !articleId.isEmpty {
-                return articleId
-            }
-        }
-        
-        // Fallback: Try standard UserDefaults
-        if let data = UserDefaults.standard.data(forKey: "cached_articles"),
-           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let articlesArray = json["articles"] as? [[String: Any]] {
-            
-            let searchName = articleName.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-            
-            if let articleDict = articlesArray.first(where: { 
-                if let name = $0["name"] as? String {
-                    let normalizedName = name.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-                    return normalizedName == searchName || 
-                           (normalizedName.contains(searchName) || searchName.contains(normalizedName)) && searchName.count >= 3
-                }
-                return false
-            }), let articleId = articleDict["id"] as? String, !articleId.isEmpty {
-                return articleId
-            }
-        }
-        
-        return nil
-    }
-    
-    /// Parse date string to Date object
-    private func parseDate(_ dateString: String) -> Date? {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = formatter.date(from: dateString) {
-            return date
-        }
-        // Try alternative formats
-        let altFormatters: [DateFormatter] = [
-            { let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"; return f }(),
-            { let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZ"; return f }()
-        ]
-        for formatter in altFormatters {
-            if let date = formatter.date(from: dateString) {
-                return date
-            }
-        }
-        return nil
-    }
-    
     // MARK: - Image Download
+
+    private static func imageURL(from userInfo: [AnyHashable: Any]) -> URL? {
+        let candidateKeys = ["thumbnail_url", "cover_url", "image"]
+
+        for key in candidateKeys {
+            if let value = userInfo[key] as? String,
+               let url = URL(string: value),
+               !value.isEmpty {
+                return url
+            }
+        }
+
+        if let data = userInfo["data"] as? [String: Any] {
+            for key in candidateKeys {
+                if let value = data[key] as? String,
+                   let url = URL(string: value),
+                   !value.isEmpty {
+                    return url
+                }
+            }
+        }
+
+        if let fcmOptions = userInfo["fcm_options"] as? [String: Any],
+           let image = fcmOptions["image"] as? String,
+           let url = URL(string: image),
+           !image.isEmpty {
+            return url
+        }
+
+        return nil
+    }
     
     private func downloadImage(from url: URL, completion: @escaping (URL?) -> Void) {
         let task = URLSession.shared.downloadTask(with: url) { localURL, response, error in

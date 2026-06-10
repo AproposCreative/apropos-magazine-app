@@ -14,21 +14,27 @@ final class WhatsNewManager {
         entries = WhatsNewManager.loadEntries()
     }
 
-    /// Entries relevant for the currently installed app version.
+    /// Only the What's New entry for the installed app version (one sheet per release).
     func entriesForDisplay() -> [WhatsNewEntry] {
-        let relevant = entries
-            .filter { compare($0.version, currentVersion) != .orderedDescending }
-            .sorted { compare($0.version, $1.version) == .orderedDescending }
-
-        if !relevant.isEmpty {
-            return relevant
+        if let entry = entryForCurrentVersion() {
+            return [entry]
         }
 
         if let generated = Self.loadEntryFromBundledChangelog(currentVersion: currentVersion) {
             return [generated]
         }
 
-        return entries.sorted { compare($0.version, $1.version) == .orderedDescending }
+        return []
+    }
+
+    private func entryForCurrentVersion() -> WhatsNewEntry? {
+        if let exact = entries.first(where: { $0.version == currentVersion }) {
+            return exact
+        }
+
+        return entries
+            .filter { compare($0.version, currentVersion) != .orderedDescending }
+            .max { compare($0.version, $1.version) == .orderedAscending }
     }
 
     func entryToPresent() -> WhatsNewEntry? {
@@ -133,11 +139,10 @@ final class WhatsNewManager {
             let decoder = JSONDecoder()
             var entries = try decoder.decode([WhatsNewEntry].self, from: data)
 
-            // Auto-generate latest entry from bundled CHANGELOG when available.
-            // This keeps "latest improvements" up to date without manual JSON edits.
             let currentVersion = Bundle.main.shortVersionString
-            if let generated = loadEntryFromBundledChangelog(currentVersion: currentVersion) {
-                entries.removeAll { $0.version == generated.version }
+            let hasEntryForCurrentVersion = entries.contains { $0.version == currentVersion }
+            if !hasEntryForCurrentVersion,
+               let generated = loadEntryFromBundledChangelog(currentVersion: currentVersion) {
                 entries.insert(generated, at: 0)
             }
 

@@ -60,7 +60,8 @@ class NavigationCoordinator: ObservableObject {
     // Deep linking support
     @Published var pendingDeepLink: URL?
     @Published private(set) var homeStackID = UUID()
-    
+    private(set) var pendingNotificationPayload: NotificationNavigation.Payload?
+
     private let logger = Logger(subsystem: "com.aproposmagazine.app", category: "NavigationCoordinator")
     
     private init() {
@@ -74,13 +75,9 @@ class NavigationCoordinator: ObservableObject {
             guard let self = self else { return }
             if let article = notification.userInfo?["article"] as? Article {
                 Task { @MainActor in
-                    // Switch to home tab first
                     self.selectedTab = .home
-                    
-                    // Longer delay to ensure tab switch and view updates complete
-                    try? await Task.sleep(nanoseconds: 300_000_000) // 0.3 seconds
-                    
-                    // Then navigate to article
+                    await AppReadiness.waitUntilUIReady()
+                    await Task.yield()
                     self.navigateToArticle(article, in: .home)
                 }
             } else {
@@ -222,10 +219,20 @@ class NavigationCoordinator: ObservableObject {
     func handleDeepLink(_ url: URL) {
         logger.info("Håndterer deep link: \(url.absoluteString, privacy: .public)")
         
-        // Parse URL scheme and path
         guard url.scheme == "aproposmagazine" || url.host == "aproposmagazine.com" else {
             logger.warning("Ukendt URL scheme: \(url.scheme ?? "nil", privacy: .public)")
             return
+        }
+
+        // Widget / notification format: aproposmagazine://article/{id}
+        // Here "article" is the URL host and the id lives in the path.
+        if url.scheme == "aproposmagazine", url.host == "article" {
+            let articleId = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            if !articleId.isEmpty {
+                navigateToArticleFromNotification(articleId: articleId)
+                pendingDeepLink = url
+                return
+            }
         }
         
         let pathComponents = url.pathComponents.filter { $0 != "/" }
@@ -267,18 +274,45 @@ class NavigationCoordinator: ObservableObject {
     
     /// Navigate to article from notification
     func navigateToArticleFromNotification(articleId: String) {
-        // Switch to home tab first
         selectedTab = .home
-        
-        // Clear any existing navigation path
         homePath = NavigationPath()
-        
-        // Post notification to fetch and navigate to article
+
         NotificationCenter.default.post(
             name: NSNotification.Name("FetchArticleForNavigation"),
             object: nil,
             userInfo: ["articleId": articleId]
         )
+    }
+
+    func scheduleNotificationNavigation(_ payload: NotificationNavigation.Payload) {
+        pendingNotificationPayload = payload
+        UserDefaults.standard.set(true, forKey: NotificationNavigation.skipBootloaderKey)
+
+        NotificationCenter.default.post(
+            name: NSNotification.Name("OpenArticleFromNotification"),
+            object: nil,
+            userInfo: NotificationNavigation.userInfo(for: payload)
+        )
+    }
+
+    func flushPendingNotificationNavigationIfNeeded() {
+        guard let payload = pendingNotificationPayload else { return }
+
+        selectedTab = .home
+
+        NotificationCenter.default.post(
+            name: NSNotification.Name("OpenArticleFromNotification"),
+            object: nil,
+            userInfo: NotificationNavigation.userInfo(for: payload)
+        )
+    }
+
+    func clearPendingNotificationNavigation(for identifier: String) {
+        guard let pending = pendingNotificationPayload else { return }
+        let matchesIdentifier = pending.articleIdentifier == identifier
+        let matchesSlug = pending.articleSlug?.compare(identifier, options: .caseInsensitive) == .orderedSame
+        guard matchesIdentifier || matchesSlug else { return }
+        pendingNotificationPayload = nil
     }
 }
 

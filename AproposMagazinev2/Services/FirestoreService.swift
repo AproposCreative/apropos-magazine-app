@@ -142,12 +142,16 @@ class FirestoreService {
         }
 
         let favRef = db.collection("users").document(uid).collection("favorites")
-        // Prefer local cache first, then server
         let snapshot: QuerySnapshot
         do {
-            snapshot = try await favRef.getDocuments(source: .cache)
+            let cached = try await favRef.getDocuments(source: .cache)
+            if cached.documents.isEmpty {
+                snapshot = try await favRef.getDocuments(source: .server)
+            } else {
+                snapshot = cached
+            }
         } catch {
-            snapshot = try await favRef.getDocuments(source: .default)
+            snapshot = try await favRef.getDocuments(source: .server)
         }
 
         return snapshot.documents.compactMap { doc in
@@ -177,7 +181,9 @@ class FirestoreService {
     }
     
     // Realtime listener for favorites
-    func listenFavorites(onChange: @escaping ([Article]) -> Void) -> ListenerRegistration? {
+    func listenFavorites(
+        onChange: @escaping (_ articles: [Article], _ metadata: SnapshotMetadata?) -> Void
+    ) -> ListenerRegistration? {
         guard let uid = Auth.auth().currentUser?.uid else { return nil }
         let favRef = db.collection("users").document(uid).collection("favorites")
         return favRef.addSnapshotListener { snapshot, _ in
@@ -206,7 +212,7 @@ class FirestoreService {
                     featured: nil
                 )
             }
-            onChange(articles)
+            onChange(articles, snapshot.metadata)
         }
     }
 } 

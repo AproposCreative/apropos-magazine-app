@@ -11,6 +11,8 @@ struct PodcastAudioPlayerSheet: View {
     @State private var sliderValue: Double = 0
     @State private var isSeeking = false
     @State private var showQueueSheet = false
+    @State private var showShareSheet = false
+    @State private var shareItems: [Any] = []
 
     private var currentEpisode: PodcastEpisode? {
         podcastPlayer.currentEpisode
@@ -298,6 +300,16 @@ struct PodcastAudioPlayerSheet: View {
                                     }
 
                                     HStack(spacing: 34) {
+                                        Button {
+                                            shareCurrentPodcastClip()
+                                        } label: {
+                                            Image(systemName: "square.and.arrow.up")
+                                                .font(.system(size: 19, weight: .medium))
+                                                .foregroundStyle(primaryForeground.opacity(0.92))
+                                        }
+                                        .buttonStyle(.plain)
+                                        .accessibilityLabel("Del podcast-klip")
+
                                         Image(systemName: "quote.bubble")
                                             .font(.system(size: 19, weight: .medium))
                                             .foregroundStyle(isDarkMode ? .white.opacity(0.35) : .black.opacity(0.35))
@@ -349,8 +361,28 @@ struct PodcastAudioPlayerSheet: View {
                     .presentationDetents([.medium, .large])
                     .presentationDragIndicator(.visible)
                 }
+                .sheet(isPresented: $showShareSheet) {
+                    if !shareItems.isEmpty {
+                        ActivityView(activityItems: shareItems)
+                    }
+                }
             } else {
                 EmptyView()
+            }
+        }
+    }
+
+    private func shareCurrentPodcastClip() {
+        guard let episode = currentEpisode else { return }
+        Task {
+            let items = await ArticleShareComposer.podcastClipShareItems(
+                episode: episode,
+                article: currentArticle,
+                timestamp: podcastPlayer.currentTime
+            )
+            await MainActor.run {
+                shareItems = items
+                showShareSheet = true
             }
         }
     }

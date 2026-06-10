@@ -47,7 +47,6 @@ struct PodcastSectionView: View {
                     ForEach(pairs) { pair in
                         PodcastCardView(
                             pair: pair,
-                            authorText: authorProvider(pair.article),
                             categoryText: categoriesProvider(pair.article).first ?? pair.episode.subtitle ?? "Podcast",
                             onPlay: onPlayEpisode
                         )
@@ -113,7 +112,9 @@ private struct PodcastListView: View {
                                 HStack(spacing: 4) {
                                     Image(systemName: pair.episode.hasPlayableAudioURL ? "play.fill" : "clock")
                                         .font(.caption2.weight(.bold))
-                                    Text(pair.episode.hasPlayableAudioURL ? "Lyt" : "Kommer")
+                                    Text(pair.episode.hasPlayableAudioURL
+                                        ? PodcastPlaybackProgressStore.playButtonTitle(for: pair.episode.id)
+                                        : "Kommer")
                                         .font(.caption.weight(.semibold))
                                 }
                                 .foregroundStyle(.white)

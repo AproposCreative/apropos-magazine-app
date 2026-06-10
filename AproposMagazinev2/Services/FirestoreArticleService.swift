@@ -40,13 +40,19 @@ final class FirestoreArticleService {
 
             do {
                 let articles = try self.decodeArticles(from: snapshot.documents)
+                    .filter(\.isPubliclyPublished)
                 if articles.isEmpty {
                     completion(.failure(FirestoreArticleError.empty))
                     return
                 }
 
                 let sorted = articles.sorted { lhs, rhs in
-                    (lhs.lastPublished ?? "") > (rhs.lastPublished ?? "")
+                    let leftCreated = lhs.createdOn ?? ""
+                    let rightCreated = rhs.createdOn ?? ""
+                    if leftCreated != rightCreated {
+                        return leftCreated > rightCreated
+                    }
+                    return (lhs.lastPublished ?? "") > (rhs.lastPublished ?? "")
                 }
                 completion(.success(sorted))
             } catch {
@@ -70,17 +76,59 @@ final class FirestoreArticleService {
             }
 
             guard let snapshot, snapshot.exists, let data = snapshot.data() else {
-                completion(.failure(FirestoreArticleError.empty))
+                self.fetchArticle(bySlug: id, completion: completion)
                 return
             }
 
             do {
                 let article = try self.decodeArticle(from: data)
+                guard article.isPubliclyPublished else {
+                    completion(.failure(FirestoreArticleError.empty))
+                    return
+                }
                 completion(.success(article))
             } catch {
                 completion(.failure(error))
             }
         }
+    }
+
+    func fetchArticle(bySlug slug: String, completion: @escaping (Result<Article, Error>) -> Void) {
+        let normalizedSlug = slug.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedSlug.isEmpty else {
+            completion(.failure(FirestoreArticleError.empty))
+            return
+        }
+
+        db.collection("articles")
+            .whereField("fieldData.slug", isEqualTo: normalizedSlug)
+            .limit(to: 1)
+            .getDocuments { [weak self] snapshot, error in
+                guard let self else { return }
+
+                if let error {
+                    completion(.failure(error))
+                    return
+                }
+
+                guard let snapshot,
+                      let document = snapshot.documents.first,
+                      let data = document.data() as [String: Any]? else {
+                    completion(.failure(FirestoreArticleError.empty))
+                    return
+                }
+
+                do {
+                    let article = try self.decodeArticle(from: data)
+                    guard article.isPubliclyPublished else {
+                        completion(.failure(FirestoreArticleError.empty))
+                        return
+                    }
+                    completion(.success(article))
+                } catch {
+                    completion(.failure(error))
+                }
+            }
     }
 
     private func decodeArticles(from documents: [QueryDocumentSnapshot]) throws -> [Article] {

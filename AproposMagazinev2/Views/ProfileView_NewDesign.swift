@@ -303,6 +303,16 @@ struct SettingsView: View {
                                 .foregroundColor(.secondary)
                         }
 
+                        Toggle(isOn: Binding(
+                            get: { notificationPreferences.newPodcasts },
+                            set: { isEnabled in
+                                notificationPreferences.newPodcasts = isEnabled
+                                saveNotificationChoices()
+                            }
+                        )) {
+                            Text("Nye podcasts")
+                        }
+
                         Text("Vælg enten alle nye artikler eller specifikke kategorier.")
                             .font(.caption)
                             .foregroundColor(.secondary)
@@ -310,15 +320,29 @@ struct SettingsView: View {
                         Text("Du modtager ikke push, når nye artikler publiceres.")
                             .font(.caption)
                             .foregroundColor(.secondary)
+
+                        Toggle(isOn: Binding(
+                            get: { notificationPreferences.newPodcasts },
+                            set: { isEnabled in
+                                notificationPreferences.newPodcasts = isEnabled
+                                saveNotificationChoices()
+                            }
+                        )) {
+                            Text("Nye podcasts")
+                        }
                     }
 
                     Button {
                         Task {
                             await applyNotificationChoices()
-                            await notificationService.sendTestLocalNotificationAfterAuthorization(delay: 2)
+                            if SecureConfig.shared.pushNotifySecret != nil {
+                                await notificationService.sendRemoteArticlePushTest()
+                            } else {
+                                await notificationService.sendTestLocalNotificationAfterAuthorization(delay: 2)
+                            }
                         }
                     } label: {
-                        Label("Test notifikation på denne enhed", systemImage: "bell.badge")
+                        Label("Test push notifikationer", systemImage: "bell.badge")
                     }
                 }
                 
@@ -448,27 +472,31 @@ struct SettingsView: View {
     }
 
     private func loadNotificationChoices() {
+        let (preferences, categoryIds) = notificationService.loadPersistedArticleNotificationSettings()
         if let user = userManager.currentUser {
             notificationPreferences = user.notificationPreferences
-            selectedNotificationCategoryIds = Set(user.favoriteCategories)
         } else {
-            let (preferences, categoryIds) = notificationService.loadPersistedArticleNotificationSettings()
             notificationPreferences = preferences
-            selectedNotificationCategoryIds = Set(categoryIds)
         }
+        selectedNotificationCategoryIds = Set(categoryIds)
     }
 
     private func applyNotificationChoices() async {
         if var user = userManager.currentUser {
             user.notificationPreferences = notificationPreferences
-            user.favoriteCategories = Array(selectedNotificationCategoryIds)
             userManager.saveUserProfile(user)
         }
 
+        let allCategoryIds = viewModel.topics.map(\.id)
+        notificationService.persistAllCategoryIds(allCategoryIds)
         await notificationService.activateArticlePushNotifications(
             preferences: notificationPreferences,
             selectedCategoryIds: Array(selectedNotificationCategoryIds),
-            allCategoryIds: viewModel.topics.map(\.id)
+            allCategoryIds: allCategoryIds
+        )
+        notificationService.refreshPushDiagnostics(
+            preferences: notificationPreferences,
+            selectedCategoryIds: Array(selectedNotificationCategoryIds)
         )
     }
 

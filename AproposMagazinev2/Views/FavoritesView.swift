@@ -99,69 +99,88 @@ struct FavoritesView: View {
 
 
     var body: some View {
-        GeometryReader { geometry in
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 0) {
-                    HStack(alignment: .center) {
-                        Text("Min side")
-                            .font(.largeTitle.bold())
-
-                        Spacer()
-
-                        Button {
-                            showSettings = true
-                        } label: {
-                            Image(systemName: "gearshape")
-                                .font(.system(size: 20, weight: .semibold))
-                                .foregroundColor(.primary)
-                                .frame(width: 36, height: 36)
-                                .background(Color.gray.opacity(0.1))
-                                .clipShape(Circle())
-                        }
-                        .accessibilityLabel("Indstillinger")
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 16)
-                    .padding(.bottom, 12)
-
-                    controls
-
-                    if viewModel.isLoading {
-                        shimmerPlaceholder
-                    } else if sortedFavorites.isEmpty {
-                        emptyState
-                    } else {
-                        VStack(spacing: 0) {
-                            ForEach(sortedFavorites) { article in
-                                Button(action: {
-                                    navigationCoordinator.navigateToArticle(article, in: .favorites)
-                                }) {
-                                    FavoriteArticleRow(article: article)
-                                        .padding(.vertical, 12)
-                                        .padding(.horizontal, 16)
-                                }
-                                .buttonStyle(PlainButtonStyle())
-
-                                if article.id != sortedFavorites.last?.id {
-                                    Divider()
-                                        .padding(.leading, 112)
-                                }
-                            }
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .top)
+        List {
+            Section {
+                header
+                controls
             }
-            .scrollBounceBehavior(.basedOnSize, axes: .vertical)
-            .refreshable {
-                await viewModel.refreshArticles()
+            .listRowInsets(EdgeInsets())
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+
+            if viewModel.isLoading {
+                Section {
+                    shimmerPlaceholder
+                }
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+            } else if sortedFavorites.isEmpty {
+                Section {
+                    emptyState
+                }
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+            } else {
+                Section {
+                    ForEach(sortedFavorites) { article in
+                        Button {
+                            navigationCoordinator.navigateToArticle(article, in: .favorites)
+                        } label: {
+                            FavoriteArticleRow(article: article)
+                                .padding(.vertical, 4)
+                        }
+                        .buttonStyle(.plain)
+                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                    }
+                    .onDelete(perform: removeFavorites)
+                }
             }
         }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
         .toolbar(.hidden, for: .navigationBar)
+        .refreshable {
+            await viewModel.refreshArticles()
+        }
         .sheet(isPresented: $showSettings) {
             SettingsView()
                 .environmentObject(viewModel)
+        }
+    }
+
+    private var header: some View {
+        HStack(alignment: .center) {
+            Text("Min side")
+                .font(.largeTitle.bold())
+
+            Spacer()
+
+            Button {
+                showSettings = true
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundColor(.primary)
+                    .frame(width: 36, height: 36)
+                    .background(Color.gray.opacity(0.1))
+                    .clipShape(Circle())
+            }
+            .accessibilityLabel("Indstillinger")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.top, 16)
+        .padding(.bottom, 12)
+    }
+
+    private func removeFavorites(at offsets: IndexSet) {
+        for index in offsets {
+            let article = sortedFavorites[index]
+            if viewModel.isFavorite(article) {
+                viewModel.toggleFavorite(for: article)
+            }
         }
     }
 

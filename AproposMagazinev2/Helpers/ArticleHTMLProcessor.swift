@@ -18,16 +18,27 @@ enum ArticleHTMLProcessor {
 
         let nsHTML = html as NSString
         var result = html
-        let matches = regex.matches(in: html, range: NSRange(location: 0, length: nsHTML.length)).reversed()
+        let forwardMatches = regex.matches(in: html, range: NSRange(location: 0, length: nsHTML.length))
+        let eagerImageCount = 1
+        let lazyPlaceholder = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
 
-        for match in matches {
+        for (index, match) in forwardMatches.enumerated().reversed() {
             guard match.numberOfRanges >= 4 else { continue }
             let beforeSrc = nsHTML.substring(with: match.range(at: 1))
             let src = nsHTML.substring(with: match.range(at: 2))
             let afterSrc = nsHTML.substring(with: match.range(at: 3))
             let optimizedSrc = optimizedImageURL(from: src)
-            let loadingAttr = beforeSrc.contains("loading=") || afterSrc.contains("loading=") ? "" : " loading=\"lazy\""
-            let replacement = "<img\(beforeSrc) src=\"\(optimizedSrc)\"\(afterSrc)\(loadingAttr)>"
+            let isLazy = index >= eagerImageCount
+            let loadingValue = isLazy ? "lazy" : "eager"
+            let loadingAttr = beforeSrc.contains("loading=") || afterSrc.contains("loading=") ? "" : " loading=\"\(loadingValue)\""
+            let decodingAttr = beforeSrc.contains("decoding=") || afterSrc.contains("decoding=") ? "" : " decoding=\"async\""
+            let lazyClass = isLazy ? " class=\"apropos-lazy\"" : ""
+            let replacement: String
+            if isLazy {
+                replacement = "<img\(beforeSrc) src=\"\(lazyPlaceholder)\" data-src=\"\(optimizedSrc)\"\(lazyClass)\(afterSrc)\(loadingAttr)\(decodingAttr)>"
+            } else {
+                replacement = "<img\(beforeSrc) src=\"\(optimizedSrc)\"\(afterSrc)\(loadingAttr)\(decodingAttr)>"
+            }
             result = (result as NSString).replacingCharacters(in: match.range, with: replacement)
         }
 
@@ -94,6 +105,12 @@ enum ArticleHTMLProcessor {
     }
 
     static func optimizedImageURL(from src: String) -> String {
+        let lowercased = src.lowercased()
+        let isWebflowAsset = lowercased.contains("website-files.com")
+            || lowercased.contains("uploads-ssl.webflow.com")
+            || lowercased.contains("webflowusercontent.com")
+        guard isWebflowAsset else { return src }
+
         guard var components = URLComponents(string: src) else { return src }
 
         let targetWidth = min(1200, Int(UIScreen.main.bounds.width * UIScreen.main.scale))

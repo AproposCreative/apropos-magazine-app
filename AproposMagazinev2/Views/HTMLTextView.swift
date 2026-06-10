@@ -8,7 +8,7 @@ struct HTMLTextView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
-        configuration.suppressesIncrementalRendering = true
+        configuration.suppressesIncrementalRendering = false
         configuration.allowsInlineMediaPlayback = true
         configuration.mediaTypesRequiringUserActionForPlayback = []
         
@@ -78,7 +78,7 @@ struct HTMLTextView: UIViewRepresentable {
                   max-width: 100vw !important;
                   height: auto !important;
                   display: block;
-                  margin: 0 !important;
+                  margin: 0 0 0.35em 0 !important;
                   margin-left: calc(-50vw + 50%) !important;
                   margin-right: calc(-50vw + 50%) !important;
                   border-radius: 0 !important;
@@ -86,11 +86,15 @@ struct HTMLTextView: UIViewRepresentable {
                   box-shadow: none !important;
                   background-color: #0a0a0a !important;
               }
+              img.apropos-lazy {
+                  min-height: 180px !important;
+                  background-color: #f0f0f0 !important;
+              }
               .apropos-offline-media {
                   width: 100vw !important;
                   max-width: 100vw !important;
                   min-height: 200px !important;
-                  margin: 0 !important;
+                  margin: 0 0 0.35em 0 !important;
                   margin-left: calc(-50vw + 50%) !important;
                   margin-right: calc(-50vw + 50%) !important;
                   padding: 36px 24px !important;
@@ -129,8 +133,12 @@ struct HTMLTextView: UIViewRepresentable {
               }
               .apropos-image-credit {
                   text-align: center !important;
-                  margin: -0.25em auto 1.5em auto !important;
+                  margin: 0.5em auto 1.5em auto !important;
                   padding: 0 !important;
+              }
+              img + .apropos-image-credit,
+              .apropos-offline-media + .apropos-image-credit {
+                  margin-top: 0.65em !important;
               }
               .apropos-image-credit span {
                   display: inline-block !important;
@@ -143,9 +151,13 @@ struct HTMLTextView: UIViewRepresentable {
               }
               figcaption {
                   text-align: center !important;
-                  margin: -0.25em auto 1.5em auto !important;
+                  margin: 0.5em auto 1.5em auto !important;
                   font-size: 12px !important;
                   color: #666666 !important;
+              }
+              img + figcaption,
+              .apropos-offline-media + figcaption {
+                  margin-top: 0.65em !important;
               }
               /* Spotify link styling */
               a[href*="spotify.com"], a[href*="open.spotify.com"] {
@@ -199,6 +211,9 @@ struct HTMLTextView: UIViewRepresentable {
                   img {
                       background-color: #0a0a0a !important;
                   }
+                  img.apropos-lazy {
+                      background-color: #1a1a1a !important;
+                  }
                   .apropos-offline-media {
                       background: #0a0a0a !important;
                       border-color: rgba(255, 255, 255, 0.14) !important;
@@ -236,6 +251,7 @@ struct HTMLTextView: UIViewRepresentable {
             return
         }
         context.coordinator.lastLoadedHTML = cacheKey
+        context.coordinator.resetHeightTracking()
         uiView.loadHTMLString(htmlString, baseURL: offlineBaseURL)
     }
 
@@ -246,9 +262,31 @@ struct HTMLTextView: UIViewRepresentable {
     class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var parent: HTMLTextView
         var lastLoadedHTML: String?
+        private var lastReportedHeight: CGFloat = 0
+        private var pendingHeightTask: Task<Void, Never>?
 
         init(_ parent: HTMLTextView) {
             self.parent = parent
+        }
+
+        func resetHeightTracking() {
+            lastReportedHeight = 0
+            pendingHeightTask?.cancel()
+            pendingHeightTask = nil
+        }
+
+        private func deliverHeight(_ height: CGFloat) {
+            guard height > 0 else { return }
+            guard abs(height - lastReportedHeight) >= 10 else { return }
+
+            pendingHeightTask?.cancel()
+            pendingHeightTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 180_000_000)
+                guard !Task.isCancelled else { return }
+                guard abs(height - self.lastReportedHeight) >= 10 else { return }
+                self.lastReportedHeight = height
+                self.parent.dynamicHeight = height
+            }
         }
         
         // Handle link clicks
@@ -269,6 +307,7 @@ struct HTMLTextView: UIViewRepresentable {
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             let js = """
+            var heightTimer = null;
             function sendHeight() {
                 try {
                     var body = document.body;
@@ -304,68 +343,59 @@ struct HTMLTextView: UIViewRepresentable {
                 if (img.parentNode) {
                     img.parentNode.replaceChild(box, img);
                 }
-                sendHeight();
+                sendHeightDebounced();
+            }
+            function sendHeightDebounced() {
+                if (heightTimer) {
+                    clearTimeout(heightTimer);
+                }
+                heightTimer = setTimeout(sendHeight, 220);
             }
             function attachOfflineFallbacks() {
                 try {
                     var imgs = Array.from(document.images);
                     imgs.forEach(function(img) {
                         if (img.dataset.approposOfflineHandled === '1') return;
-                        if (img.complete && img.naturalWidth === 0) {
-                            replaceBrokenImage(img);
-                            return;
-                        }
                         img.addEventListener('error', function() {
                             replaceBrokenImage(img);
-                        });
+                        }, { once: true });
                     });
                 } catch (e) {
                     console.error('Error attaching offline fallbacks:', e);
                 }
             }
+            function setupLazyImages() {
+                try {
+                    var lazyImages = Array.from(document.querySelectorAll('img.apropos-lazy[data-src]'));
+                    if (!lazyImages.length) return;
+                    var observer = new IntersectionObserver(function(entries) {
+                        entries.forEach(function(entry) {
+                            if (!entry.isIntersecting) return;
+                            var img = entry.target;
+                            var src = img.getAttribute('data-src');
+                            if (!src) return;
+                            img.src = src;
+                            img.removeAttribute('data-src');
+                            img.classList.remove('apropos-lazy');
+                            observer.unobserve(img);
+                        });
+                    }, { rootMargin: '240px 0px', threshold: 0.01 });
+                    lazyImages.forEach(function(img) { observer.observe(img); });
+                } catch (e) {
+                    console.error('Error setting up lazy images:', e);
+                }
+            }
             ready(function() {
                 try {
                     attachOfflineFallbacks();
-                    var imgs = Array.from(document.images);
-                    if (imgs.length === 0) {
-                        sendHeight();
-                    } else {
-                        var loaded = 0;
-                        imgs.forEach(function(img) {
-                            if (img.dataset.approposOfflineHandled === '1') {
-                                loaded++;
-                                return;
-                            }
-                            if (img.complete) {
-                                loaded++;
-                            } else {
-                                img.addEventListener('load', function() {
-                                    loaded++;
-                                    if (loaded === imgs.length) {
-                                        sendHeight();
-                                    }
-                                });
-                                img.addEventListener('error', function() {
-                                    loaded++;
-                                    if (loaded === imgs.length) {
-                                        sendHeight();
-                                    }
-                                });
-                            }
-                        });
-                        if (loaded === imgs.length) {
-                            sendHeight();
-                        }
-                    }
-                    setTimeout(function() {
-                        attachOfflineFallbacks();
-                        sendHeight();
-                    }, 500);
-                    setTimeout(function() {
-                        attachOfflineFallbacks();
-                        sendHeight();
-                    }, 1500);
-                    window.addEventListener('resize', sendHeight);
+                    setupLazyImages();
+                    sendHeightDebounced();
+                    Array.from(document.images).forEach(function(img) {
+                        if (img.dataset.aproposOfflineHandled === '1') return;
+                        if (img.complete) return;
+                        img.addEventListener('load', sendHeightDebounced, { once: true });
+                        img.addEventListener('error', sendHeightDebounced, { once: true });
+                    });
                 } catch (e) {
                     console.error('Error in ready function:', e);
                 }
@@ -384,13 +414,11 @@ struct HTMLTextView: UIViewRepresentable {
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
             if message.name == "heightHandler" {
                 if let height = message.body as? CGFloat, height > 0 {
-                    DispatchQueue.main.async {
-                        self.parent.dynamicHeight = height
-                    }
+                    deliverHeight(height)
                 } else if let heightString = message.body as? String, let height = Double(heightString), height > 0 {
-                    DispatchQueue.main.async {
-                        self.parent.dynamicHeight = height
-                    }
+                    deliverHeight(CGFloat(height))
+                } else if let heightNumber = message.body as? NSNumber {
+                    deliverHeight(CGFloat(truncating: heightNumber))
                 }
             }
         }

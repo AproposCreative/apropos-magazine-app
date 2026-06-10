@@ -3,7 +3,6 @@ import SwiftUI
 
 struct PodcastCardView: View {
     let pair: PodcastArticlePair
-    let authorText: String
     let categoryText: String
     let onPlay: (PodcastEpisode) -> Void
 
@@ -26,10 +25,10 @@ struct PodcastCardView: View {
                     .resizable()
                     .aspectRatio(contentMode: .fill)
             }
-            .frame(width: 102, height: 102)
+            .frame(width: 92, height: 92)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text("PODCAST")
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.secondary)
@@ -38,11 +37,6 @@ struct PodcastCardView: View {
                     .font(.headline.weight(.semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(2)
-
-                Text(authorText)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
 
                 HStack(spacing: 8) {
                     if let duration = pair.episode.duration, !duration.isEmpty {
@@ -64,7 +58,9 @@ struct PodcastCardView: View {
                         HStack(spacing: 4) {
                             Image(systemName: pair.episode.hasPlayableAudioURL ? "play.fill" : "clock")
                                 .font(.caption2.weight(.bold))
-                            Text(pair.episode.hasPlayableAudioURL ? "Lyt" : "Kommer")
+                            Text(pair.episode.hasPlayableAudioURL
+                                ? PodcastPlaybackProgressStore.playButtonTitle(for: pair.episode.id)
+                                : "Kommer")
                                 .font(.caption.weight(.semibold))
                         }
                         .foregroundStyle(.white)

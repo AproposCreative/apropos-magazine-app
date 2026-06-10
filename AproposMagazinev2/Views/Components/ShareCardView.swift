@@ -89,8 +89,7 @@ enum ShareCardGenerator {
     }
 
     static func shareURL(for article: Article) -> URL? {
-        let slug = article.slug ?? article.id
-        return URL(string: "https://aproposmagazine.com/article/\(slug)")
+        ShareLinkBuilder.articleURL(slug: article.slug, articleId: article.id)
     }
 
     private static func loadCoverImage(for article: Article) async -> UIImage? {

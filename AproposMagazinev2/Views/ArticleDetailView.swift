@@ -278,6 +278,7 @@ struct TrailerWebView: UIViewRepresentable {
 }
 struct ArticleDetailView: View {
     var article: Article
+    var analyticsSource: AnalyticsService.ArticleOpenSource = .feed
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.presentationMode) var presentationMode
     @Environment(\.navigationCoordinator) private var navigationCoordinator
@@ -293,7 +294,6 @@ struct ArticleDetailView: View {
     // @Environment(\.navigateToHome) private var navigateToHome
     @State private var htmlHeight: CGFloat = 100
     @State private var didLoadFullArticle = false
-    @State private var shouldRenderHeavyContent = false
     @State private var shouldShowRelatedArticles = false
     @State private var showShareSheet = false
     @State private var shareItems: [Any] = []
@@ -301,8 +301,8 @@ struct ArticleDetailView: View {
     @State private var intelligentRelatedArticles: [Article] = []
     @State private var displayCategories: [String] = []
     @State private var headerImageFailed = false
-    @State private var didRevealHeader = false
     @State private var showGlassTopBar = false
+    @State private var lastSavedScrollProgress: Double = -1
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     
     let optionId = "b9a5ef043f1f58db54c41ed6fe3e746e"
@@ -420,7 +420,11 @@ struct ArticleDetailView: View {
                             }
 
                             let progress = min(max(-newValue / 1800, 0), 1)
-                            iCloudSyncService.shared.saveProgress(progress, for: resolvedArticle.id)
+                            let quantizedProgress = (progress * 20).rounded() / 20
+                            guard abs(quantizedProgress - lastSavedScrollProgress) >= 0.05 else { return }
+                            lastSavedScrollProgress = quantizedProgress
+                            iCloudSyncService.shared.saveProgress(quantizedProgress, for: resolvedArticle.id)
+                            AnalyticsService.shared.trackArticleReadIfNeeded(resolvedArticle, scrollProgress: quantizedProgress)
                         }
                 }
                 .frame(height: 0.1)
@@ -505,7 +509,7 @@ struct ArticleDetailView: View {
                                 HStack(spacing: 6) {
                                     Image(systemName: "headphones")
                                         .font(.caption.weight(.semibold))
-                                    Text("Lyt til artiklen")
+                                    Text(PodcastPlaybackProgressStore.articlePlayButtonTitle(for: episode.id))
                                         .font(.caption.weight(.semibold))
                                         .textCase(.uppercase)
                                 }
@@ -541,7 +545,7 @@ struct ArticleDetailView: View {
                            !thumbnailURL.isEmpty,
                            !headerImageFailed,
                            let url = resolvedArticle.offlineDisplayImageURL(for: remoteURL) {
-                            WebImage(url: url, options: [.retryFailed, .refreshCached])
+                            WebImage(url: url, options: [.retryFailed, .highPriority, .scaleDownLargeImages, .continueInBackground])
                                 .onFailure { _ in
                                     headerImageFailed = true
                                 }
@@ -549,7 +553,6 @@ struct ArticleDetailView: View {
                                 .aspectRatio(contentMode: .fill)
                         }
                     }
-                    .articleHeaderReveal(isRevealed: $didRevealHeader)
                     .frame(maxWidth: .infinity, minHeight: 220, maxHeight: 340)
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .padding(.horizontal, 16)
@@ -579,7 +582,7 @@ struct ArticleDetailView: View {
                     .padding(.horizontal)
                     .padding(.bottom, 20)
                     
-                    if shouldRenderHeavyContent, let content = resolvedArticle.content, !content.isEmpty {
+                    if let content = resolvedArticle.content, !content.isEmpty {
                         VStack(spacing: 0) {
                             HTMLTextView(html: content, articleId: resolvedArticle.id, dynamicHeight: $htmlHeight)
                                 .frame(height: max(htmlHeight, 240))
@@ -607,10 +610,6 @@ struct ArticleDetailView: View {
                                     .padding(.top, 4)
                             }
                         }
-                    } else if !shouldRenderHeavyContent {
-                        ProgressView()
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 32)
                     }
 
                     if shouldShowRelatedArticles && !bestRelatedArticles.isEmpty {
@@ -647,27 +646,22 @@ struct ArticleDetailView: View {
             }
         }
         .task(id: article.id) {
-            shouldRenderHeavyContent = false
             shouldShowRelatedArticles = false
             htmlHeight = 240
-            didRevealHeader = false
             showGlassTopBar = false
+            lastSavedScrollProgress = -1
             
             let resolvedCategories = viewModel.categories(for: resolvedArticle)
             displayCategories = resolvedCategories.isEmpty ? ["Generelt"] : resolvedCategories
 
             iCloudSyncService.shared.markAsRead(articleId: article.id)
+            CacheManager.shared.preloadArticleDetailImages(for: resolvedArticle)
+            AnalyticsService.shared.trackArticleOpen(resolvedArticle, source: analyticsSource)
             
             if !didLoadFullArticle {
                 didLoadFullArticle = true
                 viewModel.loadFullArticle(with: article.id)
             }
-            
-            await Task.yield()
-            withAnimation(AppMotion.spring(response: 0.52, damping: 0.86, reduceMotion: reduceMotion)) {
-                didRevealHeader = true
-            }
-            shouldRenderHeavyContent = true
             
             try? await Task.sleep(nanoseconds: 350_000_000)
             generateIntelligentRelatedArticles()
@@ -692,13 +686,13 @@ extension ArticleDetailView {
 
         Task {
             let article = resolvedArticle
-            var items: [Any] = [createRichShareText()]
-            if let url = ShareCardGenerator.shareURL(for: article) {
-                items.append(url)
-            }
-            if let image = await ShareCardGenerator.generate(article: article) {
-                items.insert(image, at: 0)
-            }
+            let categories = viewModel.categories(for: article)
+            let image = await ShareCardGenerator.generate(article: article)
+            let items = await ArticleShareComposer.shareItems(
+                for: article,
+                categories: categories,
+                image: image
+            )
 
             await MainActor.run {
                 shareItems = items
@@ -709,7 +703,7 @@ extension ArticleDetailView {
     }
 
     private func openPodcast(for episode: PodcastEpisode) {
-        podcastPlayerManager.play(episode: episode)
+        podcastPlayerManager.play(episode: episode, articleId: resolvedArticle.id)
     }
     
     // Generate intelligent related articles using RecommendationEngine
@@ -739,49 +733,6 @@ extension ArticleDetailView {
             .prefix(3)
         
         intelligentRelatedArticles = Array(relatedArticles)
-    }
-    
-    // Helper function to create rich share text
-    private func createRichShareText() -> String {
-        var shareText = "📰 \(resolvedArticle.name ?? "Artikel")"
-        
-        // Add subtitle if available
-        if let subtitle = resolvedArticle.subtitle {
-            shareText += "\n\n\(subtitle)"
-        }
-        
-        // Add intro if available (truncated for better preview)
-        if let intro = resolvedArticle.intro {
-            let truncatedIntro = intro.count > 150 ? String(intro.prefix(150)) + "..." : intro
-            shareText += "\n\n\(truncatedIntro)"
-        }
-        
-        // Add author if available
-        if let authorName = resolvedArticle.author?.name {
-            shareText += "\n\n👤 Af: \(authorName)"
-        }
-        
-        // Add rating if available
-        if let stjerne = resolvedArticle.stjerne {
-            shareText += "\n\n⭐ \(stjerne)"
-        }
-        
-        // Add categories
-        let categories = viewModel.categories(for: resolvedArticle)
-        if !categories.isEmpty {
-            shareText += "\n\n🏷️ \(categories.joined(separator: ", "))"
-        }
-        
-        // Add location if available
-        if let location = resolvedArticle.location {
-            shareText += "\n\n📍 \(location)"
-        }
-        
-        // Add magazine branding
-        shareText += "\n\n📖 Læs hele artiklen på Apropos Magazine"
-        shareText += "\n\n#AproposMagazine #Kultur #Musik"
-        
-        return shareText
     }
 }
 

@@ -68,6 +68,54 @@ function articleImageData(fieldData) {
   };
 }
 
+function richNotificationEnvelope(notificationData, title, body) {
+  const imageURL = notificationData.thumbnail_url || notificationData.cover_url || "";
+  const androidNotification = {
+    sound: "default",
+    default_sound: true,
+    default_vibrate_timings: true,
+  };
+  if (imageURL) {
+    androidNotification.imageUrl = imageURL;
+  }
+
+  const apns = {
+    payload: {
+      aps: {
+        sound: "default",
+        badge: 1,
+        "mutable-content": 1,
+        alert: {
+          title,
+          body,
+        },
+      },
+      ...notificationData,
+    },
+    headers: {
+      "apns-priority": "10",
+      "apns-push-type": "alert",
+    },
+  };
+
+  if (imageURL) {
+    apns.fcm_options = {image: imageURL};
+  }
+
+  return {
+    notification: {
+      title,
+      body,
+    },
+    data: notificationData,
+    android: {
+      priority: "high",
+      notification: androidNotification,
+    },
+    apns,
+  };
+}
+
 const FIRESTORE_ARTICLES_COLLECTION = "articles";
 const WEBFLOW_PAGE_LIMIT = 100;
 
@@ -298,37 +346,12 @@ exports.webflowWebhook = onRequest({secrets: [webflowApiKey]}, async (request, r
         .forEach((topic) => topics.add(topic));
 
     const messageForTopic = (topic) => ({
-      notification: {
-        title: "Ny artikel på Apropos Magazine",
-        body: `${articleName} er nu tilgængelig`,
-      },
-      data: notificationData,
+      ...richNotificationEnvelope(
+          notificationData,
+          "Ny artikel på Apropos Magazine",
+          `${articleName} er nu tilgængelig`,
+      ),
       topic,
-      android: {
-        priority: "high",
-        notification: {
-          sound: "default",
-          default_sound: true,
-          default_vibrate_timings: true,
-        },
-      },
-      apns: {
-        payload: {
-          aps: {
-            sound: "default",
-            badge: 1,
-            "mutable-content": 1,
-            alert: {
-              title: "Ny artikel på Apropos Magazine",
-              body: `${articleName} er nu tilgængelig`,
-            },
-          },
-        },
-        headers: {
-          "apns-priority": "10",
-          "apns-push-type": "alert",
-        },
-      },
     });
 
     const fcmResponses = await Promise.all(
@@ -370,6 +393,113 @@ function formatHostLine(hosts) {
   return `${list.slice(0, -1).join(", ")} & ${list[list.length - 1]}`;
 }
 
+async function resolveArticleIdBySlug(db, articleSlug) {
+  const directDoc = await db.collection("articles").doc(articleSlug).get();
+  if (directDoc.exists) {
+    const data = directDoc.data() || {};
+    return String(data.id || directDoc.id || articleSlug);
+  }
+
+  const slugQuery = await db.collection("articles")
+      .where("fieldData.slug", "==", articleSlug)
+      .limit(1)
+      .get();
+  if (!slugQuery.empty) {
+    const doc = slugQuery.docs[0];
+    const data = doc.data() || {};
+    return String(data.id || doc.id || articleSlug);
+  }
+
+  return articleSlug;
+}
+
+exports.sendTestArticleNotification = onRequest({secrets: [podcastNotifySecret]}, async (request, response) => {
+  response.set("Access-Control-Allow-Origin", "*");
+  response.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+  response.set("Access-Control-Allow-Headers", "Content-Type, X-Apropos-Podcast-Secret");
+
+  if (request.method === "OPTIONS") {
+    response.status(204).send("");
+    return;
+  }
+
+  if (request.method !== "POST") {
+    response.status(405).send("Method Not Allowed");
+    return;
+  }
+
+  const expectedSecret = (podcastNotifySecret.value() || "").trim();
+  const providedSecret = (request.get("X-Apropos-Podcast-Secret") || "").trim();
+  if (!expectedSecret || providedSecret !== expectedSecret) {
+    response.status(403).json({status: "forbidden", message: "Invalid push notify secret"});
+    return;
+  }
+
+  try {
+    const payload = request.body || {};
+    const notificationTitle = String(payload.title || "Test: Ny artikel på Apropos Magazine").trim();
+    const notificationBody = String(
+        payload.body || "Dette er en test-notifikation til alle enheder tilmeldt nye artikler.",
+    ).trim();
+    const notificationData = {
+      article_id: String(payload.articleId || "test_article_push"),
+      article_slug: String(payload.articleSlug || "test-article-push"),
+      article_name: notificationTitle,
+      type: "new_article",
+      click_action: "OPEN_ARTICLE",
+      test_push: "true",
+    };
+
+    const message = {
+      notification: {
+        title: notificationTitle,
+        body: notificationBody,
+      },
+      data: notificationData,
+      topic: "new_articles",
+      android: {
+        priority: "high",
+        notification: {
+          sound: "default",
+          default_sound: true,
+          default_vibrate_timings: true,
+        },
+      },
+      apns: {
+        payload: {
+          aps: {
+            sound: "default",
+            badge: 1,
+            "mutable-content": 1,
+            alert: {
+              title: notificationTitle,
+              body: notificationBody,
+            },
+          },
+          ...notificationData,
+        },
+        headers: {
+          "apns-priority": "10",
+          "apns-push-type": "alert",
+        },
+      },
+    };
+
+    const fcmResponse = await admin.messaging().send(message);
+    response.status(200).json({
+      status: "success",
+      message: "Test article notification sent to new_articles",
+      fcm_response: fcmResponse,
+    });
+  } catch (error) {
+    logger.error("Error sending test article notification:", error);
+    response.status(500).json({
+      status: "error",
+      message: error.message,
+    });
+  }
+});
+
 exports.sendPodcastNotification = onRequest({secrets: [podcastNotifySecret]}, async (request, response) => {
   response.set("Access-Control-Allow-Origin", "*");
   response.set("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -397,6 +527,7 @@ exports.sendPodcastNotification = onRequest({secrets: [podcastNotifySecret]}, as
     const articleSlug = String(payload.articleSlug || payload.slug || "").trim();
     const episodeTitle = String(payload.title || "").trim();
     const hosts = payload.hosts || [];
+    const forceResend = payload.force === true || payload.force === "true";
 
     if (!articleSlug || !episodeTitle) {
       response.status(400).json({
@@ -410,7 +541,7 @@ exports.sendPodcastNotification = onRequest({secrets: [podcastNotifySecret]}, as
     const podcastRef = db.collection("notified_podcasts").doc(articleSlug);
     const podcastDoc = await podcastRef.get();
 
-    if (podcastDoc.exists) {
+    if (podcastDoc.exists && !forceResend) {
       response.status(200).json({
         status: "ignored",
         message: "Podcast was already notified",
@@ -418,8 +549,11 @@ exports.sendPodcastNotification = onRequest({secrets: [podcastNotifySecret]}, as
       return;
     }
 
+    const articleId = await resolveArticleIdBySlug(db, articleSlug);
+
     await podcastRef.set({
       articleSlug,
+      articleId,
       episodeTitle,
       hosts,
       notifiedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -431,57 +565,28 @@ exports.sendPodcastNotification = onRequest({secrets: [podcastNotifySecret]}, as
     const notificationData = {
       type: "new_podcast",
       article_slug: articleSlug,
-      article_id: articleSlug,
+      article_id: articleId,
       podcast_title: episodeTitle,
       click_action: "OPEN_ARTICLE",
     };
 
     const messageForTopic = (topic) => ({
-      notification: {
-        title: notificationTitle,
-        body: notificationBody,
-      },
-      data: notificationData,
+      ...richNotificationEnvelope(
+          notificationData,
+          notificationTitle,
+          notificationBody,
+      ),
       topic,
-      android: {
-        priority: "high",
-        notification: {
-          sound: "default",
-          default_sound: true,
-          default_vibrate_timings: true,
-        },
-      },
-      apns: {
-        payload: {
-          aps: {
-            sound: "default",
-            badge: 1,
-            "mutable-content": 1,
-            alert: {
-              title: notificationTitle,
-              body: notificationBody,
-            },
-          },
-        },
-        headers: {
-          "apns-priority": "10",
-          "apns-push-type": "alert",
-        },
-      },
     });
 
-    // new_articles: current production app subscriptions
-    // new_podcasts: future dedicated podcast topic
-    const fcmResponses = await Promise.all(
-        ["new_articles", "new_podcasts"].map((topic) =>
-          admin.messaging().send(messageForTopic(topic)),
-        ),
-    );
+    // Podcast pushes go only to new_podcasts. Sending to new_articles as well duplicated
+    // notifications because the app subscribes to both topics.
+    const fcmResponse = await admin.messaging().send(messageForTopic("new_podcasts"));
 
     response.status(200).json({
       status: "success",
       message: "Podcast notification sent successfully",
-      fcm_response: fcmResponses,
+      fcm_response: fcmResponse,
     });
   } catch (error) {
     logger.error("Error sending podcast notification:", error);

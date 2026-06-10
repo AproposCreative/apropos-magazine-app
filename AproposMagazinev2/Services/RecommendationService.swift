@@ -140,6 +140,11 @@ final class RecommendationService {
         return "Anbefalet til dig"
     }
 
+    func trackRecommendationTap(article: Article, reason: String) {
+        AnalyticsService.shared.trackRecommendationTap(articleId: article.id, reason: reason)
+        AnalyticsService.shared.setPendingArticleOpenSource(.recommendation)
+    }
+
     private func cache(_ recommendations: [(Article, String)]) {
         let payload = recommendations.map {
             CachedRecommendationEntry(article: $0.0, reason: $0.1)

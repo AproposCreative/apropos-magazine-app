@@ -6,6 +6,7 @@ import UIKit
 import OSLog
 import SwiftUI
 import SDWebImage
+import WidgetKit
 
 @objc final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate, MessagingDelegate {
     
@@ -18,18 +19,26 @@ import SDWebImage
 
         FirebaseConfiguration.shared.setLoggerLevel(.min)
         FirebaseApp.configure()
+        AnalyticsService.shared.configure()
         // Must be configured before any Firestore usage in the process.
         FirestoreService.shared.configurePersistenceIfNeeded()
         FeatureFlags.registerDefaults()
         configureGlobalImageCaching()
         application.beginReceivingRemoteControlEvents()
         AppDiagnostics.breadcrumb("app_launch")
+        Task { @MainActor in
+            PodcastLiveActivityService.shared.dismissUnsupportedActivitiesIfNeeded()
+        }
 
         // Set up notification delegate
         UNUserNotificationCenter.current().delegate = self
 
-        // Configure Google Sign-In
-        GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: "817066738308-q8pdk1q5b9t9ugopjh67i2n2lau9k3sm.apps.googleusercontent.com")
+        // Configure Google Sign-In from Firebase / GoogleService-Info.plist
+        if let clientID = FirebaseApp.app()?.options.clientID {
+            GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: clientID)
+        } else {
+            logger.error("Google Sign-In: CLIENT_ID mangler i Firebase-konfiguration")
+        }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             SmartNotificationService.shared.setupNotificationCategories()
@@ -62,6 +71,14 @@ import SDWebImage
             }
         }
         #endif
+
+        if let remoteNotification = launchOptions?[.remoteNotification] as? [AnyHashable: Any],
+           let payload = NotificationNavigation.payload(from: remoteNotification) {
+            UserDefaults.standard.set(true, forKey: NotificationNavigation.skipBootloaderKey)
+            Task { @MainActor in
+                NavigationCoordinator.shared.scheduleNotificationNavigation(payload)
+            }
+        }
 
         return true
     }
@@ -133,82 +150,31 @@ import SDWebImage
     // Handle notification when app is in foreground
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
-        // Check if this is a duplicate notification for an already published article
-        let userInfo = notification.request.content.userInfo
-        
-        // Try to get article_id from userInfo
-        var articleId: String?
-        if let id = userInfo["article_id"] as? String, !id.isEmpty {
-            articleId = id
-        } else if let slug = userInfo["article_slug"] as? String, !slug.isEmpty {
-            articleId = slug
+        if notification.request.trigger is UNPushNotificationTrigger == false {
+            NotificationDeliveryPolicy.recordLocalNotificationDelivered()
         }
-        
-        // If we have an article_id, check if article is already published
-        if let articleId = articleId {
-            if await isArticleAlreadyPublished(articleId: articleId) {
-                return [] // Don't show notification
-            }
-        }
-        
-        // Add haptic feedback for notifications
         let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
         impactFeedback.impactOccurred()
-        
         return [.banner, .sound, .badge]
-    }
-    
-    /// Check if an article is already published
-    /// CRITICAL: If article exists in cache, it was already published before (republish)
-    /// Cache only contains articles fetched from Webflow API, so if it's in cache, it's already been published
-    private func isArticleAlreadyPublished(articleId: String) async -> Bool {
-        // Try to get cached articles first (fast)
-        if let cachedArticles = CacheManager.shared.getCachedArticles() {
-            if cachedArticles.contains(where: { $0.id == articleId }) {
-                // Article exists in cache - it was already published before, this is a republish
-                return true
-            }
-        }
-        
-        // If not found in cache, assume it's a new article (show notification)
-        return false
     }
     
     // Handle notification tap when app is in background
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 didReceive response: UNNotificationResponse) async {
-        // Handle notification actions
         let actionIdentifier = response.actionIdentifier
         let userInfo = response.notification.request.content.userInfo
+        let payload = NotificationNavigation.payload(from: userInfo)
+
+        if let payload {
+            let notificationType = payload.type
+            AnalyticsService.shared.trackNotificationOpen(articleId: payload.articleIdentifier, type: notificationType)
+        } else if let articleId = legacyNotificationArticleId(from: userInfo) {
+            AnalyticsService.shared.trackNotificationOpen(articleId: articleId, type: legacyNotificationType(from: userInfo))
+        }
         
-        // Check if this is a notification action (not just a tap)
         switch actionIdentifier {
         case "READ_ACTION", "READ_BREAKING_NEWS":
-            // "Læs nu" action - open article
-            var articleId: String?
-            
-            // Try article_id first
-            if let id = userInfo["article_id"] as? String, !id.isEmpty {
-                articleId = id
-            }
-            // Fallback to article_slug if article_id is empty
-            else if let slug = userInfo["article_slug"] as? String, !slug.isEmpty {
-                articleId = slug
-            }
-            
-            if let articleId = articleId {
-                // Longer delay to ensure app is fully active and views are ready
-                try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
-                
-                await MainActor.run {
-                    NotificationCenter.default.post(
-                        name: NSNotification.Name("OpenArticleFromNotification"),
-                        object: nil,
-                        userInfo: ["articleId": articleId]
-                    )
-                }
-            } else {
-            }
+            await openArticleFromNotification(userInfo: userInfo, payload: payload)
             
         case "VIEW_RECOMMENDATIONS":
             // "Se anbefalinger" action - navigate to recommendations
@@ -232,23 +198,8 @@ import SDWebImage
             }
             
         case UNNotificationDefaultActionIdentifier:
-            // Default action - user tapped on notification itself
-            // Check if this is an article notification (any type with article_id or article_slug)
-            var articleId: String?
-            
-            // Try article_id first
-            if let id = userInfo["article_id"] as? String, !id.isEmpty {
-                articleId = id
-            }
-            // Fallback to article_slug if article_id is empty
-            else if let slug = userInfo["article_slug"] as? String, !slug.isEmpty {
-                articleId = slug
-            }
-            // Try article_name as last resort - we'll search by name
-            else if let name = userInfo["article_name"] as? String, !name.isEmpty {
-                // Longer delay to ensure app is fully active and views are ready
-                try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
-                
+            if let name = legacyNotificationArticleName(from: userInfo), payload == nil {
+                await AppReadiness.waitUntilUIReady()
                 await MainActor.run {
                     NotificationCenter.default.post(
                         name: NSNotification.Name("OpenArticleFromNotification"),
@@ -258,20 +209,8 @@ import SDWebImage
                 }
                 return
             }
-            
-            if let articleId = articleId {
-                // Longer delay to ensure app is fully active and views are ready
-                try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
-                
-                await MainActor.run {
-                    NotificationCenter.default.post(
-                        name: NSNotification.Name("OpenArticleFromNotification"),
-                        object: nil,
-                        userInfo: ["articleId": articleId]
-                    )
-                }
-            } else {
-            }
+
+            await openArticleFromNotification(userInfo: userInfo, payload: payload)
             
         default:
             // Other actions or dismissed
@@ -288,14 +227,8 @@ import SDWebImage
         
         // Handle deep links (aproposmagazine://)
         if url.scheme == "aproposmagazine" || url.host == "aproposmagazine.com" {
-            // Post notification to handle deep link
-            // NavigationCoordinator will pick this up in ContentView
-            DispatchQueue.main.async {
-                NotificationCenter.default.post(
-                    name: NSNotification.Name("HandleDeepLink"),
-                    object: nil,
-                    userInfo: ["url": url]
-                )
+            Task { @MainActor in
+                NavigationCoordinator.shared.handleDeepLink(url)
             }
             return true
         }
@@ -306,23 +239,70 @@ import SDWebImage
     // MARK: - Application Lifecycle
     func applicationDidEnterBackground(_ application: UIApplication) {
         AppDiagnostics.breadcrumb("app_background")
+        Task { @MainActor in
+            PodcastPlayerManager.shared.persistPlaybackProgress(force: true)
+        }
     }
     
     func applicationWillEnterForeground(_ application: UIApplication) {
         AppDiagnostics.breadcrumb("app_foreground")
         Task { @MainActor in
-            await NotificationService.shared.bootstrapPushNotifications()
+            let categoryIds = NotificationService.shared.loadPersistedAllCategoryIds()
+            await NotificationService.shared.bootstrapPushNotifications(allCategoryIds: categoryIds)
             await PodcastRepository.shared.refreshManifest()
+            syncWidgetFeedIfNeeded()
         }
     }
-    
+
     func applicationDidBecomeActive(_ application: UIApplication) {
+        Task { @MainActor in
+            syncWidgetFeedIfNeeded()
+            WidgetCenter.shared.reloadAllTimelines()
+        }
+    }
+
+    @MainActor
+    private func syncWidgetFeedIfNeeded() {
+        if let cached = CacheManager.shared.getCachedArticles(), !cached.isEmpty {
+            CacheManager.shared.syncWidgetFeed(from: cached)
+        }
     }
     
     func applicationWillResignActive(_ application: UIApplication) {
     }
     
     func applicationWillTerminate(_ application: UIApplication) {
+    }
+
+    private func legacyNotificationArticleId(from userInfo: [AnyHashable: Any]) -> String? {
+        NotificationNavigation.payload(from: userInfo)?.articleIdentifier
+    }
+
+    private func legacyNotificationType(from userInfo: [AnyHashable: Any]) -> String {
+        NotificationNavigation.payload(from: userInfo)?.type ?? "general"
+    }
+
+    private func legacyNotificationArticleName(from userInfo: [AnyHashable: Any]) -> String? {
+        let normalized = NotificationNavigation.normalize(userInfo)
+        if let name = normalized["article_name"] as? String, !name.isEmpty {
+            return name
+        }
+        return nil
+    }
+
+    private func openArticleFromNotification(
+        userInfo: [AnyHashable: Any],
+        payload: NotificationNavigation.Payload?
+    ) async {
+        guard let payload else { return }
+
+        if payload.isPodcastNotification {
+            await PodcastRepository.shared.refreshManifest(force: true)
+        }
+
+        await MainActor.run {
+            NavigationCoordinator.shared.scheduleNotificationNavigation(payload)
+        }
     }
     
     // MARK: - Additional UIApplicationDelegate Methods for Full Conformance

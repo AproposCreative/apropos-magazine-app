@@ -234,14 +234,15 @@ class SocialService: ObservableObject {
     
     // MARK: - Sharing
     
-    func shareArticle(_ article: Article) -> UIActivityViewController {
-        let text = "Tjek denne artikel: \(article.name ?? "Apropos Magazine")"
-        let url = URL(string: "https://aproposmagazine.com/article/\(article.slug ?? article.id)") ?? URL(string: "https://aproposmagazine.com")!
-        
-        let activityItems: [Any] = [text, url]
+    func shareArticle(_ article: Article, categories: [String] = []) -> UIActivityViewController {
+        let items = ArticleShareComposer.shareItems(
+            for: article,
+            categories: categories,
+            image: nil
+        )
         
         let activityViewController = UIActivityViewController(
-            activityItems: activityItems,
+            activityItems: items,
             applicationActivities: nil
         )
         

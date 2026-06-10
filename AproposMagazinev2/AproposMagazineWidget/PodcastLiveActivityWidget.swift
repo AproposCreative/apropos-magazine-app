@@ -11,7 +11,10 @@ struct PodcastLiveActivityWidget: Widget {
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    PodcastArtworkView(url: context.state.artworkURL)
+                    PodcastArtworkView(
+                        url: context.state.artworkURL,
+                        articleId: context.state.artworkArticleId
+                    )
                         .frame(width: 52, height: 52)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
@@ -34,7 +37,10 @@ struct PodcastLiveActivityWidget: Widget {
                         .tint(.white)
                 }
             } compactLeading: {
-                PodcastArtworkView(url: context.state.artworkURL)
+                PodcastArtworkView(
+                    url: context.state.artworkURL,
+                    articleId: context.state.artworkArticleId
+                )
                     .frame(width: 22, height: 22)
             } compactTrailing: {
                 Image(systemName: context.state.isPlaying ? "pause.fill" : "play.fill")
@@ -50,7 +56,10 @@ private struct PodcastLiveActivityLockScreenView: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            PodcastArtworkView(url: context.state.artworkURL)
+            PodcastArtworkView(
+                url: context.state.artworkURL,
+                articleId: context.state.artworkArticleId
+            )
                 .frame(width: 54, height: 54)
 
             VStack(alignment: .leading, spacing: 4) {
@@ -76,10 +85,15 @@ private struct PodcastLiveActivityLockScreenView: View {
 
 private struct PodcastArtworkView: View {
     let url: URL?
+    let articleId: String?
 
     var body: some View {
         Group {
-            if let url {
+            if let articleId, let uiImage = WidgetImageStore.uiImage(forArticleId: articleId) {
+                Image(uiImage: uiImage)
+                    .resizable()
+                    .scaledToFill()
+            } else if let url {
                 AsyncImage(url: url) { phase in
                     switch phase {
                     case .success(let image):

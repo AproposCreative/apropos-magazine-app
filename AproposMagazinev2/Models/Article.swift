@@ -89,11 +89,43 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
         case createdOn
         case lastPublished
     }
-    private static let isoFormatter: ISO8601DateFormatter = {
+    private static let isoFormatterWithFractionalSeconds: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter
     }()
+
+    private static let isoFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+
+    static func parseWebflowTimestamp(_ rawValue: String?) -> Date? {
+        guard let rawValue else { return nil }
+        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return nil }
+
+        if let date = isoFormatterWithFractionalSeconds.date(from: value) {
+            return date
+        }
+        if let date = isoFormatter.date(from: value) {
+            return date
+        }
+
+        let alternativeFormatters: [DateFormatter] = [
+            DateFormatter().then { $0.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ" },
+            DateFormatter().then { $0.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZ" },
+            DateFormatter().then { $0.dateFormat = "yyyy-MM-dd HH:mm:ss" }
+        ]
+
+        for formatter in alternativeFormatters {
+            if let date = formatter.date(from: value) {
+                return date
+            }
+        }
+        return nil
+    }
     
     // Cache for createdDate to prevent repeated date parsing
     private var _createdDateCache: Date?
@@ -103,23 +135,9 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
                 return cached
             }
             guard let createdOn else { return nil }
-            // Safely parse date with fallback
-            if let date = Article.isoFormatter.date(from: createdOn) {
+            if let date = Article.parseWebflowTimestamp(createdOn) {
                 _createdDateCache = date
                 return date
-            }
-            // Try alternative date formats if ISO8601 fails
-            let alternativeFormatters: [DateFormatter] = [
-                DateFormatter().then { $0.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ" },
-                DateFormatter().then { $0.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZ" },
-                DateFormatter().then { $0.dateFormat = "yyyy-MM-dd HH:mm:ss" }
-            ]
-            
-            for formatter in alternativeFormatters {
-                if let date = formatter.date(from: createdOn) {
-                    _createdDateCache = date
-                    return date
-                }
             }
             return nil
         }
@@ -133,23 +151,9 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
                 return cached
             }
             guard let lastPublished else { return nil }
-            // Safely parse date with fallback
-            if let date = Article.isoFormatter.date(from: lastPublished) {
+            if let date = Article.parseWebflowTimestamp(lastPublished) {
                 _publishedDateCache = date
                 return date
-            }
-            // Try alternative date formats if ISO8601 fails
-            let alternativeFormatters: [DateFormatter] = [
-                DateFormatter().then { $0.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ" },
-                DateFormatter().then { $0.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZ" },
-                DateFormatter().then { $0.dateFormat = "yyyy-MM-dd HH:mm:ss" }
-            ]
-            
-            for formatter in alternativeFormatters {
-                if let date = formatter.date(from: lastPublished) {
-                    _publishedDateCache = date
-                    return date
-                }
             }
             return nil
         }
@@ -157,7 +161,46 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
 
     var feedSortDate: Date {
         var mutableArticle = self
-        return Article.parseEditorialDate(date) ?? mutableArticle.publishedDate ?? mutableArticle.createdDate ?? Date.distantPast
+        let created = mutableArticle.createdDate
+        let editorial = Article.parseEditorialDate(date)
+
+        switch (created, editorial) {
+        case let (created?, editorial?):
+            // Editorial display date can be later than CMS createdOn for scheduled posts.
+            return max(created, editorial)
+        case let (created?, nil):
+            return created
+        case let (nil, editorial?):
+            return editorial
+        case (nil, nil):
+            // Do not use lastPublished here: bulk CMS republishes rewrite it for many
+            // articles at once and incorrectly pushes older stories to the top.
+            return Date.distantPast
+        }
+    }
+
+    /// Matches Webflow CMS "Created" ordering used for hero and home feed.
+    var createdSortDate: Date? {
+        var mutableArticle = self
+        return mutableArticle.createdDate
+    }
+
+    static func sortedByCreatedNewestFirst(_ articles: [Article]) -> [Article] {
+        articles.sorted { lhs, rhs in
+            let leftCreated = lhs.createdOn ?? ""
+            let rightCreated = rhs.createdOn ?? ""
+            if !leftCreated.isEmpty, !rightCreated.isEmpty, leftCreated != rightCreated {
+                return leftCreated > rightCreated
+            }
+
+            let leftDate = lhs.feedSortDate
+            let rightDate = rhs.feedSortDate
+            if leftDate != rightDate {
+                return leftDate > rightDate
+            }
+
+            return lhs.id > rhs.id
+        }
     }
 
     private static func parseEditorialDate(_ rawDate: String?) -> Date? {
@@ -169,7 +212,7 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
             return date
         }
 
-        let formats = [
+        let danishFormats = [
             "yyyy-MM-dd",
             "yyyy-MM-dd HH:mm:ss",
             "dd.MM.yyyy",
@@ -182,9 +225,26 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
             "dd. MMM yyyy"
         ]
 
-        for format in formats {
+        for format in danishFormats {
             let formatter = DateFormatter()
             formatter.locale = Locale(identifier: "da_DK")
+            formatter.calendar = Calendar(identifier: .gregorian)
+            formatter.dateFormat = format
+            if let date = formatter.date(from: value) {
+                return date
+            }
+        }
+
+        let englishFormats = [
+            "MMMM d, yyyy",
+            "MMM d, yyyy",
+            "MMMM d yyyy",
+            "MMM d yyyy"
+        ]
+
+        for format in englishFormats {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
             formatter.calendar = Calendar(identifier: .gregorian)
             formatter.dateFormat = format
             if let date = formatter.date(from: value) {
@@ -328,29 +388,8 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
         return author?.name
     }
     
-    // Custom hash implementation since we have a mutable author property
     func hash(into hasher: inout Hasher) {
         hasher.combine(id)
-        hasher.combine(name)
-        hasher.combine(slug)
-        hasher.combine(content)
-        hasher.combine(trailer)
-        hasher.combine(intro)
-        hasher.combine(stjerne)
-        hasher.combine(topicID)
-        hasher.combine(topicsIDs)
-        hasher.combine(authorID)
-        hasher.combine(mobileImageURL)
-        hasher.combine(thumbURL)
-        hasher.combine(coverURL)
-        hasher.combine(location)
-        hasher.combine(subtitle)
-        hasher.combine(isDraft)
-        hasher.combine(date)
-        hasher.combine(createdOn)
-        hasher.combine(lastPublished)
-        hasher.combine(featured)
-        hasher.combine(author?.id) // Only hash the author ID to avoid issues with mutable author
     }
     
     func encode(to encoder: Encoder) throws {
@@ -524,6 +563,16 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
     // Computed property til at returnere stjerne rating
     var rating: Int {
         return stjerne ?? 0
+    }
+
+    /// True when the article is published and safe to show in the app feed.
+    var isPubliclyPublished: Bool {
+        guard isDraft != true else { return false }
+        guard let lastPublished = lastPublished?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !lastPublished.isEmpty else {
+            return false
+        }
+        return true
     }
     
     // Note: Structs do not have deinit. For debug: no deinit print possible here.

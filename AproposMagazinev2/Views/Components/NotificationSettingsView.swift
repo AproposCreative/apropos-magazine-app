@@ -16,6 +16,12 @@ struct NotificationSettingsView: View {
                     subtitle: "Få besked om nye artikler",
                     isOn: $preferences.newArticles
                 )
+
+                NotificationToggle(
+                    title: "Nye podcasts",
+                    subtitle: "Få besked, når en ny Apropos Podcast udkommer",
+                    isOn: $preferences.newPodcasts
+                )
                 
                 NotificationToggle(
                     title: "Festival reminders",

@@ -205,9 +205,7 @@ class WebflowService {
             
             do {
                 let webflowData = try JSONDecoder().decode(WebflowResponse.self, from: data)
-                let publishedArticles = webflowData.items.filter { article in
-                    article.isDraft == false || article.lastPublished != nil
-                }
+                let publishedArticles = webflowData.items.filter(\.isPubliclyPublished)
 
                 let allArticles = accumulatedArticles + publishedArticles
                 if webflowData.items.count == pageLimit {

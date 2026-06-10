@@ -10,6 +10,10 @@ class NotificationService: NSObject, ObservableObject {
     @Published var authorizationStatusDescription = "Ukendt"
     @Published var fcmToken: String?
     @Published var lastPushSyncSummary = "Ikke synkroniseret endnu"
+    @Published var subscribedTopicsDescription = "—"
+    @Published var lastPushSyncedAt: Date?
+    @Published var isResyncingPush = false
+    @Published var remotePushTestResult: String?
     
     static let shared = NotificationService()
     
@@ -68,16 +72,17 @@ class NotificationService: NSObject, ObservableObject {
             selectedCategoryIds: selectedCategoryIds
         )
         
-        guard articleNotificationsEnabled(
+        let pushEnabled = pushNotificationsEnabled(
             preferences: preferences,
             selectedCategoryIds: selectedCategoryIds
-        ) else {
+        )
+        guard pushEnabled else {
             updateArticleCategorySubscriptions(
                 preferences: preferences,
                 selectedCategoryIds: selectedCategoryIds,
                 allCategoryIds: allCategoryIds
             )
-            lastPushSyncSummary = "Artikel-notifikationer er slået fra."
+            lastPushSyncSummary = "Notifikationer er slået fra."
             return
         }
         
@@ -85,6 +90,10 @@ class NotificationService: NSObject, ObservableObject {
         guard authorized else { return }
         
         await registerForRemoteNotifications()
+        if fcmToken == nil {
+            await refreshFCMToken()
+        }
+
         updateArticleCategorySubscriptions(
             preferences: preferences,
             selectedCategoryIds: selectedCategoryIds,
@@ -92,7 +101,9 @@ class NotificationService: NSObject, ObservableObject {
         )
         
         if fcmToken == nil {
-            lastPushSyncSummary = "Push aktiveret. Afventer FCM-token…"
+            lastPushSyncSummary = "Push aktiveret. Afventer FCM-token — tryk Synkroniser push igen om et øjeblik."
+        } else {
+            updateFCMTokenOnServer(fcmToken)
         }
     }
     
@@ -129,6 +140,7 @@ class NotificationService: NSObject, ObservableObject {
         
         var preferences = NotificationPreferences()
         preferences.newArticles = allowNotifications
+        preferences.newPodcasts = allowNotifications
         
         await activateArticlePushNotifications(
             preferences: preferences,
@@ -212,6 +224,55 @@ class NotificationService: NSObject, ObservableObject {
     private enum StorageKey {
         static let preferences = "article_notification_preferences_v1"
         static let categoryIds = "article_notification_category_ids_v1"
+        static let allCategoryIds = "article_notification_all_category_ids_v1"
+        static let podcastPreferenceMigrated = "notification_podcast_pref_migrated_v1"
+    }
+
+    func persistAllCategoryIds(_ ids: [String]) {
+        UserDefaults.standard.set(ids, forKey: StorageKey.allCategoryIds)
+    }
+
+    func loadPersistedAllCategoryIds() -> [String] {
+        UserDefaults.standard.stringArray(forKey: StorageKey.allCategoryIds) ?? []
+    }
+
+    func expectedActiveTopics(
+        preferences: NotificationPreferences,
+        selectedCategoryIds: [String]
+    ) -> [String] {
+        var topics: [String] = []
+        if preferences.newPodcasts {
+            topics.append("new_podcasts")
+        }
+        if articleNotificationsEnabled(preferences: preferences, selectedCategoryIds: selectedCategoryIds) {
+            if preferences.newArticles && selectedCategoryIds.isEmpty {
+                topics.append("new_articles")
+            }
+            for categoryId in selectedCategoryIds {
+                topics.append(topicIdentifier(prefix: "category", rawValue: categoryId))
+            }
+        }
+        if preferences.festivalReminders { topics.append("festival_reminders") }
+        if preferences.breakingNews { topics.append("breaking_news") }
+        if preferences.weeklyDigest { topics.append("weekly_digest") }
+        return topics
+    }
+
+    func refreshPushDiagnostics(
+        preferences: NotificationPreferences? = nil,
+        selectedCategoryIds: [String]? = nil
+    ) {
+        let (resolvedPreferences, resolvedCategoryIds) = if let preferences, let selectedCategoryIds {
+            (preferences, selectedCategoryIds)
+        } else {
+            loadPersistedArticleNotificationSettings()
+        }
+
+        let topics = expectedActiveTopics(
+            preferences: resolvedPreferences,
+            selectedCategoryIds: resolvedCategoryIds
+        )
+        subscribedTopicsDescription = topics.isEmpty ? "Ingen emner" : topics.joined(separator: ", ")
     }
     
     func articleNotificationsEnabled(
@@ -222,6 +283,16 @@ class NotificationService: NSObject, ObservableObject {
             return true
         }
         return preferences.newArticles
+    }
+
+    func pushNotificationsEnabled(
+        preferences: NotificationPreferences,
+        selectedCategoryIds: [String]
+    ) -> Bool {
+        articleNotificationsEnabled(
+            preferences: preferences,
+            selectedCategoryIds: selectedCategoryIds
+        ) || preferences.newPodcasts
     }
     
     func persistArticleNotificationSettings(
@@ -235,7 +306,7 @@ class NotificationService: NSObject, ObservableObject {
     }
     
     func loadPersistedArticleNotificationSettings() -> (NotificationPreferences, [String]) {
-        let preferences: NotificationPreferences
+        var preferences: NotificationPreferences
         if let data = UserDefaults.standard.data(forKey: StorageKey.preferences),
            let decoded = try? JSONDecoder().decode(NotificationPreferences.self, from: data) {
             preferences = decoded
@@ -245,9 +316,18 @@ class NotificationService: NSObject, ObservableObject {
             preferences = NotificationPreferences()
         }
         
-        let categoryIds = UserDefaults.standard.stringArray(forKey: StorageKey.categoryIds)
-            ?? UserManager.shared.currentUser?.favoriteCategories
-            ?? []
+        let categoryIds = UserDefaults.standard.stringArray(forKey: StorageKey.categoryIds) ?? []
+
+        if !UserDefaults.standard.bool(forKey: StorageKey.podcastPreferenceMigrated) {
+            preferences.newPodcasts = articleNotificationsEnabled(
+                preferences: preferences,
+                selectedCategoryIds: categoryIds
+            )
+            UserDefaults.standard.set(true, forKey: StorageKey.podcastPreferenceMigrated)
+            if let data = try? JSONEncoder().encode(preferences) {
+                UserDefaults.standard.set(data, forKey: StorageKey.preferences)
+            }
+        }
         
         return (preferences, categoryIds)
     }
@@ -256,45 +336,98 @@ class NotificationService: NSObject, ObservableObject {
         refreshAuthorizationStatus()
         guard isAuthorized else {
             lastPushSyncSummary = "Push kræver tilladelse i iOS-indstillinger."
+            refreshPushDiagnostics()
             return
+        }
+
+        let resolvedCategoryIds = allCategoryIds.isEmpty
+            ? loadPersistedAllCategoryIds()
+            : allCategoryIds
+        if !allCategoryIds.isEmpty {
+            persistAllCategoryIds(allCategoryIds)
         }
         
         let (preferences, categoryIds) = loadPersistedArticleNotificationSettings()
         updateArticleCategorySubscriptions(
             preferences: preferences,
             selectedCategoryIds: categoryIds,
-            allCategoryIds: allCategoryIds
+            allCategoryIds: resolvedCategoryIds
         )
         toggleTopic(preferences.festivalReminders, topic: "festival_reminders")
         toggleTopic(preferences.breakingNews, topic: "breaking_news")
         toggleTopic(preferences.weeklyDigest, topic: "weekly_digest")
+        lastPushSyncedAt = Date()
+        refreshPushDiagnostics(preferences: preferences, selectedCategoryIds: categoryIds)
+    }
+
+    func resyncPushSubscriptions(allCategoryIds: [String] = []) async {
+        isResyncingPush = true
+        defer { isResyncingPush = false }
+
+        refreshAuthorizationStatus()
+        guard isAuthorized else {
+            lastPushSyncSummary = "Slå notifikationer til under iOS-indstillinger → Apropos Magazine."
+            refreshPushDiagnostics()
+            return
+        }
+
+        if !allCategoryIds.isEmpty {
+            persistAllCategoryIds(allCategoryIds)
+        }
+
+        await registerForRemoteNotifications()
+        if fcmToken == nil {
+            await refreshFCMToken()
+        }
+
+        syncPersistedArticleNotificationSubscriptions(allCategoryIds: allCategoryIds)
+
+        if fcmToken == nil {
+            lastPushSyncSummary = "Tilmelding sendt. Afventer FCM-token — prøv igen om et øjeblik."
+        } else {
+            updateFCMTokenOnServer(fcmToken)
+        }
+    }
+
+    private func refreshFCMToken() async {
+        await withCheckedContinuation { continuation in
+            Messaging.messaging().token { token, error in
+                Task { @MainActor in
+                    if let error {
+                        self.logger.error("Kunne ikke hente FCM-token: \(error.localizedDescription, privacy: .public)")
+                    } else if let token {
+                        self.fcmToken = token
+                        UserDefaults.standard.set(token, forKey: "FCMRegistrationToken")
+                    }
+                    continuation.resume()
+                }
+            }
+        }
     }
     
     func bootstrapPushNotifications(allCategoryIds: [String] = []) async {
-        refreshAuthorizationStatus()
-        guard isAuthorized else { return }
-        
-        await registerForRemoteNotifications()
-        
+        await resyncPushSubscriptions(allCategoryIds: allCategoryIds)
+
         if UserDefaults.standard.data(forKey: StorageKey.preferences) == nil,
            let user = UserManager.shared.currentUser {
+            let (_, categoryIds) = loadPersistedArticleNotificationSettings()
             persistArticleNotificationSettings(
                 preferences: user.notificationPreferences,
-                selectedCategoryIds: user.favoriteCategories
+                selectedCategoryIds: categoryIds
             )
+            syncPersistedArticleNotificationSubscriptions(allCategoryIds: allCategoryIds)
         }
-        
-        syncPersistedArticleNotificationSubscriptions(allCategoryIds: allCategoryIds)
     }
     
     func subscribeToTopics(for user: UserProfile) {
+        let (_, categoryIds) = loadPersistedArticleNotificationSettings()
         persistArticleNotificationSettings(
             preferences: user.notificationPreferences,
-            selectedCategoryIds: user.favoriteCategories
+            selectedCategoryIds: categoryIds
         )
         syncArticleTopicSubscriptions(
             preferences: user.notificationPreferences,
-            selectedCategoryIds: user.favoriteCategories
+            selectedCategoryIds: categoryIds
         )
         toggleTopic(user.notificationPreferences.festivalReminders, topic: "festival_reminders")
         toggleTopic(user.notificationPreferences.breakingNews, topic: "breaking_news")
@@ -322,7 +455,6 @@ class NotificationService: NSObject, ObservableObject {
     func unsubscribeFromAllArticleTopics(allCategoryIds: [String] = []) {
         Messaging.messaging().unsubscribe(fromTopic: "all_users")
         Messaging.messaging().unsubscribe(fromTopic: "new_articles")
-        Messaging.messaging().unsubscribe(fromTopic: "new_podcasts")
         
         for categoryId in allCategoryIds {
             Messaging.messaging().unsubscribe(fromTopic: topicIdentifier(prefix: "category", rawValue: categoryId))
@@ -429,7 +561,6 @@ class NotificationService: NSObject, ObservableObject {
                 }
             } else {
                 Task { @MainActor in
-                    self.lastPushSyncSummary = "Tilmeldt push for nye artikler."
                     AppDiagnostics.breadcrumb("push_subscribed_\(topic)")
                 }
             }
@@ -456,28 +587,51 @@ class NotificationService: NSObject, ObservableObject {
             preferences: preferences,
             selectedCategoryIds: selectedCategoryIds
         )
-        
-        guard articlesEnabled else {
-            unsubscribeFromAllArticleTopics(allCategoryIds: allCategoryIds)
-            lastPushSyncSummary = "Artikel-notifikationer er slået fra."
-            return
-        }
-        
-        subscribeToTopic("new_podcasts")
-        
-        if preferences.newArticles && selectedCategoryTopics.isEmpty {
-            subscribeToTopic("new_articles")
+        let podcastsEnabled = preferences.newPodcasts
+
+        if podcastsEnabled {
+            subscribeToTopic("new_podcasts")
         } else {
-            unsubscribeFromTopic("new_articles")
+            unsubscribeFromTopic("new_podcasts")
         }
 
-        for topic in selectedCategoryTopics {
-            subscribeToTopic(topic)
+        if articlesEnabled {
+            if preferences.newArticles && selectedCategoryTopics.isEmpty {
+                subscribeToTopic("new_articles")
+            } else {
+                unsubscribeFromTopic("new_articles")
+            }
+
+            for topic in selectedCategoryTopics {
+                subscribeToTopic(topic)
+            }
+
+            for categoryId in allCategoryIds where !selectedCategoryIds.contains(categoryId) {
+                unsubscribeFromTopic(topicIdentifier(prefix: "category", rawValue: categoryId))
+            }
+        } else {
+            unsubscribeFromAllArticleTopics(allCategoryIds: allCategoryIds)
         }
 
-        for categoryId in allCategoryIds where !selectedCategoryIds.contains(categoryId) {
-            unsubscribeFromTopic(topicIdentifier(prefix: "category", rawValue: categoryId))
+        lastPushSyncSummary = pushSyncSummary(
+            preferences: preferences,
+            selectedCategoryIds: selectedCategoryIds
+        )
+        refreshPushDiagnostics(preferences: preferences, selectedCategoryIds: selectedCategoryIds)
+    }
+
+    private func pushSyncSummary(
+        preferences: NotificationPreferences,
+        selectedCategoryIds: [String]
+    ) -> String {
+        let topics = expectedActiveTopics(
+            preferences: preferences,
+            selectedCategoryIds: selectedCategoryIds
+        )
+        guard !topics.isEmpty else {
+            return "Notifikationer er slået fra."
         }
+        return "Tilmeldt: \(topics.joined(separator: ", "))"
     }
     
     // MARK: - Article Notifications (Rich Notifications Support)
@@ -532,7 +686,7 @@ class NotificationService: NSObject, ObservableObject {
     func sendTestLocalNotification(delay: TimeInterval = 2) {
         let content = UNMutableNotificationContent()
         content.title = "Apropos Magazine"
-        content.body = "Test-notifikation — push virker!"
+        content.body = "Lokal test — viser at iOS tillader notifikationer. Team-push er separat."
         content.sound = .default
         content.badge = 1
         content.threadIdentifier = "test_notifications"
@@ -562,6 +716,54 @@ class NotificationService: NSObject, ObservableObject {
         let authorized = isAuthorized ? true : await requestAuthorization()
         guard authorized else { return }
         sendTestLocalNotification(delay: delay)
+    }
+
+    /// Sends a real FCM broadcast to `new_articles` (all subscribed devices). Requires PUSH_NOTIFY_SECRET in build.
+    func sendRemoteArticlePushTest() async {
+        remotePushTestResult = nil
+
+        let (preferences, categoryIds) = loadPersistedArticleNotificationSettings()
+        guard pushNotificationsEnabled(
+            preferences: preferences,
+            selectedCategoryIds: categoryIds
+        ) else {
+            remotePushTestResult = "Slå artikel- eller podcast-notifikationer til først."
+            return
+        }
+
+        guard let secret = SecureConfig.shared.pushNotifySecret else {
+            remotePushTestResult = "Fjern-test kræver PUSH_NOTIFY_SECRET i denne build."
+            return
+        }
+
+        guard let url = SecureConfig.shared.pushTestArticleURL else {
+            remotePushTestResult = "Test-endpoint mangler."
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 30
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(secret, forHTTPHeaderField: "X-Apropos-Podcast-Secret")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "title": "Test: Ny artikel på Apropos Magazine",
+            "body": "Hvis du ser dette, modtager din enhed artikel-push korrekt.",
+        ])
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            if (200...299).contains(status) {
+                remotePushTestResult = "Test-push sendt til alle tilmeldte enheder (emne: new_articles)."
+                AppDiagnostics.breadcrumb("push_remote_test_sent")
+            } else {
+                let body = String(data: data, encoding: .utf8) ?? ""
+                remotePushTestResult = "Test-push fejlede (HTTP \(status)). \(body)"
+            }
+        } catch {
+            remotePushTestResult = "Kunne ikke sende test-push: \(error.localizedDescription)"
+        }
     }
     
     // MARK: - Comprehensive Debug

@@ -342,6 +342,7 @@ class PreferencesManager: ObservableObject {
     func toggleAnalytics() {
         preferences.privacyPreferences.analyticsEnabled.toggle()
         savePreferences()
+        AnalyticsService.shared.applyCollectionPreference()
         HapticManager.shared.lightImpact()
     }
     

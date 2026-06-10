@@ -10,28 +10,16 @@ import SwiftUI
 
 
 struct ContentView: View {
-    @StateObject private var navigationCoordinator = NavigationCoordinator.shared
+    @ObservedObject private var navigationCoordinator = NavigationCoordinator.shared
     @EnvironmentObject var viewModel: ArticleViewModel
-    @StateObject private var themeManager = ThemeManager.shared
-    @StateObject private var podcastPlayerManager = PodcastPlayerManager.shared
+    @ObservedObject private var themeManager = ThemeManager.shared
+    @ObservedObject private var podcastPlayerManager = PodcastPlayerManager.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var articleHeroNamespace
     // Temporarily removed RecommendationEngine to fix crash
     // @StateObject private var recommendationEngine = RecommendationEngine.shared
     @State private var showWhatsNew = false
     @State private var showNotificationOnboarding = false
-    
-    init() {
-        // Listen for deep link notifications
-        NotificationCenter.default.addObserver(
-            forName: NSNotification.Name("HandleDeepLink"),
-            object: nil,
-            queue: .main
-        ) { _ in
-            // NavigationCoordinator will be available in body
-            // We'll handle this in onAppear
-        }
-    }
     
     private var tabSelection: Binding<Tab> {
         Binding(
@@ -87,7 +75,7 @@ struct ContentView: View {
                     SearchView_Enhanced()
                         .environmentObject(viewModel)
                         .navigationDestination(for: Article.self) { article in
-                            ArticleDetailView(article: article)
+                            ArticleDetailView(article: article, analyticsSource: .search)
                                 .environmentObject(viewModel)
                         }
                         .navigationDestination(for: AppRoute.self) { route in
@@ -185,47 +173,27 @@ struct ContentView: View {
             
             UITabBar.appearance().standardAppearance = appearance
             UITabBar.appearance().scrollEdgeAppearance = appearance
-        }
-        .environmentObject(viewModel)
-        .preferredColorScheme(themeManager.currentTheme.colorScheme)
-        .onAppear {
-            // Handle pending deep links
+
             if let deepLink = navigationCoordinator.pendingDeepLink {
                 navigationCoordinator.handleDeepLink(deepLink)
                 navigationCoordinator.pendingDeepLink = nil
             }
-            
-            // Listen for deep link notifications
-            NotificationCenter.default.addObserver(
-                forName: NSNotification.Name("HandleDeepLink"),
-                object: nil,
-                queue: .main
-            ) { notification in
-                if let url = notification.userInfo?["url"] as? URL {
-                    Task { @MainActor in
-                        navigationCoordinator.handleDeepLink(url)
-                    }
-                }
-            }
-            
-            Task { @MainActor in
-                await PodcastRepository.shared.refreshManifest()
-            }
-            
-            // Check for What's New after a short delay to ensure view is fully visible
-            // This prevents the sheet from appearing before ContentView is ready
-            Task { @MainActor in
-                // Wait a bit for ContentView to be fully visible after splash screen
-                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
-                
-                if !showWhatsNew {
-                    let shouldShow = WhatsNewManager.shared.shouldShowWhatsNew()
 
-                    if shouldShow {
-                        showWhatsNew = true
-                    } else {
-                        await presentNotificationOnboardingIfNeeded()
-                    }
+            navigationCoordinator.flushPendingNotificationNavigationIfNeeded()
+            AppReadiness.markUIReady()
+        }
+        .preferredColorScheme(themeManager.currentTheme.colorScheme)
+        .task {
+            // Wait for ContentView to be fully visible after splash screen
+            try? await Task.sleep(nanoseconds: 500_000_000)
+
+            if !showWhatsNew {
+                let shouldShow = WhatsNewManager.shared.shouldShowWhatsNew()
+
+                if shouldShow {
+                    showWhatsNew = true
+                } else {
+                    await presentNotificationOnboardingIfNeeded()
                 }
             }
         }

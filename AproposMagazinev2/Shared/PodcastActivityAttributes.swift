@@ -9,6 +9,7 @@ struct PodcastActivityAttributes: ActivityAttributes {
         let elapsed: TimeInterval
         let duration: TimeInterval
         let artworkURL: URL?
+        let artworkArticleId: String?
     }
 
     let showName: String

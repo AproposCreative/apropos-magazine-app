@@ -27,7 +27,10 @@ struct BootloaderView: View {
         .ignoresSafeArea()
         .onAppear {
             viewModel.start()
-            if UIAccessibility.isReduceMotionEnabled {
+            if UserDefaults.standard.bool(forKey: NotificationNavigation.skipBootloaderKey) {
+                videoFinished = true
+                tryFinishBootloader()
+            } else if UIAccessibility.isReduceMotionEnabled {
                 videoFinished = true
                 tryFinishBootloader()
             }
@@ -50,6 +53,8 @@ struct BootloaderView: View {
         withAnimation(.easeInOut(duration: 0.3)) {
             showBootloader = false
         }
+
+        UserDefaults.standard.removeObject(forKey: NotificationNavigation.skipBootloaderKey)
     }
 }
 

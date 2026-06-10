@@ -47,10 +47,7 @@ struct OptimizedImageView: View {
                 .onAppear {
                     isLoading = true
                 }
-                // Cancel image loading and reset states when view disappears
                 .onDisappear {
-                    // Cancel ongoing image download to free memory and resources
-                    SDWebImageManager.shared.cancelAll()
                     isLoading = false
                     loadError = false
                 }
@@ -104,9 +101,6 @@ struct ProgressiveImageView: View {
             loadProgressiveImage()
         }
         .onDisappear {
-            // Cancel any ongoing image downloads to free up memory and network resources
-            SDWebImageManager.shared.cancelAll()
-            // Reset state to initial to avoid retaining images when view is offscreen
             currentImage = nil
             isLoading = false
         }
@@ -140,8 +134,7 @@ struct ProgressiveImageView: View {
     }
     
     private func loadLowQualityImage(from url: URL) {
-        // Load a smaller version for progressive loading
-        let lowQualityURL = url.appendingPathComponent("?w=200&q=30")
+        guard let lowQualityURL = resizedImageURL(from: url, width: 200, quality: 30) else { return }
         
         SDWebImageManager.shared.loadImage(
             with: lowQualityURL,
@@ -154,6 +147,15 @@ struct ProgressiveImageView: View {
                 }
             }
         }
+    }
+    
+    private func resizedImageURL(from url: URL, width: Int, quality: Int) -> URL? {
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        components?.queryItems = [
+            URLQueryItem(name: "w", value: "\(width)"),
+            URLQueryItem(name: "q", value: "\(quality)")
+        ]
+        return components?.url
     }
     
     private var placeholderView: some View {
@@ -201,10 +203,6 @@ struct ResponsiveImageView: View {
             contentMode: contentMode,
             cornerRadius: cornerRadius
         )
-        // Cancel downloads and cleanup when disappearing
-        .onDisappear {
-            SDWebImageManager.shared.cancelAll()
-        }
     }
 }
 
@@ -291,10 +289,6 @@ extension View {
             contentMode: contentMode,
             cornerRadius: cornerRadius
         )
-        .onDisappear {
-            // Cancel any ongoing image downloads to improve memory usage
-            SDWebImageManager.shared.cancelAll()
-        }
     }
     
     func progressiveImage(
@@ -309,10 +303,6 @@ extension View {
             contentMode: contentMode,
             cornerRadius: cornerRadius
         )
-        .onDisappear {
-            // Cancel ongoing downloads and reset states to avoid memory leaks
-            SDWebImageManager.shared.cancelAll()
-        }
     }
     
     func responsiveImage(
@@ -327,10 +317,6 @@ extension View {
             contentMode: contentMode,
             cornerRadius: cornerRadius
         )
-        .onDisappear {
-            // Cancel downloads for resource cleanup
-            SDWebImageManager.shared.cancelAll()
-        }
     }
 }
 

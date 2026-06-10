@@ -2,6 +2,7 @@ import Foundation
 import UIKit
 import SDWebImage
 import SwiftUI
+import WidgetKit
 
 @MainActor
 class CacheManager: ObservableObject {
@@ -22,6 +23,7 @@ class CacheManager: ObservableObject {
     private let sectionsCacheKey = "cached_sections"
     private let authorsCacheKey = "cached_authors"
     private let starsCacheKey = "cached_stars"
+    private static let articlesCacheVersion = "1.2"
     
     // Cache policies
     private let maxCacheSize: Int64 = 500 * 1024 * 1024 // 500 MB
@@ -78,12 +80,64 @@ class CacheManager: ObservableObject {
     }
     
     // MARK: - Article Caching
+
+    func syncWidgetFeed(from articles: [Article]) {
+        guard !articles.isEmpty else { return }
+
+        let topics = getCachedTopics() ?? []
+        let payload = Article.sortedByCreatedNewestFirst(articles).prefix(5).map { article in
+            WidgetArticle(
+                id: article.id,
+                name: article.name ?? "Artikel",
+                slug: article.slug ?? article.id,
+                thumbURL: {
+                    if let url = article.thumbURL ?? article.mobileImageURL ?? article.coverURL {
+                        return url.absoluteString
+                    }
+                    return ""
+                }(),
+                intro: article.intro ?? "",
+                date: article.lastPublished ?? article.createdOn ?? article.date ?? "",
+                stjerne: article.stjerne,
+                topic: topicName(for: article, topics: topics)
+            )
+        }
+
+        let widgetArticles = Array(payload)
+        WidgetDataStore.saveLatestArticles(widgetArticles, reloadTimelines: false)
+
+        Task.detached(priority: .utility) {
+            let cached = await WidgetImageStore.cacheImages(for: widgetArticles, fetchFromNetwork: true)
+            await MainActor.run {
+                WidgetDataStore.saveLatestArticles(cached, reloadTimelines: true)
+                WidgetCenter.shared.reloadAllTimelines()
+            }
+        }
+    }
+
+    private func topicName(for article: Article, topics: [Topic]) -> String {
+        if let topicID = article.topicID,
+           let topic = topics.first(where: { $0.id == topicID }) {
+            return topic.name
+        }
+
+        if let topicsIDs = article.topicsIDs {
+            for topicID in topicsIDs {
+                if let topic = topics.first(where: { $0.id == topicID }) {
+                    return topic.name
+                }
+            }
+        }
+
+        return ""
+    }
     
     func cacheArticles(_ articles: [Article]) {
+        let publishedArticles = articles.filter(\.isPubliclyPublished)
         let cacheData = CacheData(
-            articles: articles,
+            articles: publishedArticles,
             timestamp: Date(),
-            version: "1.0"
+            version: Self.articlesCacheVersion
         )
 
         do {
@@ -92,7 +146,8 @@ class CacheManager: ObservableObject {
             // Save to standard UserDefaults (for main app)
             userDefaults.set(data, forKey: articlesCacheKey)
             userDefaults.set(Date(), forKey: lastCacheUpdateKey)
-            cachedArticles = articles
+            cachedArticles = publishedArticles
+            syncWidgetFeed(from: publishedArticles)
 
             // ALSO save to App Group UserDefaults (for Notification Service Extension)
             // This allows the extension to check if articles are already published
@@ -102,18 +157,24 @@ class CacheManager: ObservableObject {
 
             // Create simplified cache data for extension (id, name, lastPublished, createdOn)
             // Name is included for fallback search when article_id is missing from notifications
-            let simplifiedArticles = articles.map { article -> [String: String] in
-                [
+            let simplifiedArticles = publishedArticles.map { article -> [String: String] in
+                let thumbURL = (article.thumbURL ?? article.mobileImageURL ?? article.coverURL)?.absoluteString ?? ""
+                let topic = topicName(for: article, topics: getCachedTopics() ?? [])
+                return [
                     "id": article.id,
                     "name": article.name ?? "",
+                    "slug": article.slug ?? article.id,
+                    "thumbURL": thumbURL,
+                    "stjerne": article.stjerne.map(String.init) ?? "",
+                    "topic": topic,
                     "lastPublished": article.lastPublished ?? "",
-                    "createdOn": article.createdOn ?? ""
+                    "createdOn": article.createdOn ?? "",
                 ]
             }
             let simplifiedCacheData: [String: Any] = [
                 "articles": simplifiedArticles,
                 "timestamp": Date().timeIntervalSince1970,
-                "version": "1.0"
+                "version": Self.articlesCacheVersion
             ]
 
             do {
@@ -123,47 +184,40 @@ class CacheManager: ObservableObject {
                 let simplifiedData = try JSONSerialization.data(withJSONObject: simplifiedCacheData)
                 appGroupDefaults.set(simplifiedData, forKey: articlesCacheKey)
                 appGroupDefaults.set(Date(), forKey: lastCacheUpdateKey)
+                appGroupDefaults.synchronize()
             } catch {
             }
-
-            WidgetDataStore.saveLatestArticles(
-                articles.prefix(5).map { article in
-                    WidgetArticle(
-                        id: article.id,
-                        name: article.name ?? "Artikel",
-                        slug: article.slug ?? article.id,
-                        thumbURL: {
-                            if let url = article.thumbURL ?? article.mobileImageURL ?? article.coverURL {
-                                return url.absoluteString
-                            }
-                            return ""
-                        }(),
-                        intro: article.intro ?? "",
-                        date: article.lastPublished ?? article.createdOn ?? article.date ?? ""
-                    )
-                }
-            )
 
         } catch {
         }
     }
     
     func getCachedArticles() -> [Article]? {
+        func loadArticles(from data: Data) throws -> [Article]? {
+            let cacheData = try JSONDecoder().decode(CacheData.self, from: data)
+            guard cacheData.version == Self.articlesCacheVersion else {
+                clearArticlesCache()
+                return nil
+            }
+
+            let age = Date().timeIntervalSince(cacheData.timestamp)
+            guard age < maxArticleAge else {
+                clearArticlesCache()
+                return nil
+            }
+
+            cachedArticles = cacheData.articles.filter(\.isPubliclyPublished)
+            return cachedArticles
+        }
+
         // Return cached articles if available and valid
-        if let cached = cachedArticles {
+        if cachedArticles != nil {
             guard let data = userDefaults.data(forKey: articlesCacheKey) else {
                 clearArticlesCache()
                 return nil
             }
             do {
-                let cacheData = try JSONDecoder().decode(CacheData.self, from: data)
-                let age = Date().timeIntervalSince(cacheData.timestamp)
-                if age < maxArticleAge {
-                    return cached
-                } else {
-                    clearArticlesCache()
-                    return nil
-                }
+                return try loadArticles(from: data)
             } catch {
                 clearArticlesCache()
                 return nil
@@ -176,14 +230,7 @@ class CacheManager: ObservableObject {
         }
         
         do {
-            let cacheData = try JSONDecoder().decode(CacheData.self, from: data)
-            let age = Date().timeIntervalSince(cacheData.timestamp)
-            guard age < maxArticleAge else {
-                clearArticlesCache()
-                return nil
-            }
-            cachedArticles = cacheData.articles
-            return cacheData.articles
+            return try loadArticles(from: data)
         } catch {
             clearArticlesCache()
             return nil
@@ -362,6 +409,50 @@ class CacheManager: ObservableObject {
                 SDWebImageManager.shared.loadImage(
                     with: url,
                     options: [.scaleDownLargeImages, .continueInBackground, .queryMemoryData],
+                    progress: nil
+                ) { _, _, _, _, _, _ in }
+            }
+        }
+    }
+
+    func preloadArticleDetailImages(for article: Article) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            var seen = Set<String>()
+            var urls: [URL] = []
+
+            func add(_ urlString: String?) {
+                guard let urlString = urlString?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !urlString.isEmpty,
+                      let url = URL(string: urlString),
+                      seen.insert(url.absoluteString).inserted else {
+                    return
+                }
+                urls.append(url)
+            }
+
+            add(article.mobileImageURL?.absoluteString)
+            add(article.thumbURL?.absoluteString)
+            add(article.coverURL?.absoluteString)
+
+            var mutableArticle = article
+            add(mutableArticle.thumbnailURL)
+
+            if let content = article.content, !content.isEmpty {
+                let cleaned = content.replacingOccurrences(
+                    of: "<style[\\s\\S]*?</style>",
+                    with: "",
+                    options: .regularExpression
+                )
+                let processed = ArticleHTMLProcessor.process(cleaned)
+                for urlString in ArticleHTMLProcessor.imageURLs(in: processed) {
+                    add(ArticleHTMLProcessor.optimizedImageURL(from: urlString))
+                }
+            }
+
+            for url in urls {
+                SDWebImageManager.shared.loadImage(
+                    with: url,
+                    options: [.highPriority, .scaleDownLargeImages, .continueInBackground, .queryMemoryData],
                     progress: nil
                 ) { _, _, _, _, _, _ in }
             }

@@ -112,6 +112,22 @@ class SecureConfig {
         }
         return url
     }
+
+    var pushNotifySecret: String? {
+        secretValue(for: "PUSH_NOTIFY_SECRET", service: "push_notify_secret", envKey: "PUSH_NOTIFY_SECRET")
+            ?? secretValue(for: "PODCAST_NOTIFY_SECRET", service: "podcast_notify_secret", envKey: "PODCAST_NOTIFY_SECRET")
+    }
+
+    var pushTestArticleURL: URL? {
+        if let rawValue = secretValue(
+            for: "PUSH_TEST_ARTICLE_URL",
+            service: "push_test_article_url",
+            envKey: "PUSH_TEST_ARTICLE_URL"
+        ), let url = URL(string: rawValue) {
+            return url
+        }
+        return URL(string: "https://us-central1-apropos-magazine-6004a.cloudfunctions.net/sendTestArticleNotification")
+    }
 }
 
 // MARK: - Setup Helper

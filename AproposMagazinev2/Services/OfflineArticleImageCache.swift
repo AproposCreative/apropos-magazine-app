@@ -12,6 +12,10 @@ final class OfflineArticleImageCache {
     private var activeArticleIds = Set<String>()
     private let queue = DispatchQueue(label: "com.aproposmagazine.offline-article-images")
 
+    private func withLockedState(_ work: () -> Void) {
+        queue.sync(execute: work)
+    }
+
     private init() {
         let base = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first?
             .appendingPathComponent("AproposMagazine", isDirectory: true)
@@ -26,9 +30,19 @@ final class OfflineArticleImageCache {
 
     func displayURL(for remote: URL?, articleId: String) -> URL? {
         guard let remote else { return nil }
-        if let local = localFileURL(forRemote: remote.absoluteString, articleId: articleId) {
-            return local
+        guard isArticleAvailableOffline(articleId) else { return remote }
+
+        let candidates = [
+            remote.absoluteString,
+            ArticleHTMLProcessor.optimizedImageURL(from: remote.absoluteString)
+        ]
+
+        for candidate in candidates {
+            if let local = localFileURL(forRemote: candidate, articleId: articleId) {
+                return local
+            }
         }
+
         return remote
     }
 
@@ -43,6 +57,7 @@ final class OfflineArticleImageCache {
 
     func prepareHTMLForOfflineDisplay(_ html: String, articleId: String?) -> (html: String, baseURL: URL?) {
         guard let articleId, !articleId.isEmpty,
+              isArticleAvailableOffline(articleId),
               let mapping = loadMapping(articleId: articleId),
               !mapping.isEmpty else {
             return (html, nil)
@@ -50,14 +65,41 @@ final class OfflineArticleImageCache {
 
         let directory = articleDirectory(for: articleId)
         var result = html
+        var didReplaceAny = false
 
         for (remote, filename) in mapping.sorted(by: { $0.key.count > $1.key.count }) {
             let fileURL = directory.appendingPathComponent(filename)
             guard fileManager.fileExists(atPath: fileURL.path) else { continue }
+            guard result.contains(remote) else { continue }
             result = result.replacingOccurrences(of: remote, with: filename)
+            didReplaceAny = true
         }
 
-        return (result, directory)
+        return (result, didReplaceAny ? directory : nil)
+    }
+
+    func pruneOrphanedCaches(keeping articleIds: Set<String>) {
+        guard let entries = try? fileManager.contentsOfDirectory(
+            at: rootDirectory,
+            includingPropertiesForKeys: nil
+        ) else {
+            return
+        }
+
+        for entry in entries where entry.hasDirectoryPath {
+            let articleId = entry.lastPathComponent
+            if !articleIds.contains(articleId) {
+                try? fileManager.removeItem(at: entry)
+            }
+        }
+    }
+
+    private func isArticleAvailableOffline(_ articleId: String) -> Bool {
+        guard let data = UserDefaults.standard.data(forKey: "offline_articles"),
+              let articles = try? JSONDecoder().decode([Article].self, from: data) else {
+            return false
+        }
+        return articles.contains { $0.id == articleId }
     }
 
     func scheduleCacheImages(for articles: [Article]) {
@@ -69,7 +111,7 @@ final class OfflineArticleImageCache {
     func scheduleCacheImages(for article: Article) {
         let articleId = article.id
         var shouldStart = false
-        queue.sync {
+        withLockedState {
             shouldStart = !activeArticleIds.contains(articleId)
             if shouldStart {
                 activeArticleIds.insert(articleId)
@@ -79,8 +121,10 @@ final class OfflineArticleImageCache {
 
         Task.detached(priority: .utility) { [weak self] in
             defer {
-                _ = self?.queue.sync {
-                    self?.activeArticleIds.remove(articleId)
+                if let self {
+                    self.withLockedState {
+                        self.activeArticleIds.remove(articleId)
+                    }
                 }
             }
             await self?.cacheImages(for: article)
@@ -127,7 +171,7 @@ final class OfflineArticleImageCache {
     }
 
     func removeImages(for articleId: String) {
-        _ = queue.sync {
+        withLockedState {
             activeArticleIds.remove(articleId)
         }
         let directory = articleDirectory(for: articleId)
@@ -135,7 +179,7 @@ final class OfflineArticleImageCache {
     }
 
     func removeAllCachedImages() {
-        _ = queue.sync {
+        withLockedState {
             activeArticleIds.removeAll()
         }
         try? fileManager.removeItem(at: rootDirectory)
