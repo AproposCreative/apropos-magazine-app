@@ -688,14 +688,13 @@ extension ArticleDetailView {
             let article = resolvedArticle
             let categories = viewModel.categories(for: article)
             let image = await ShareCardGenerator.generate(article: article)
-            let items = await ArticleShareComposer.shareItems(
-                for: article,
-                categories: categories,
-                image: image
-            )
 
             await MainActor.run {
-                shareItems = items
+                shareItems = ArticleShareComposer.shareItems(
+                    for: article,
+                    categories: categories,
+                    image: image
+                )
                 isGeneratingShareCard = false
                 showShareSheet = true
             }

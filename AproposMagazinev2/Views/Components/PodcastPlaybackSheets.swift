@@ -374,16 +374,13 @@ struct PodcastAudioPlayerSheet: View {
 
     private func shareCurrentPodcastClip() {
         guard let episode = currentEpisode else { return }
-        Task {
-            let items = await ArticleShareComposer.podcastClipShareItems(
+        Task { @MainActor in
+            shareItems = ArticleShareComposer.podcastClipShareItems(
                 episode: episode,
                 article: currentArticle,
                 timestamp: podcastPlayer.currentTime
             )
-            await MainActor.run {
-                shareItems = items
-                showShareSheet = true
-            }
+            showShareSheet = true
         }
     }
 
