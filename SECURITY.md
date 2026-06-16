@@ -28,9 +28,11 @@ ggshield secret scan path .
 
 If keys were ever committed or flagged as **Valid** in GitGuardian:
 
-1. **Google API key** — [Google Cloud Console](https://console.cloud.google.com/apis/credentials) → create new key → restrict by iOS bundle ID → update `Secrets.plist` / Keychain → delete old key.
-2. **OpenAI API key** — [OpenAI dashboard](https://platform.openai.com/api-keys) → revoke old → update `Secrets.plist`.
-3. **Firebase Storage tokens** — rotate by re-uploading files with new tokens via `node scripts/podcast-auto-publish.mjs`, or deploy public-read rules (see below).
+1. **Google API key** — rotate with `scripts/rotate-api-keys.sh` or [Google Cloud Console](https://console.cloud.google.com/apis/credentials?project=apropos-magazine-6004a). Update `Secrets.plist`, `GoogleService-Info.plist`, Keychain.
+2. **OpenAI API key** — [OpenAI dashboard](https://platform.openai.com/api-keys) → create new, revoke old → update `Secrets.plist` / Keychain. (Requires dashboard; no user-level API for key creation.)
+3. **Firebase Storage tokens** — `node scripts/podcast-auto-publish.mjs`, or deploy public-read rules below.
+
+**Last rotation (2026-06-16):** Google iOS key rotated via gcloud; git history scrubbed (`REDACTED_GOOGLE_API_KEY`); force-pushed `main`.
 
 ## Git history
 
