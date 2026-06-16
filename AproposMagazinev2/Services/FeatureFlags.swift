@@ -10,7 +10,8 @@ enum FeatureFlags {
         "perf_podcast_prefetch_wifi_only": true,
         "perf_podcast_forward_buffer_seconds": 10.0,
         "perf_podcast_disk_cache_enabled": true,
-        "perf_podcast_disk_cache_max_mb": 300
+        "perf_podcast_disk_cache_max_mb": 300,
+        "subscriptions_enabled": false
     ]
 
     private static var store: UserDefaults {
@@ -58,5 +59,10 @@ enum FeatureFlags {
 
     static var podcastDiskCacheMaxMB: Int {
         max(50, store.integer(forKey: "perf_podcast_disk_cache_max_mb"))
+    }
+
+    /// Enable after creating subscription products in App Store Connect.
+    static var subscriptionsEnabled: Bool {
+        store.bool(forKey: "subscriptions_enabled")
     }
 }

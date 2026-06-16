@@ -13,8 +13,25 @@ struct WidgetArticleCoverView: View {
                 Image(uiImage: uiImage)
                     .resizable()
                     .scaledToFill()
+            } else if let url = remoteImageURL {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    default:
+                        EmptyView()
+                    }
+                }
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+    }
+
+    private var remoteImageURL: URL? {
+        let value = article.thumbURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return nil }
+        return URL(string: value)
     }
 }

@@ -91,7 +91,7 @@ private struct LatestArticleWidgetContent: View {
     }
 
     private var showsPlaceholder: Bool {
-        entry.isPlaceholder || entry.articles.isEmpty
+        entry.articles.isEmpty
     }
 
     var body: some View {
@@ -114,18 +114,36 @@ private struct LatestArticleWidgetBackground: View {
     }
 
     var body: some View {
-        if entry.isPlaceholder || entry.articles.isEmpty {
+        if entry.articles.isEmpty {
             WidgetPlaceholderBackground()
         } else if let article, let uiImage = WidgetImageStore.uiImage(for: article) {
             Image(uiImage: uiImage)
                 .resizable()
                 .scaledToFill()
                 .overlay(Color.black.opacity(0.38))
+        } else if let article, let url = remoteImageURL(for: article) {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .scaledToFill()
+                        .overlay(Color.black.opacity(0.38))
+                default:
+                    WidgetArticleBackgroundFill(article: article)
+                }
+            }
         } else if let article {
             WidgetArticleBackgroundFill(article: article)
         } else {
             Color(red: 0.14, green: 0.14, blue: 0.16)
         }
+    }
+
+    private func remoteImageURL(for article: WidgetArticle) -> URL? {
+        let value = article.thumbURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return nil }
+        return URL(string: value)
     }
 }
 
@@ -140,7 +158,7 @@ private struct AproposTodayWidgetContent: View {
     }
 
     private var showsPlaceholder: Bool {
-        entry.isPlaceholder || entry.articles.isEmpty
+        entry.articles.isEmpty
     }
 
     var body: some View {
@@ -190,8 +208,23 @@ struct WidgetArticleBackgroundFill: View {
                     .resizable()
                     .scaledToFill()
                     .overlay(Color.black.opacity(0.35))
+            } else if let url = remoteImageURL {
+                AsyncImage(url: url) { phase in
+                    if case .success(let image) = phase {
+                        image
+                            .resizable()
+                            .scaledToFill()
+                            .overlay(Color.black.opacity(0.35))
+                    }
+                }
             }
         }
+    }
+
+    private var remoteImageURL: URL? {
+        let value = article.thumbURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return nil }
+        return URL(string: value)
     }
 }
 
@@ -226,7 +259,7 @@ struct WidgetPlaceholderContent: View {
 }
 
 private func deepLinkURL(for entry: LatestArticleEntry) -> URL {
-    if entry.isPlaceholder || entry.articles.isEmpty {
+    if entry.articles.isEmpty {
         return URL(string: "aproposmagazine://home")!
     }
     let article = entry.articles.first ?? WidgetArticle.galleryPreview

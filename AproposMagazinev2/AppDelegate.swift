@@ -28,6 +28,7 @@ import WidgetKit
         AppDiagnostics.breadcrumb("app_launch")
         Task { @MainActor in
             PodcastLiveActivityService.shared.dismissUnsupportedActivitiesIfNeeded()
+            SubscriptionManager.shared.start()
         }
 
         // Set up notification delegate

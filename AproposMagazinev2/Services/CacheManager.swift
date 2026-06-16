@@ -104,7 +104,7 @@ class CacheManager: ObservableObject {
         }
 
         let widgetArticles = Array(payload)
-        WidgetDataStore.saveLatestArticles(widgetArticles, reloadTimelines: false)
+        WidgetDataStore.saveLatestArticles(widgetArticles, reloadTimelines: true)
 
         Task.detached(priority: .utility) {
             let cached = await WidgetImageStore.cacheImages(for: widgetArticles, fetchFromNetwork: true)

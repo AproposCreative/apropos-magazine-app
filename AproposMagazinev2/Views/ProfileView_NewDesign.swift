@@ -202,6 +202,8 @@ struct SettingsView: View {
     @State private var showHelpSupport = false
     @State private var showContactUs = false
     @State private var showLoginSheet = false
+    @State private var showPaywall = false
+    @ObservedObject private var subscriptionManager = SubscriptionManager.shared
     
     private var articleNotificationsEnabled: Bool {
         notificationService.articleNotificationsEnabled(
@@ -346,6 +348,21 @@ struct SettingsView: View {
                     }
                 }
                 
+                if FeatureFlags.subscriptionsEnabled {
+                    Section("Abonnement") {
+                        Button {
+                            showPaywall = true
+                        } label: {
+                            SettingsRow(
+                                icon: "crown.fill",
+                                title: subscriptionManager.isSubscribed ? "Apropos Premium" : "Bliv abonnent",
+                                subtitle: subscriptionManager.isSubscribed ? "Aktivt abonnement" : "Få fuld adgang til artikler"
+                            )
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                }
+                
                 // App Settings
                 Section("App") {
                     Button(action: {
@@ -423,6 +440,9 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showLoginSheet) {
             LoginSheetView(isPresented: $showLoginSheet)
+        }
+        .sheet(isPresented: $showPaywall) {
+            PaywallView()
         }
     }
 

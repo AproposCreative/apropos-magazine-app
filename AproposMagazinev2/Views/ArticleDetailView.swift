@@ -303,6 +303,8 @@ struct ArticleDetailView: View {
     @State private var headerImageFailed = false
     @State private var showGlassTopBar = false
     @State private var lastSavedScrollProgress: Double = -1
+    @State private var showPaywall = false
+    @ObservedObject private var subscriptionManager = SubscriptionManager.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     
     let optionId = "b9a5ef043f1f58db54c41ed6fe3e746e"
@@ -327,6 +329,13 @@ struct ArticleDetailView: View {
     
     private var resolvedArticle: Article {
         viewModel.articles.first(where: { $0.id == article.id }) ?? article
+    }
+
+    private var canReadFullArticle: Bool {
+        ArticleAccessPolicy.canReadFullContent(
+            article: resolvedArticle,
+            isSubscribed: subscriptionManager.isSubscribed
+        )
     }
     
     var body: some View {
@@ -583,31 +592,37 @@ struct ArticleDetailView: View {
                     .padding(.bottom, 20)
                     
                     if let content = resolvedArticle.content, !content.isEmpty {
-                        VStack(spacing: 0) {
-                            HTMLTextView(html: content, articleId: resolvedArticle.id, dynamicHeight: $htmlHeight)
-                                .frame(height: max(htmlHeight, 240))
-                                .padding(.horizontal, 16)
+                        if canReadFullArticle {
+                            VStack(spacing: 0) {
+                                HTMLTextView(html: content, articleId: resolvedArticle.id, dynamicHeight: $htmlHeight)
+                                    .frame(height: max(htmlHeight, 240))
+                                    .padding(.horizontal, 16)
 
-                            if let trailer = resolvedArticle.trailer, !trailer.isEmpty {
-                                LazyVStack {
-                                    TrailerWebView(trailer: trailer)
-                                        .frame(height: 220)
-                                        .cornerRadius(12)
-                                        .clipped()
-                                }
-                                .padding(.top, 10)
-                                .padding(.horizontal, 16)
-                                Rectangle()
-                                    .fill(Color.gray.opacity(0.3))
-                                    .frame(height: 1)
+                                if let trailer = resolvedArticle.trailer, !trailer.isEmpty {
+                                    LazyVStack {
+                                        TrailerWebView(trailer: trailer)
+                                            .frame(height: 220)
+                                            .cornerRadius(12)
+                                            .clipped()
+                                    }
                                     .padding(.top, 10)
                                     .padding(.horizontal, 16)
-                            }
+                                    Rectangle()
+                                        .fill(Color.gray.opacity(0.3))
+                                        .frame(height: 1)
+                                        .padding(.top, 10)
+                                        .padding(.horizontal, 16)
+                                }
 
-                            if let authorID = resolvedArticle.authorID, !authorID.isEmpty {
-                                AuthorCardView(authorID: authorID)
-                                    .padding(.horizontal, 16)
-                                    .padding(.top, 4)
+                                if let authorID = resolvedArticle.authorID, !authorID.isEmpty {
+                                    AuthorCardView(authorID: authorID)
+                                        .padding(.horizontal, 16)
+                                        .padding(.top, 4)
+                                }
+                            }
+                        } else {
+                            SubscriptionPaywallCard {
+                                showPaywall = true
                             }
                         }
                     }
@@ -644,6 +659,9 @@ struct ArticleDetailView: View {
             if !shareItems.isEmpty {
                 ActivityView(activityItems: shareItems)
             }
+        }
+        .sheet(isPresented: $showPaywall) {
+            PaywallView()
         }
         .task(id: article.id) {
             shouldShowRelatedArticles = false

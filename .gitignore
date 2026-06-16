@@ -58,6 +58,12 @@ secrets.json
 functions/node_modules/
 node_modules/
 
+# Firebase / debug logs
+firebase-debug.log
+firebase-debug*.log
+**/firebase-debug.log
+*conflicted copy*
+
 # macOS
 .DS_Store
 

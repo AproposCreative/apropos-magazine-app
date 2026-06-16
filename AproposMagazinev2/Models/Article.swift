@@ -80,6 +80,7 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
     let createdOn: String?
     let lastPublished: String?
     let featured: Bool?
+    let isPremium: Bool?
     var author: Author?
 
     enum CodingKeys: String, CodingKey {
@@ -278,6 +279,9 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
         case subtitle
         case date
         case featured
+        case premium
+        case subscriberOnly = "subscriber-only"
+        case paywall
     }
 
     enum ThumbKeys: String, CodingKey {
@@ -324,6 +328,21 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
                 if let url = dictionaryPayload["url"]?.trimmingCharacters(in: .whitespacesAndNewlines), !url.isEmpty {
                     return url
                 }
+            }
+        }
+        return nil
+    }
+
+    private static func decodePremium(from container: KeyedDecodingContainer<FieldDataKeys>) -> Bool? {
+        let keys: [FieldDataKeys] = [.premium, .subscriberOnly, .paywall]
+        for key in keys {
+            if let value = try? container.decodeIfPresent(Bool.self, forKey: key) {
+                return value
+            }
+            if let value = try? container.decodeIfPresent(String.self, forKey: key) {
+                let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                if ["true", "1", "yes", "ja"].contains(normalized) { return true }
+                if ["false", "0", "no", "nej"].contains(normalized) { return false }
             }
         }
         return nil
@@ -416,6 +435,7 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
         try fieldData.encodeIfPresent(subtitle, forKey: .subtitle)
         try fieldData.encodeIfPresent(date, forKey: .date)
         try fieldData.encodeIfPresent(featured, forKey: .featured)
+        try fieldData.encodeIfPresent(isPremium, forKey: .premium)
         // Encode mobile image as nested container if present
         if let mobileImageURL = mobileImageURL {
             var mobileImageContainer = fieldData.nestedContainer(keyedBy: ThumbKeys.self, forKey: .mobileImage)
@@ -460,6 +480,7 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
         subtitle = try fieldDataContainer.decodeIfPresent(String.self, forKey: .subtitle)
         date = try fieldDataContainer.decodeIfPresent(String.self, forKey: .date)
         featured = try fieldDataContainer.decodeIfPresent(Bool.self, forKey: .featured)
+        isPremium = Article.decodePremium(from: fieldDataContainer)
         
         // Decode trailer from one of multiple possible keys, prefer videoTrailer, then trailerAlt, then videoTrailerRaw, videoURL, videoLink
         trailer = Article.decodeTrailer(from: fieldDataContainer)
@@ -531,7 +552,8 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
         date: String? = nil,
         createdOn: String? = nil,
         lastPublished: String? = nil,
-        featured:Bool? = nil
+        featured:Bool? = nil,
+        isPremium: Bool? = nil
     ) {
         self.id = id
         self.name = name
@@ -553,6 +575,7 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
         self.createdOn = createdOn
         self.lastPublished = lastPublished
         self.featured = featured
+        self.isPremium = isPremium
         
         self._createdDateCache = nil
         self._publishedDateCache = nil

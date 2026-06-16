@@ -1,0 +1,86 @@
+{
+  "identifier" : "AproposPremium",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+
+  ],
+  "settings" : {
+    "_failTransactionsEnabled" : false,
+    "_storeKitErrors" : [
+
+    ]
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "apropos_premium",
+      "localizations" : [
+
+      ],
+      "name" : "Apropos Premium",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "49",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "apropos_monthly",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Månedligt abonnement på Apropos Magazine",
+              "displayName" : "Apropos Premium Månedlig",
+              "locale" : "da"
+            }
+          ],
+          "productID" : "com.frederikkragh.aproposmagazinev2.premium.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Premium Monthly",
+          "subscriptionGroupID" : "apropos_premium",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : [
+
+          ]
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "449",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "apropos_yearly",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Årligt abonnement på Apropos Magazine",
+              "displayName" : "Apropos Premium Årlig",
+              "locale" : "da"
+            }
+          ],
+          "productID" : "com.frederikkragh.aproposmagazinev2.premium.yearly",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Premium Yearly",
+          "subscriptionGroupID" : "apropos_premium",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : [
+
+          ]
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}
