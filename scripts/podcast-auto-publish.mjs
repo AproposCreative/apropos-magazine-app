@@ -31,6 +31,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
+import { BUCKET, publicURL, extractToken } from './lib/firebase-storage.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, '..');
@@ -39,7 +40,6 @@ const workDir = join(repoRoot, 'podcast-audio', 'work');
 const require = createRequire(join(repoRoot, 'functions', 'package.json'));
 const admin = require('firebase-admin');
 
-const BUCKET = 'apropos-magazine-6004a.firebasestorage.app';
 const INCOMING_PREFIX = 'podcasts/incoming/';
 const ARTICLES_PREFIX = 'podcasts/articles/';
 const MANIFEST_PATH = 'podcasts/manifest.json';
@@ -58,11 +58,6 @@ const forceAll = args.has('--force');
 function formatBytes(bytes) {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   return `${(bytes / 1024).toFixed(0)} KB`;
-}
-
-function publicURL(storagePath, token) {
-  const encoded = encodeURIComponent(storagePath);
-  return `https://firebasestorage.googleapis.com/v0/b/${BUCKET}/o/${encoded}?alt=media&token=${token}`;
 }
 
 function requireFfmpeg() {
@@ -105,12 +100,6 @@ function encodeFile(inputPath, outputPath) {
       else reject(new Error(`ffmpeg exited with code ${code}`));
     });
   });
-}
-
-function extractToken(metadata) {
-  const raw = metadata?.metadata?.firebaseStorageDownloadTokens;
-  if (!raw) return null;
-  return String(raw).split(',')[0].trim() || null;
 }
 
 function isAlreadyOptimized(metadata) {
@@ -243,28 +232,8 @@ async function syncManifest(bucket) {
 
   console.log(`\n=== Manifest (${episodes.length} episodes) ===`);
   console.log('manifest url:', manifestURL);
-  console.log('App fetches this automatically — no PodcastLinks.swift update needed.');
+  console.log('Optional: set PODCAST_MANIFEST_URL in Secrets.plist if tokenless URL fails.');
   return manifestURL;
-}
-
-function podcastLinksSnippet(slug, title, url, hosts = []) {
-  const safeTitle = title || slug.replace(/-/g, ' ');
-  const hostList = hosts.length ? hosts : ['Apropos Magazine'];
-  return `
-// Paste into PodcastLinks.swift configuredEpisodes:
-PodcastEpisode(
-    id: "${slug}",
-    articleId: nil,
-    articleSlug: "${slug}",
-    title: "${safeTitle}",
-    subtitle: "Lyt til artiklen",
-    audioURL: URL(string: "${url}"),
-    productionSourceURL: nil,
-    duration: nil,
-    artworkURL: nil,
-    hosts: ${JSON.stringify(hostList)},
-    publishedDate: nil
-),`.trim();
 }
 
 function readIncomingMetadata(bucket, slug) {

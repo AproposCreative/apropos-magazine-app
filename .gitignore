@@ -84,3 +84,9 @@ Resources/Secrets.plist
 AproposMagazinev2/Resources/Secrets.plist
 .gitignore
 temp_interactive_push.bat
+
+# Added by ggshield
+.cache_ggshield
+
+# Podcast script local overrides
+scripts/podcast-download-sources.env

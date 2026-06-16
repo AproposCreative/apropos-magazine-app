@@ -128,6 +128,18 @@ class SecureConfig {
         }
         return URL(string: "https://us-central1-apropos-magazine-6004a.cloudfunctions.net/sendTestArticleNotification")
     }
+
+    /// Full manifest URL including `token=` when Storage rules are not public-read.
+    var podcastManifestURL: URL? {
+        guard let rawValue = secretValue(
+            for: "PODCAST_MANIFEST_URL",
+            service: "podcast_manifest_url",
+            envKey: "PODCAST_MANIFEST_URL"
+        ) else {
+            return nil
+        }
+        return URL(string: rawValue)
+    }
 }
 
 // MARK: - Setup Helper

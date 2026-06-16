@@ -1,0 +1,10 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Podcast audio + manifest are public read; writes via Admin SDK / Console only.
+    match /podcasts/{allPaths=**} {
+      allow read: if true;
+      allow write: if false;
+    }
+  }
+}

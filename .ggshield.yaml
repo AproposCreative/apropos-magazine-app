@@ -1,0 +1,12 @@
+# Local secrets and plist copies (never commit real keys)
+**/Secrets.plist
+**/Secrets.example.plist
+**/GoogleService-Info.plist
+**/*firebase-adminsdk*.json
+serviceAccountKey.json
+
+# Podcast script env overrides
+scripts/podcast-download-sources.env
+
+# ggshield cache
+.cache_ggshield

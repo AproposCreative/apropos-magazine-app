@@ -47,41 +47,23 @@ For v1, upload manually in Firebase Console:
 
 Team upload is manual in Console for v1. App users do not upload files.
 
-## 5) Get the direct download URL
+## 5) Publish manifest (automatic)
 
-After upload:
+After upload, run the auto-publish script (optimizes audio + writes `podcasts/manifest.json`):
 
-1. Select the uploaded audio file in Firebase Storage.
-2. Copy its public/direct download URL.
-3. Put that URL into `audioURL` in:
-
-`AproposMagazinev2/Resources/PodcastLinks.swift`
-
-## 6) Update `PodcastLinks.swift`
-
-Example entry:
-
-```swift
-PodcastEpisode(
-    id: "backrooms-a24",
-    articleId: nil,
-    articleSlug: "backrooms-a24",
-    title: "Backrooms",
-    subtitle: "Lyt til artiklen",
-    audioURL: URL(string: "https://firebasestorage.googleapis.com/v0/b/<bucket>/o/podcasts%2Farticles%2Fbackrooms-a24%2Faudio.m4a?alt=media&token=<token>"),
-    productionSourceURL: URL(string: "https://notebooklm.google.com/notebook/..."), // internal reference only
-    duration: "12:40",
-    artworkURL: URL(string: "https://firebasestorage.googleapis.com/v0/b/<bucket>/o/podcasts%2Farticles%2Fbackrooms-a24%2Fartwork.jpg?alt=media&token=<token>"),
-    hosts: ["Apropos Magazine"],
-    publishedDate: nil
-)
+```bash
+./scripts/podcast-auto-publish.sh
+# or manifest only:
+node scripts/podcast-auto-publish.mjs --manifest-only
 ```
 
-Important:
+The iOS app fetches `podcasts/manifest.json` automatically. No hardcoded URLs in `PodcastLinks.swift`.
 
-- `audioURL` must be a direct playable URL (`.mp3`, `.m4a`, `.aac`, `.wav`, `.mp4`, `.m3u8`).
-- `productionSourceURL` is internal metadata only and is never opened by the app.
-- NotebookLM URLs must never be pasted into `audioURL`.
+Optional: copy the printed `manifest url:` into `PODCAST_MANIFEST_URL` in local `Secrets.plist` if Storage rules are not yet public-read.
+
+## 6) Legacy manual entry (deprecated)
+
+Do **not** add episode URLs with download tokens to Swift source. Use the manifest workflow above.
 
 ## 7) Firebase Storage rules (suggested for v1)
 
@@ -123,7 +105,7 @@ Note: exact rules can be project-dependent. Validate with your Firebase security
 
 Optional post-launch improvements:
 
-- Remote config/API for podcast metadata instead of local `PodcastLinks.swift`
+- Remote manifest at `podcasts/manifest.json` (implemented)
 - Offline caching/download
 - Lock screen controls
 - Background audio
