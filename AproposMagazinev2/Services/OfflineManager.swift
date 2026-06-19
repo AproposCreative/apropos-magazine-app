@@ -7,8 +7,16 @@ import SwiftUI
 @MainActor
 class OfflineManager: ObservableObject {
     @Published var isOnline = true
+    @Published var isExpensiveConnection = false
+    @Published var isConstrainedConnection = false
     @Published var syncInProgress = false
     @Published var lastSyncDate: Date?
+
+    /// True only on unmetered, unconstrained connections (e.g. Wi-Fi/ethernet).
+    /// Used to gate heavy background downloads like podcast prefetch.
+    var allowsHeavyDownloads: Bool {
+        isOnline && !isExpensiveConnection && !isConstrainedConnection
+    }
     
     static let shared = OfflineManager()
     private let userDefaults = UserDefaults.standard
@@ -35,7 +43,10 @@ class OfflineManager: ObservableObject {
     // MARK: - Connectivity
     
     private func checkConnectivity() {
-        isOnline = monitor.currentPath.status == .satisfied
+        let path = monitor.currentPath
+        isOnline = path.status == .satisfied
+        isExpensiveConnection = path.isExpensive
+        isConstrainedConnection = path.isConstrained
     }
     
     private func setupConnectivityMonitoring() {
@@ -43,6 +54,8 @@ class OfflineManager: ObservableObject {
             Task { @MainActor in
                 let status = path.status == .satisfied
                 self?.isOnline = status
+                self?.isExpensiveConnection = path.isExpensive
+                self?.isConstrainedConnection = path.isConstrained
                 if status {
                     self?.logger.debug("Netværk tilgængeligt.")
                     self?.processPendingActions()

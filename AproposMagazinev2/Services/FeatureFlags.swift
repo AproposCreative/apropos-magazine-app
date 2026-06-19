@@ -6,8 +6,9 @@ enum FeatureFlags {
         "perf_player_background_publish_threshold": 1.0,
         "perf_player_foreground_publish_threshold": 0.35,
         "perf_enable_html_diff_guard": true,
-        "perf_podcast_prefetch_enabled": false,
+        "perf_podcast_prefetch_enabled": true,
         "perf_podcast_prefetch_wifi_only": true,
+        "perf_podcast_prefetch_limit": 3,
         "perf_podcast_forward_buffer_seconds": 10.0,
         "perf_podcast_disk_cache_enabled": true,
         "perf_podcast_disk_cache_max_mb": 300,
@@ -46,6 +47,10 @@ enum FeatureFlags {
 
     static var podcastPrefetchWiFiOnly: Bool {
         store.bool(forKey: "perf_podcast_prefetch_wifi_only")
+    }
+
+    static var podcastPrefetchLimit: Int {
+        max(1, store.integer(forKey: "perf_podcast_prefetch_limit"))
     }
 
     static var podcastForwardBufferSeconds: TimeInterval {

@@ -33,6 +33,31 @@ final class PodcastRepository: PodcastProviding, ObservableObject {
         let refreshed = await manifestService.refreshEpisodes(force: force)
         episodes = refreshed
         OfflineManager.shared.savePodcastsForOffline(OfflineManager.shared.getOfflineArticles())
+        prefetchLatestEpisodesIfNeeded()
+    }
+
+    /// Warms the on-disk cache with the most recent episodes so first playback
+    /// starts instantly. Gated by feature flags and network conditions.
+    private func prefetchLatestEpisodesIfNeeded() {
+        guard FeatureFlags.podcastDiskCacheEnabled,
+              FeatureFlags.podcastPrefetchEnabled else {
+            return
+        }
+
+        if FeatureFlags.podcastPrefetchWiFiOnly,
+           !OfflineManager.shared.allowsHeavyDownloads {
+            return
+        }
+
+        // Manifest episodes are newest-first; prefetch the top N playable ones.
+        let urls = episodes
+            .filter { $0.hasPlayableAudioURL }
+            .prefix(FeatureFlags.podcastPrefetchLimit)
+            .compactMap { $0.audioURL }
+
+        for url in urls {
+            PodcastAudioCache.shared.scheduleBackgroundDownload(from: url)
+        }
     }
 
     func episode(for article: Article) -> PodcastEpisode? {
