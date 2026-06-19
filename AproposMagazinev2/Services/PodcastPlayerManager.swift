@@ -174,7 +174,10 @@ final class PodcastPlayerManager: ObservableObject {
             wantsPlayback = true
             updatePublishedPlaybackState()
         } else {
-            beginPlayback(useImmediate: false)
+            // Cached audio is local, so skip the wait-to-minimize-stalling delay
+            // and start instantly. Streaming misses keep the gentle start.
+            let startImmediately = playbackResolution.cacheResult == .hit
+            beginPlayback(useImmediate: startImmediately)
         }
         isFullPlayerPresented = true
 
