@@ -55,11 +55,13 @@ class UserManager: ObservableObject {
         // Listen for auth state changes
         authStateListener = Auth.auth().addStateDidChangeListener { [weak self] _, user in
             if let user = user, !user.uid.isEmpty {
+                AppDiagnostics.setUserIdentifier(user.uid)
                 self?.loadUserProfile(for: user)
             } else {
                 if let previousUser = self?.currentUser {
                     NotificationService.shared.unsubscribeFromTopics(for: previousUser)
                 }
+                AppDiagnostics.setUserIdentifier(nil)
                 self?.currentUser = nil
             }
         }

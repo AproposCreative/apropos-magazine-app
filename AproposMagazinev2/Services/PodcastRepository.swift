@@ -39,25 +39,40 @@ final class PodcastRepository: PodcastProviding, ObservableObject {
     /// Warms the on-disk cache with the most recent episodes so first playback
     /// starts instantly. Gated by feature flags and network conditions.
     private func prefetchLatestEpisodesIfNeeded() {
-        guard FeatureFlags.podcastDiskCacheEnabled,
-              FeatureFlags.podcastPrefetchEnabled else {
-            return
-        }
-
-        if FeatureFlags.podcastPrefetchWiFiOnly,
-           !OfflineManager.shared.allowsHeavyDownloads {
-            return
-        }
-
-        // Manifest episodes are newest-first; prefetch the top N playable ones.
-        let urls = episodes
-            .filter { $0.hasPlayableAudioURL }
-            .prefix(FeatureFlags.podcastPrefetchLimit)
-            .compactMap { $0.audioURL }
+        let urls = Self.episodesToPrefetch(
+            from: episodes,
+            diskCacheEnabled: FeatureFlags.podcastDiskCacheEnabled,
+            prefetchEnabled: FeatureFlags.podcastPrefetchEnabled,
+            wifiOnly: FeatureFlags.podcastPrefetchWiFiOnly,
+            allowsHeavyDownloads: OfflineManager.shared.allowsHeavyDownloads,
+            limit: FeatureFlags.podcastPrefetchLimit
+        )
 
         for url in urls {
             PodcastAudioCache.shared.scheduleBackgroundDownload(from: url)
         }
+    }
+
+    /// Pure selection logic for prefetch — decides which audio URLs to warm.
+    /// Extracted as a `nonisolated static` function so it can be unit-tested
+    /// without the main actor, network, or singletons.
+    /// Manifest episodes are newest-first, so the top `limit` playable ones win.
+    nonisolated static func episodesToPrefetch(
+        from episodes: [PodcastEpisode],
+        diskCacheEnabled: Bool,
+        prefetchEnabled: Bool,
+        wifiOnly: Bool,
+        allowsHeavyDownloads: Bool,
+        limit: Int
+    ) -> [URL] {
+        guard diskCacheEnabled, prefetchEnabled else { return [] }
+        if wifiOnly, !allowsHeavyDownloads { return [] }
+        guard limit > 0 else { return [] }
+
+        return episodes
+            .filter { $0.hasPlayableAudioURL }
+            .prefix(limit)
+            .compactMap { $0.audioURL }
     }
 
     func episode(for article: Article) -> PodcastEpisode? {

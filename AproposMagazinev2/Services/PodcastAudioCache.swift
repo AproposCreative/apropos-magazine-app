@@ -229,35 +229,60 @@ final class PodcastAudioCache {
         ) else { return }
 
         let audioFiles = files.filter { $0.pathExtension == "m4a" }
-        var totalSize: Int64 = 0
-        var fileSizes: [(url: URL, size: Int64, key: String)] = []
+        var urlByKey: [String: URL] = [:]
+        var fileSizes: [(key: String, size: Int64)] = []
 
         for file in audioFiles {
+            let key = file.deletingPathExtension().lastPathComponent
             let size = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
-            totalSize += size
-            fileSizes.append((file, size, file.deletingPathExtension().lastPathComponent))
+            urlByKey[key] = file
+            fileSizes.append((key, size))
         }
-
-        guard totalSize > maxCacheBytes else { return }
 
         let accessTimes = UserDefaults.standard.dictionary(forKey: accessTimesKey) as? [String: TimeInterval] ?? [:]
-        let protectedKeys = pinnedCacheKeys()
-        var evictableFiles = fileSizes.filter { !protectedKeys.contains($0.key) }
-        evictableFiles.sort { lhs, rhs in
-            let left = accessTimes[lhs.key] ?? 0
-            let right = accessTimes[rhs.key] ?? 0
-            return left < right
-        }
+        let evictKeys = Self.keysToEvict(
+            files: fileSizes,
+            accessTimes: accessTimes,
+            pinnedKeys: pinnedCacheKeys(),
+            maxBytes: maxCacheBytes
+        )
 
-        var bytesToFree = totalSize - maxCacheBytes
+        guard !evictKeys.isEmpty else { return }
+
         var updatedAccess = accessTimes
-
-        for entry in evictableFiles where bytesToFree > 0 {
-            try? fileManager.removeItem(at: entry.url)
-            updatedAccess.removeValue(forKey: entry.key)
-            bytesToFree -= entry.size
+        for key in evictKeys {
+            if let url = urlByKey[key] {
+                try? fileManager.removeItem(at: url)
+            }
+            updatedAccess.removeValue(forKey: key)
         }
 
         UserDefaults.standard.set(updatedAccess, forKey: accessTimesKey)
+    }
+
+    /// Pure LRU selection — returns the cache keys to evict so the remaining
+    /// total fits under `maxBytes`. Pinned keys are never evicted, and the
+    /// least-recently-accessed files are removed first (missing access time = oldest).
+    /// Extracted as a `static` function for deterministic unit testing.
+    static func keysToEvict(
+        files: [(key: String, size: Int64)],
+        accessTimes: [String: TimeInterval],
+        pinnedKeys: Set<String>,
+        maxBytes: Int64
+    ) -> [String] {
+        let totalSize = files.reduce(Int64(0)) { $0 + $1.size }
+        guard totalSize > maxBytes else { return [] }
+
+        let evictable = files
+            .filter { !pinnedKeys.contains($0.key) }
+            .sorted { (accessTimes[$0.key] ?? 0) < (accessTimes[$1.key] ?? 0) }
+
+        var bytesToFree = totalSize - maxBytes
+        var evicted: [String] = []
+        for entry in evictable where bytesToFree > 0 {
+            evicted.append(entry.key)
+            bytesToFree -= entry.size
+        }
+        return evicted
     }
 }

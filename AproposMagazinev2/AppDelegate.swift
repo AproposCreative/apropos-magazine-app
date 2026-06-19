@@ -106,6 +106,7 @@ import WidgetKit
         Messaging.messaging().token { token, error in
             if let error = error {
                 self.logger.error("Fejl ved hentning af FCM token: \(error.localizedDescription, privacy: .public)")
+                AppDiagnostics.recordError(error, context: "fcm_token")
             } else if let token = token {
                 UserDefaults.standard.set(token, forKey: "FCMRegistrationToken")
                 
@@ -127,6 +128,7 @@ import WidgetKit
     func application(_ application: UIApplication,
                      didFailToRegisterForRemoteNotificationsWithError error: Error) {
         logger.error("Fejl ved registrering af fjernnotifikationer: \(error.localizedDescription, privacy: .public)")
+        AppDiagnostics.recordError(error, context: "apns_register")
     }
 
     // FCM token refresh
@@ -349,6 +351,7 @@ import WidgetKit
                 }
             case .failure(let error):
                 self.logger.error("Background fetch fejlede: \(error.localizedDescription, privacy: .public)")
+                AppDiagnostics.recordError(error, context: "background_fetch")
                 completionHandler(.failed)
             }
         }
