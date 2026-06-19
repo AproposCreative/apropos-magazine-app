@@ -35,6 +35,39 @@ private struct ArticleStarRatingView: View {
     }
 }
 
+/// Review disclaimer shown when the CMS "Presseakkreditering" switch is on.
+private struct PressAccreditationDisclaimer: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var lineColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.18) : Color.black.opacity(0.14)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Rectangle()
+                .fill(lineColor)
+                .frame(height: 1)
+
+            (
+                Text("Disclaimer: ").font(.system(size: 14, weight: .semibold))
+                + Text("Apropos Magazine har modtaget adgang eller eksemplar til anmeldelse. Som altid deler vi vores egne indtryk - uden filter.")
+                    .font(.system(size: 14, weight: .regular))
+            )
+            .foregroundColor(.secondary)
+            .lineSpacing(3)
+            .fixedSize(horizontal: false, vertical: true)
+            .multilineTextAlignment(.leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Rectangle()
+                .fill(lineColor)
+                .frame(height: 1)
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
 struct ContentHeightKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
@@ -300,6 +333,7 @@ struct ArticleDetailView: View {
     @State private var isGeneratingShareCard = false
     @State private var intelligentRelatedArticles: [Article] = []
     @State private var displayCategories: [String] = []
+    @State private var displaySection: String = ""
     @State private var headerImageFailed = false
     @State private var showGlassTopBar = false
     @State private var lastSavedScrollProgress: Double = -1
@@ -442,8 +476,8 @@ struct ArticleDetailView: View {
                     // 👇 Skubber alt ned under topbaren
                     Spacer().frame(height: 50)
                     
-                    // ✅ All your content - Dynamic categories from CMS
-                    Text(displayCategories.joined(separator: " | "))
+                    // Top tag shows the CMS Section (e.g. "Serier & Film")
+                    Text(displaySection.isEmpty ? displayCategories.joined(separator: " | ") : displaySection)
                         .font(.system(size: 15, weight: .semibold))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
@@ -575,7 +609,13 @@ struct ArticleDetailView: View {
                             .padding(.horizontal, 16)
                             .multilineTextAlignment(.leading)
                     }
-                    
+
+                    if resolvedArticle.pressAccreditation {
+                        PressAccreditationDisclaimer()
+                            .padding(.horizontal, 16)
+                            .padding(.top, 16)
+                    }
+
                     LinearGradient(
                         gradient: Gradient(colors: [
                             Color.gray.opacity(0.4),
@@ -671,6 +711,7 @@ struct ArticleDetailView: View {
             
             let resolvedCategories = viewModel.categories(for: resolvedArticle)
             displayCategories = resolvedCategories.isEmpty ? ["Generelt"] : resolvedCategories
+            displaySection = viewModel.sectionName(for: resolvedArticle) ?? ""
 
             iCloudSyncService.shared.markAsRead(articleId: article.id)
             CacheManager.shared.preloadArticleDetailImages(for: resolvedArticle)
@@ -688,6 +729,10 @@ struct ArticleDetailView: View {
         .onChange(of: viewModel.topics.count) { _, _ in
             let refreshedCategories = viewModel.categories(for: resolvedArticle)
             displayCategories = refreshedCategories.isEmpty ? ["Generelt"] : refreshedCategories
+            displaySection = viewModel.sectionName(for: resolvedArticle) ?? ""
+        }
+        .onChange(of: viewModel.sections.count) { _, _ in
+            displaySection = viewModel.sectionName(for: resolvedArticle) ?? ""
         }
         .onChange(of: viewModel.articles.count) { _, _ in
             generateIntelligentRelatedArticles()

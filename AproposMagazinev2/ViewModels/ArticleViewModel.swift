@@ -945,6 +945,17 @@ class ArticleViewModel: ObservableObject {
     }
     
     // Get categories for an article
+    /// Resolves the CMS "Section" name for an article (e.g. "Serier & Film").
+    /// Prefers the article's direct section reference, falling back to the
+    /// topic→section heuristic so older items without a section still get one.
+    func sectionName(for article: Article) -> String? {
+        if let sectionID = article.sectionID, !sectionID.isEmpty,
+           let section = sections.first(where: { $0.id == sectionID }) {
+            return section.name
+        }
+        return findSectionForArticle(article)?.name
+    }
+
     func categories(for article: Article) -> [String] {
         // If no topics loaded, return default category to prevent crashes
         guard !topics.isEmpty else {

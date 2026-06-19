@@ -69,6 +69,7 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
     let stjerne: Int? // Number felt fra Webflow CMS
     let topicID: String?
     let topicsIDs: [String]?
+    let sectionID: String?
     let authorID: String?
     let mobileImageURL: URL?
     let thumbURL: URL?
@@ -81,6 +82,8 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
     let lastPublished: String?
     let featured: Bool?
     let isPremium: Bool?
+    /// CMS "Presseakkreditering" switch — when true we show the review disclaimer.
+    let pressAccreditation: Bool
     var author: Author?
 
     enum CodingKeys: String, CodingKey {
@@ -270,7 +273,10 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
         case videoTrailerRaw = "Video / Trailer"
         case stjerne
         case topicID = "topic"
-        case topicsIDs = "topics-multi-ref"
+        case topicsIDs = "topics"
+        case topicsLegacy = "topics-multi-ref"
+        case sectionID = "section"
+        case pressAccreditation = "presseakkreditering"
         case authorID = "author"
         case mobileImage = "mobile-image"
         case thumb
@@ -348,6 +354,23 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
         return nil
     }
     
+    /// Tolerant Bool decode for Webflow "Switch" fields, which usually arrive as
+    /// booleans but can be strings depending on the export path.
+    private static func decodeBoolValue(
+        from container: KeyedDecodingContainer<FieldDataKeys>,
+        forKey key: FieldDataKeys
+    ) -> Bool? {
+        if let value = try? container.decodeIfPresent(Bool.self, forKey: key) {
+            return value
+        }
+        if let value = try? container.decodeIfPresent(String.self, forKey: key) {
+            let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if ["true", "1", "yes", "ja"].contains(normalized) { return true }
+            if ["false", "0", "no", "nej"].contains(normalized) { return false }
+        }
+        return nil
+    }
+
     // Cache the thumbnailURL string to avoid repeated regex and string allocations
     private var _thumbnailURLCache: String?
     var thumbnailURL: String {
@@ -430,6 +453,10 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
         try fieldData.encodeIfPresent(stjerne, forKey: .stjerne)
         try fieldData.encodeIfPresent(topicID, forKey: .topicID)
         try fieldData.encodeIfPresent(topicsIDs, forKey: .topicsIDs)
+        try fieldData.encodeIfPresent(sectionID, forKey: .sectionID)
+        if pressAccreditation {
+            try fieldData.encode(true, forKey: .pressAccreditation)
+        }
         try fieldData.encodeIfPresent(authorID, forKey: .authorID)
         try fieldData.encodeIfPresent(location, forKey: .location)
         try fieldData.encodeIfPresent(subtitle, forKey: .subtitle)
@@ -474,7 +501,12 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
         intro = try fieldDataContainer.decodeIfPresent(String.self, forKey: .intro)
         stjerne = try fieldDataContainer.decodeIfPresent(Int.self, forKey: .stjerne)
         topicID = try fieldDataContainer.decodeIfPresent(String.self, forKey: .topicID)
-        topicsIDs = try fieldDataContainer.decodeIfPresent([String].self, forKey: .topicsIDs)
+        // CMS slug is "topics"; keep legacy "topics-multi-ref" as a fallback.
+        let primaryTopics = try fieldDataContainer.decodeIfPresent([String].self, forKey: .topicsIDs)
+        let legacyTopics = try? fieldDataContainer.decodeIfPresent([String].self, forKey: .topicsLegacy)
+        topicsIDs = primaryTopics ?? legacyTopics ?? nil
+        sectionID = try fieldDataContainer.decodeIfPresent(String.self, forKey: .sectionID)
+        pressAccreditation = Article.decodeBoolValue(from: fieldDataContainer, forKey: .pressAccreditation) ?? false
         authorID = try fieldDataContainer.decodeIfPresent(String.self, forKey: .authorID)
         location = try fieldDataContainer.decodeIfPresent(String.self, forKey: .location)
         subtitle = try fieldDataContainer.decodeIfPresent(String.self, forKey: .subtitle)
@@ -542,6 +574,7 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
         stjerne: Int? = nil,
         topicID: String,
         topicsIDs: [String]? = nil,
+        sectionID: String? = nil,
         authorID: String? = nil,
         mobileImageURL: URL? = nil,
         thumbURL: URL? = nil,
@@ -553,7 +586,8 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
         createdOn: String? = nil,
         lastPublished: String? = nil,
         featured:Bool? = nil,
-        isPremium: Bool? = nil
+        isPremium: Bool? = nil,
+        pressAccreditation: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -564,6 +598,7 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
         self.stjerne = stjerne
         self.topicID = topicID
         self.topicsIDs = topicsIDs
+        self.sectionID = sectionID
         self.authorID = authorID
         self.mobileImageURL = mobileImageURL
         self.thumbURL = thumbURL
@@ -576,6 +611,7 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
         self.lastPublished = lastPublished
         self.featured = featured
         self.isPremium = isPremium
+        self.pressAccreditation = pressAccreditation
         
         self._createdDateCache = nil
         self._publishedDateCache = nil
