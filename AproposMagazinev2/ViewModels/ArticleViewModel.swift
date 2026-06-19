@@ -296,8 +296,10 @@ class ArticleViewModel: ObservableObject {
                     let sortedArticles = self.sortedNewestFirst(articles.filter(\.isPubliclyPublished))
                     
                     Task { @MainActor in
-                        if sortedArticles.count != self.articles.count ||
-                           sortedArticles.first?.id != self.articles.first?.id {
+                        // Compare full content, not just count/first id, so field-level
+                        // changes (e.g. updated section, topics or press accreditation)
+                        // replace the stale cache instead of being silently discarded.
+                        if sortedArticles != self.articles {
                             self.articles = sortedArticles
                             CacheManager.shared.cacheArticles(sortedArticles)
                         }
