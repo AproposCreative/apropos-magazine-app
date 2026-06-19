@@ -25,6 +25,7 @@ struct PodcastMiniPlayerBar: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isPressed = false
+    @State private var dragOffset: CGFloat = 0
     
     private var backgroundTint: Color {
         colorScheme == .dark ? Color.black.opacity(0.42) : Color.black.opacity(0.18)
@@ -116,14 +117,19 @@ struct PodcastMiniPlayerBar: View {
                 RoundedRectangle(cornerRadius: 26, style: .continuous)
                     .fill(backgroundTint)
             )
-            .overlay(alignment: .bottomLeading) {
+            .overlay {
                 GeometryReader { proxy in
+                    let horizontalInset: CGFloat = 16
+                    let trackWidth = max(0, proxy.size.width - horizontalInset * 2)
                     Capsule()
-                        .fill(.white.opacity(colorScheme == .dark ? 0.35 : 0.3))
-                        .frame(width: max(8, proxy.size.width * podcastPlayer.progress), height: 1)
-                        .padding(.horizontal, 1)
-                        .padding(.bottom, 1)
+                        .fill(.white.opacity(colorScheme == .dark ? 0.45 : 0.38))
+                        .frame(width: trackWidth * podcastPlayer.progress, height: 2)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                        .padding(.leading, horizontalInset)
+                        .padding(.bottom, 5)
                 }
+                .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+                .allowsHitTesting(false)
             }
             .overlay(
                 RoundedRectangle(cornerRadius: 26, style: .continuous)
@@ -131,6 +137,8 @@ struct PodcastMiniPlayerBar: View {
             )
             .shadow(color: .black.opacity(colorScheme == .dark ? 0.18 : 0.12), radius: 6, x: 0, y: 1)
             .scaleEffect(isPressed && !reduceMotion ? 0.985 : 1)
+            .offset(y: dragOffset)
+            .opacity(1 - min(dragOffset / 160, 0.65))
             .contentShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
             .onTapGesture {
                 if !reduceMotion {
@@ -144,6 +152,32 @@ struct PodcastMiniPlayerBar: View {
                     }
                 }
                 podcastPlayer.openFullPlayer()
+            }
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 14)
+                    .onChanged { value in
+                        // Only follow downward swipes so the bar can be flicked away.
+                        dragOffset = max(0, value.translation.height)
+                    }
+                    .onEnded { value in
+                        let shouldDismiss = value.translation.height > 70
+                            || value.predictedEndTranslation.height > 160
+                        if shouldDismiss {
+                            withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
+                                podcastPlayer.closePlayer()
+                            }
+                            dragOffset = 0
+                        } else {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
+                                dragOffset = 0
+                            }
+                        }
+                    }
+            )
+            .accessibilityAction(named: "Luk afspiller") {
+                withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
+                    podcastPlayer.closePlayer()
+                }
             }
         }
     }
