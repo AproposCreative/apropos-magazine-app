@@ -299,8 +299,6 @@ struct ArticleDetailView: View {
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.presentationMode) var presentationMode
     @Environment(\.navigationCoordinator) private var navigationCoordinator
-    // Temporarily removed RecommendationEngine to fix crash
-    // @EnvironmentObject private var recommendationEngine: RecommendationEngine
     
     var textColor: Color {
         colorScheme == .dark ? .white : .black
@@ -752,7 +750,7 @@ extension ArticleDetailView {
         podcastPlayerManager.play(episode: episode, articleId: resolvedArticle.id)
     }
     
-    // Generate intelligent related articles using RecommendationEngine
+    // Build related articles using lightweight category/topic matching.
     private func generateIntelligentRelatedArticles() {
         // Safety check: ensure we have articles to work with
         guard !viewModel.articles.isEmpty else {
@@ -760,7 +758,6 @@ extension ArticleDetailView {
             return
         }
         
-        // Temporarily use only category-based filtering until RecommendationEngine is fixed
         let relatedArticles = viewModel.articles
             .filter { $0.id != resolvedArticle.id }
             .filter { relatedArticle in

@@ -16,8 +16,6 @@ struct ContentView: View {
     @ObservedObject private var podcastPlayerManager = PodcastPlayerManager.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var articleHeroNamespace
-    // Temporarily removed RecommendationEngine to fix crash
-    // @StateObject private var recommendationEngine = RecommendationEngine.shared
     @State private var showWhatsNew = false
     @State private var showNotificationOnboarding = false
     
@@ -259,8 +257,6 @@ struct ContentView: View {
 // HomeContainer that can scroll to top when told
 struct HomeContainer: View {
     @EnvironmentObject var viewModel: ArticleViewModel
-    // Temporarily removed RecommendationEngine to fix crash
-    // @EnvironmentObject var recommendationEngine: RecommendationEngine
     
     var body: some View {
         ScrollViewReader { proxy in

@@ -16,8 +16,6 @@ struct HomeView: View {
     @Environment(\.navigationCoordinator) private var navigationCoordinator
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var articleHeroNamespace: Namespace.ID? = nil
-    // Temporarily removed RecommendationEngine to fix crash
-    // @EnvironmentObject var recommendationEngine: RecommendationEngine
     @State private var selectedHero = 0
     @State private var didLoad = false
     @State private var showGlassTopBar = false
