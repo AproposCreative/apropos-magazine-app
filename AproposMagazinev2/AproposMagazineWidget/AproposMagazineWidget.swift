@@ -156,7 +156,7 @@ private struct AproposTodayWidgetContent: View {
 
     private var articleLimit: Int {
         if family == .systemSmall { return 1 }
-        family == .systemLarge ? 5 : 3
+        return family == .systemLarge ? 5 : 3
     }
 
     private var showsPlaceholder: Bool {
