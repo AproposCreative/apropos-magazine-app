@@ -113,18 +113,45 @@ final class RecommendationService {
             .prefix(3)
             .map(\.key)
 
-        let candidates = recommendations.map { scored in
-            (
-                id: scored.article.id,
-                title: scored.article.name ?? "Artikel",
-                topics: (scored.article.topicsIDs ?? []) + [scored.article.topicID].compactMap { $0 }
-            )
+        let candidates: [[String: Any]] = recommendations.map { scored in
+            [
+                "id": scored.article.id,
+                "title": scored.article.name ?? "Artikel",
+                "topics": (scored.article.topicsIDs ?? []) + [scored.article.topicID].compactMap { $0 }
+            ]
         }
 
-        return await withCheckedContinuation { continuation in
-            OpenAIManager.shared.generateRecommendationReasons(topTopics: Array(topTopics), candidates: candidates) { reasons in
-                continuation.resume(returning: reasons)
+        guard !candidates.isEmpty,
+              let url = SecureConfig.shared.recommendationReasonsURL else {
+            return [:]
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let payload: [String: Any] = [
+            "topTopics": Array(topTopics),
+            "candidates": candidates
+        ]
+        guard let body = try? JSONSerialization.data(withJSONObject: payload) else {
+            return [:]
+        }
+        request.httpBody = body
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                logger.error("Recommendation reasons request failed: \((response as? HTTPURLResponse)?.statusCode ?? -1, privacy: .public)")
+                return [:]
             }
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let reasons = json["reasons"] as? [String: String] else {
+                return [:]
+            }
+            return reasons
+        } catch {
+            logger.error("Recommendation reasons request error: \(error.localizedDescription, privacy: .public)")
+            return [:]
         }
     }
 
