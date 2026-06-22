@@ -1049,3 +1049,107 @@ exports.generateSeriesScheduled = onSchedule(
       }
     },
 );
+
+// MARK: - Recommendation reasons (moved off-device so the OpenAI key stays
+// server-side). The app posts the locally scored candidates and gets back a
+// short Danish reason per article.
+
+async function generateRecommendationReasonsWithOpenAI(apiKey, topTopics, candidates) {
+  const candidateLines = candidates
+      .map((candidate) => {
+        const topics = Array.isArray(candidate.topics) ?
+          candidate.topics.join(", ") : "";
+        return `- id: ${candidate.id}, title: ${candidate.title}, ` +
+          `topics: ${topics}`;
+      })
+      .join("\n");
+
+  const prompt = `Du er redaktør på Apropos Magazine. Skriv én kort dansk ` +
+    `sætning per artikel (max 12 ord) der forklarer hvorfor den anbefales.
+Brugerens top-emner: ${(topTopics || []).join(", ")}
+Kandidater:
+${candidateLines}
+Svar KUN med JSON array: [{"articleId":"...","reason":"..."}]`;
+
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      messages: [
+        {role: "system", content: "Du svarer kun med valid JSON."},
+        {role: "user", content: prompt},
+      ],
+      temperature: 0.6,
+      max_tokens: 600,
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(
+        `OpenAI reasons failed: HTTP ${response.status} ${body}`,
+    );
+  }
+
+  const payload = await response.json();
+  const content = payload?.choices?.[0]?.message?.content || "[]";
+  const cleaned = String(content)
+      .trim()
+      .replace(/^```json/i, "")
+      .replace(/^```/i, "")
+      .replace(/```$/i, "")
+      .trim();
+
+  const parsed = JSON.parse(cleaned);
+  if (!Array.isArray(parsed)) {
+    return {};
+  }
+
+  const reasons = {};
+  parsed.forEach((entry) => {
+    if (entry && entry.articleId != null) {
+      reasons[String(entry.articleId)] = String(entry.reason || "");
+    }
+  });
+  return reasons;
+}
+
+exports.generateRecommendationReasons = onRequest(
+    {secrets: [openaiApiKey]}, async (request, response) => {
+      response.set("Access-Control-Allow-Origin", "*");
+      response.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+      response.set("Access-Control-Allow-Headers", "Content-Type");
+
+      if (request.method === "OPTIONS") {
+        response.status(204).send("");
+        return;
+      }
+
+      if (request.method !== "POST") {
+        response.status(405).send("Method Not Allowed");
+        return;
+      }
+
+      try {
+        const body = request.body || {};
+        const topTopics = Array.isArray(body.topTopics) ? body.topTopics : [];
+        const candidates = Array.isArray(body.candidates) ?
+          body.candidates : [];
+
+        if (candidates.length === 0) {
+          response.status(200).json({status: "success", reasons: {}});
+          return;
+        }
+
+        const reasons = await generateRecommendationReasonsWithOpenAI(
+            openaiApiKey.value(), topTopics, candidates);
+        response.status(200).json({status: "success", reasons});
+      } catch (error) {
+        logger.error("generateRecommendationReasons failed:", error);
+        response.status(500).json({status: "error", message: error.message});
+      }
+    });
