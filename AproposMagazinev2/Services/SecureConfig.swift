@@ -94,7 +94,9 @@ class SecureConfig {
     // MARK: - API Key Getters
     
     var webflowAPIKey: String {
-        ""
+        secretValue(for: "WEBFLOW_API_KEY", service: "webflow", envKey: "WEBFLOW_API_KEY")
+            ?? secretValue(for: "webflowAPIToken", service: "webflow", envKey: "WEBFLOW_API_TOKEN")
+            ?? ""
     }
     
     var googleAPIKey: String {

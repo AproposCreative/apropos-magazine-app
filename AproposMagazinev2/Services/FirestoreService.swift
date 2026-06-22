@@ -31,6 +31,7 @@ class FirestoreService {
         Self.persistenceConfigured = true
     }
     
+    #if DEBUG
     // MARK: - Test Functions
     
     /// Test function to verify Firestore connection
@@ -106,6 +107,7 @@ class FirestoreService {
             return "Read failed: \(error.localizedDescription)"
         }
     }
+    #endif
 
     func toggleFavorite(_ article: Article, isFavorite: Bool) async throws {
         guard let uid = Auth.auth().currentUser?.uid else {

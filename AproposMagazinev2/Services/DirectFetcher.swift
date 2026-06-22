@@ -1,17 +1,6 @@
 import Foundation
 
 class DirectFetcher {
-    // Load Webflow API token from Secrets.plist
-    private static var webflowAPIToken: String? = {
-        guard let url = Bundle.main.url(forResource: "Secrets", withExtension: "plist"),
-              let data = try? Data(contentsOf: url),
-              let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any],
-              let token = plist["webflowAPIToken"] as? String else {
-            return nil
-        }
-        return token
-    }()
-    
     // Current URLSessionDataTask to allow cancellation of previous requests
     var currentTask: URLSessionDataTask?
     
@@ -28,13 +17,12 @@ class DirectFetcher {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         
-        // Set authorization header using the token loaded from Secrets.plist
-        if let token = DirectFetcher.webflowAPIToken {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        } else {
+        let token = SecureConfig.shared.webflowAPIKey
+        guard !token.isEmpty else {
             completion("Manglende API-token.")
             return
         }
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         
         request.setValue("1.0.0", forHTTPHeaderField: "accept-version")
 
