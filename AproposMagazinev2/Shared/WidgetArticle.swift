@@ -51,14 +51,38 @@ struct WidgetArticle: Codable, Identifiable, Hashable {
     /// Shown in widget gallery / before the main app has synced feed data.
     static let galleryPreview = WidgetArticle(
         id: "widget-preview",
-        name: "Seneste fra Apropos Magazine",
+        name: "De vigtigste kulturanbefalinger lige nu",
         slug: "widget-preview",
         thumbURL: "",
         intro: "",
-        date: "",
+        date: ISO8601DateFormatter().string(from: Date()),
         stjerne: 4,
         topic: "Anmeldelser"
     )
+
+    static let galleryPreviewArticles = [
+        galleryPreview,
+        WidgetArticle(
+            id: "widget-preview-2",
+            name: "Nye film, serier og scener vi taler om",
+            slug: "widget-preview-2",
+            thumbURL: "",
+            intro: "",
+            date: ISO8601DateFormatter().string(from: Date()),
+            stjerne: nil,
+            topic: "Kultur"
+        ),
+        WidgetArticle(
+            id: "widget-preview-3",
+            name: "Ugens udvalgte fra redaktionen",
+            slug: "widget-preview-3",
+            thumbURL: "",
+            intro: "",
+            date: ISO8601DateFormatter().string(from: Date()),
+            stjerne: 5,
+            topic: "Musik"
+        )
+    ]
 }
 
 enum WidgetImageStore {
@@ -278,7 +302,7 @@ enum WidgetDataStore {
     static func articlesForWidget(includePreviewWhenEmpty: Bool = false) -> [WidgetArticle] {
         let loaded = loadLatestArticles()
         if !loaded.isEmpty { return loaded }
-        if includePreviewWhenEmpty { return [WidgetArticle.galleryPreview] }
+        if includePreviewWhenEmpty { return WidgetArticle.galleryPreviewArticles }
         return []
     }
 

@@ -12,7 +12,7 @@ enum WidgetArticleFormatting {
     }
 
     static func ctaText(for article: WidgetArticle) -> String {
-        article.stjerne != nil ? "Læs anmeldelsen →" : "Læs artikelen →"
+        article.stjerne != nil ? "Læs anmeldelsen →" : "Læs artiklen →"
     }
 
     static func starRatingText(for rating: Int) -> String {

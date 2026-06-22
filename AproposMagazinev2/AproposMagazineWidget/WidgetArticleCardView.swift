@@ -9,7 +9,7 @@ struct WidgetArticleCardView: View {
             Text("APROPOS")
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.9))
-                .tracking(0.4)
+                .tracking(0.8)
 
             bottomOverlay
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
@@ -22,16 +22,16 @@ struct WidgetArticleCardView: View {
         VStack(alignment: .leading, spacing: isMedium ? 5 : 4) {
             if !topicLine.isEmpty {
                 Text(topicLine)
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.85))
                     .lineLimit(1)
             }
 
             Text(article.name)
-                .font(.system(size: isMedium ? 17 : 15, weight: .bold))
+                .font(.system(size: isMedium ? 18 : 16, weight: .bold))
                 .foregroundStyle(.white)
-                .lineLimit(isMedium ? 2 : 3)
-                .minimumScaleFactor(0.85)
+                .lineLimit(isMedium ? 3 : 4)
+                .minimumScaleFactor(0.78)
 
             if let rating = article.stjerne {
                 WidgetStarRatingView(rating: rating)
@@ -85,14 +85,26 @@ struct WidgetTodayArticleRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(article.name)
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color(red: 0.1, green: 0.1, blue: 0.12))
-                    .lineLimit(2)
+                    .foregroundStyle(.white)
+                    .lineLimit(thumbnailSize > 60 ? 3 : 2)
+                    .minimumScaleFactor(0.82)
 
                 if let rating = article.stjerne {
-                    WidgetStarRatingView(rating: rating, style: .onLightBackground)
+                    WidgetStarRatingView(rating: rating)
+                } else {
+                    Text(WidgetArticleFormatting.topicLine(for: article))
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.7))
+                        .lineLimit(1)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(8)
+        .background(Color.black.opacity(0.22), in: RoundedRectangle(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.white.opacity(0.12), lineWidth: 0.5)
         }
     }
 }

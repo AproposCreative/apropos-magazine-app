@@ -7,7 +7,18 @@ struct WidgetArticleCoverView: View {
 
     var body: some View {
         ZStack {
-            Color(red: 0.82, green: 0.82, blue: 0.84)
+            LinearGradient(
+                colors: [
+                    Color(red: 0.18, green: 0.18, blue: 0.19),
+                    Color(red: 0.08, green: 0.08, blue: 0.09)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            Text("A")
+                .font(.system(size: 22, weight: .black, design: .serif))
+                .foregroundStyle(.white.opacity(0.34))
 
             if let uiImage = WidgetImageStore.uiImage(for: article) {
                 Image(uiImage: uiImage)

@@ -69,4 +69,19 @@ final class ShareAndNotificationTests: XCTestCase {
 
         XCTAssertEqual(WidgetArticleFormatting.ctaText(for: review), "Læs anmeldelsen →")
     }
+
+    func testWidgetFormattingCTAForArticles() {
+        let article = WidgetArticle(
+            id: "2",
+            name: "Article",
+            slug: "article",
+            thumbURL: "",
+            intro: "",
+            date: "",
+            stjerne: nil,
+            topic: "Kultur"
+        )
+
+        XCTAssertEqual(WidgetArticleFormatting.ctaText(for: article), "Læs artiklen →")
+    }
 }
