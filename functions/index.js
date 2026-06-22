@@ -13,6 +13,20 @@ setGlobalOptions({maxInstances: 10});
 admin.initializeApp();
 
 const ARTICLES_COLLECTION_ID = "67dbf17ba540975b5b21c2a6";
+const TOPICS_COLLECTION_ID = "67dbf17ba540975b5b21c2af";
+const SECTIONS_COLLECTION_ID = "67dbf17ba540975b5b21c2ae";
+const AUTHORS_COLLECTION_ID = "67dbf17ba540975b5b21c294";
+
+// Maps a Webflow CMS collection id to the Firestore collection it syncs into.
+const METADATA_COLLECTIONS = {
+  [TOPICS_COLLECTION_ID]: "topics",
+  [SECTIONS_COLLECTION_ID]: "sections",
+  [AUTHORS_COLLECTION_ID]: "authors",
+};
+
+// The Webflow collection whose field schema holds the stars rating options.
+// Mirrors the legacy in-app behaviour (collection metadata, field "stars-1-5").
+const STARS_SCHEMA_COLLECTION_ID = "67dbf17ba540975b5b21c294";
 
 function extractCollectionId(webhookData, item) {
   const payload = webhookData.payload || {};
@@ -207,6 +221,151 @@ async function syncAllArticlesFromWebflow(apiKey) {
   return articles.length;
 }
 
+// MARK: - Metadata sync (topics / sections / authors / stars)
+
+async function fetchAllWebflowCollectionItems(apiKey, collectionId) {
+  const trimmedKey = String(apiKey || "").trim();
+  if (!trimmedKey) {
+    throw new Error("WEBFLOW_API_KEY is missing");
+  }
+
+  let offset = 0;
+  const allItems = [];
+
+  while (true) {
+    const url =
+      `https://api.webflow.com/v2/collections/${collectionId}/items` +
+      `?live=true&limit=${WEBFLOW_PAGE_LIMIT}&offset=${offset}`;
+
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        "Authorization": `Bearer ${trimmedKey}`,
+        "accept-version": "1.0.0",
+      },
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(
+          `Webflow items fetch failed for ${collectionId} at offset ` +
+          `${offset}: HTTP ${response.status} ${body}`,
+      );
+    }
+
+    const payload = await response.json();
+    const items = Array.isArray(payload.items) ? payload.items : [];
+    allItems.push(...items);
+
+    if (items.length < WEBFLOW_PAGE_LIMIT) {
+      break;
+    }
+    offset += WEBFLOW_PAGE_LIMIT;
+  }
+
+  return allItems;
+}
+
+// Stores raw {id, fieldData} items so the iOS models can reconstruct them
+// exactly as if they came from the Webflow API.
+async function writeItemsToFirestore(items, firestoreCollection) {
+  const db = admin.firestore();
+  const batchSize = 500;
+
+  for (let index = 0; index < items.length; index += batchSize) {
+    const batch = db.batch();
+    const slice = items.slice(index, index + batchSize);
+
+    slice.forEach((item) => {
+      if (!item.id) {
+        return;
+      }
+      const docRef = db.collection(firestoreCollection).doc(item.id);
+      batch.set(docRef, {
+        id: item.id,
+        fieldData: item.fieldData || {},
+        isDraft: item.isDraft ?? null,
+        lastPublished: item.lastPublished ?? null,
+        syncedAt: admin.firestore.FieldValue.serverTimestamp(),
+      }, {merge: true});
+    });
+
+    await batch.commit();
+  }
+}
+
+async function syncWebflowCollectionToFirestore(
+    apiKey, collectionId, firestoreCollection) {
+  const items = await fetchAllWebflowCollectionItems(apiKey, collectionId);
+  await writeItemsToFirestore(items, firestoreCollection);
+  logger.info(
+      `Synced ${items.length} items into "${firestoreCollection}"`,
+  );
+  return items.length;
+}
+
+// Stars are not a CMS item list; they are the option set of a field on a
+// collection's schema. We persist them as a single Firestore document.
+async function syncStarsMappingToFirestore(apiKey) {
+  const trimmedKey = String(apiKey || "").trim();
+  if (!trimmedKey) {
+    throw new Error("WEBFLOW_API_KEY is missing");
+  }
+
+  const url =
+    `https://api.webflow.com/v2/collections/${STARS_SCHEMA_COLLECTION_ID}`;
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      "Authorization": `Bearer ${trimmedKey}`,
+      "accept-version": "1.0.0",
+    },
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(
+        `Webflow stars schema fetch failed: HTTP ${response.status} ${body}`,
+    );
+  }
+
+  const payload = await response.json();
+  const fields = Array.isArray(payload.fields) ? payload.fields : [];
+  const starsField = fields.find((field) => field.slug === "stars-1-5");
+  const options = Array.isArray(starsField && starsField.options) ?
+    starsField.options : [];
+
+  const mapping = {};
+  options.forEach((option) => {
+    if (option && option.id != null) {
+      mapping[String(option.id)] = option.label ?? "";
+    }
+  });
+
+  await admin.firestore()
+      .collection("metadata")
+      .doc("starsMapping")
+      .set({
+        mapping,
+        syncedAt: admin.firestore.FieldValue.serverTimestamp(),
+      }, {merge: true});
+
+  logger.info(`Synced ${Object.keys(mapping).length} stars options`);
+  return Object.keys(mapping).length;
+}
+
+async function syncAllMetadataFromWebflow(apiKey) {
+  const [topics, sections, authors, stars] = await Promise.all([
+    syncWebflowCollectionToFirestore(apiKey, TOPICS_COLLECTION_ID, "topics"),
+    syncWebflowCollectionToFirestore(
+        apiKey, SECTIONS_COLLECTION_ID, "sections"),
+    syncWebflowCollectionToFirestore(apiKey, AUTHORS_COLLECTION_ID, "authors"),
+    syncStarsMappingToFirestore(apiKey),
+  ]);
+
+  return {topics, sections, authors, stars};
+}
+
 exports.syncArticles = onRequest({secrets: [webflowApiKey]}, async (request, response) => {
   response.set("Access-Control-Allow-Origin", "*");
   response.set("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
@@ -253,6 +412,55 @@ exports.syncArticlesScheduled = onSchedule(
     },
 );
 
+exports.syncMetadata = onRequest({secrets: [webflowApiKey]}, async (
+    request, response) => {
+  response.set("Access-Control-Allow-Origin", "*");
+  response.set("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
+  response.set("Access-Control-Allow-Headers", "Content-Type");
+
+  if (request.method === "OPTIONS") {
+    response.status(204).send("");
+    return;
+  }
+
+  if (request.method !== "POST" && request.method !== "GET") {
+    response.status(405).send("Method Not Allowed");
+    return;
+  }
+
+  try {
+    const counts = await syncAllMetadataFromWebflow(webflowApiKey.value());
+    response.status(200).json({
+      status: "success",
+      message: "Synced metadata to Firestore",
+      counts,
+    });
+  } catch (error) {
+    logger.error("syncMetadata failed:", error);
+    response.status(500).json({
+      status: "error",
+      message: error.message,
+    });
+  }
+});
+
+exports.syncMetadataScheduled = onSchedule(
+    {
+      // Topics/sections/authors change rarely, so a slower cadence than
+      // articles is enough. The webhook handles immediate updates.
+      schedule: "every 6 hours",
+      secrets: [webflowApiKey],
+    },
+    async () => {
+      try {
+        await syncAllMetadataFromWebflow(webflowApiKey.value());
+      } catch (error) {
+        logger.error("syncMetadataScheduled failed:", error);
+        throw error;
+      }
+    },
+);
+
 exports.webflowWebhook = onRequest({secrets: [webflowApiKey]}, async (request, response) => {
   response.set("Access-Control-Allow-Origin", "*");
   response.set("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -283,6 +491,27 @@ exports.webflowWebhook = onRequest({secrets: [webflowApiKey]}, async (request, r
     const item = extractItem(webhookData);
     const fieldData = item.fieldData || {};
     const collectionId = extractCollectionId(webhookData, item);
+
+    // Topics/sections/authors publications refresh metadata only (no push).
+    if (collectionId && METADATA_COLLECTIONS[collectionId]) {
+      const firestoreCollection = METADATA_COLLECTIONS[collectionId];
+      try {
+        const count = await syncWebflowCollectionToFirestore(
+            webflowApiKey.value(), collectionId, firestoreCollection);
+        if (collectionId === AUTHORS_COLLECTION_ID) {
+          await syncStarsMappingToFirestore(webflowApiKey.value());
+        }
+        response.status(200).json({
+          status: "success",
+          message: `Synced ${count} items into "${firestoreCollection}"`,
+        });
+      } catch (error) {
+        logger.error(`Metadata sync after webhook failed (${collectionId}):`,
+            error);
+        response.status(500).json({status: "error", message: error.message});
+      }
+      return;
+    }
 
     if (collectionId !== ARTICLES_COLLECTION_ID) {
       logger.info(`Webflow publish ignored for non-article collection: ${collectionId || "unknown"}`);
