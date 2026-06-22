@@ -15,24 +15,3 @@ struct AproposMagazinev2App: App {
         }
     }
 }
-
-struct MinimalDataView: View {
-    @State private var rawData: String = "Henter data..."
-    private let fetcher = DirectFetcher()
-
-    var body: some View {
-        ScrollView {
-            VStack {
-                Text(rawData)
-                    .padding()
-                    .font(.system(.body, design: .monospaced))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        .onAppear {
-            fetcher.fetchData { dataString in
-                self.rawData = dataString
-            }
-        }
-    }
-}

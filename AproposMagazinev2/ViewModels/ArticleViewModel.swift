@@ -378,8 +378,8 @@ class ArticleViewModel: ObservableObject {
             case .success(let topics):
                 self.topics = topics
                 CacheManager.shared.cacheTopics(topics)
-            case .failure:
-                break
+            case .failure(let error):
+                self.logger.error("Failed to fetch topics – keeping cached/bundled defaults: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
@@ -392,8 +392,8 @@ class ArticleViewModel: ObservableObject {
             case .success(let sections):
                 self.sections = sections
                 CacheManager.shared.cacheSections(sections)
-            case .failure:
-                break
+            case .failure(let error):
+                self.logger.error("Failed to fetch sections – keeping cached/bundled defaults: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
@@ -406,8 +406,8 @@ class ArticleViewModel: ObservableObject {
             case .success(let authors):
                 self.authors = authors
                 CacheManager.shared.cacheAuthors(authors)
-            case .failure:
-                break
+            case .failure(let error):
+                self.logger.error("Failed to fetch authors – keeping cached/bundled defaults: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
