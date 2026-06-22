@@ -29,14 +29,20 @@ struct PodcastCardView: View {
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("PODCAST")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    Text("LYDINDHOLD")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+
+                    AINarrationBadge(style: .compact)
+                }
 
                 Text(pair.episode.title)
                     .font(.headline.weight(.semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(2)
+
+                Spacer(minLength: 6)
 
                 HStack(spacing: 8) {
                     if let duration = pair.episode.duration, !duration.isEmpty {
@@ -73,7 +79,7 @@ struct PodcastCardView: View {
                     .disabled(!pair.episode.hasPlayableAudioURL)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 92, alignment: .leading)
         }
         .padding(12)
         .background(cardBackground)

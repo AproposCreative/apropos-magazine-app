@@ -11,7 +11,7 @@ struct PodcastSectionView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text("Podcast")
+                Text("Lydindhold")
                     .font(.system(size: 25, weight: .bold))
                     .foregroundStyle(.primary)
 
@@ -47,7 +47,7 @@ struct PodcastSectionView: View {
                     ForEach(pairs) { pair in
                         PodcastCardView(
                             pair: pair,
-                            categoryText: categoriesProvider(pair.article).first ?? pair.episode.subtitle ?? "Podcast",
+                            categoryText: categoriesProvider(pair.article).first ?? pair.episode.subtitle ?? "Lydindhold",
                             onPlay: onPlayEpisode
                         )
                         .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -91,7 +91,9 @@ private struct PodcastListView: View {
                                     .lineLimit(1)
 
                                 HStack(spacing: 8) {
-                                    Text(categoriesProvider(pair.article).first ?? pair.episode.subtitle ?? "Podcast")
+                                    AINarrationBadge(style: .compact)
+
+                                    Text(categoriesProvider(pair.article).first ?? pair.episode.subtitle ?? "Lydindhold")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                         .lineLimit(1)
@@ -138,7 +140,7 @@ private struct PodcastListView: View {
                 }
             }
         }
-        .navigationTitle("Podcast")
+        .navigationTitle("Lydindhold")
         .navigationBarTitleDisplayMode(.inline)
     }
 }

@@ -64,11 +64,14 @@ struct PodcastMiniPlayerBar: View {
                         .lineLimit(1)
                         .truncationMode(.tail)
 
-                    Text(subtitleText)
-                        .font(.caption2)
-                        .foregroundStyle(secondaryForeground)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                    HStack(spacing: 6) {
+                        AINarrationBadge(style: .compact)
+                        Text(subtitleText)
+                            .font(.caption2)
+                            .foregroundStyle(secondaryForeground)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
                 }
 
                 Spacer(minLength: 8)

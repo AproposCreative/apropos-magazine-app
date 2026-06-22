@@ -27,6 +27,8 @@ struct PodcastManifestEntry: Decodable {
     let audioURL: String
     let hosts: [String]
     let publishedAt: Date?
+    /// "ai" for AI-genereret oplæsning, ellers menneske/NotebookLM-podcast.
+    let isAINarration: Bool
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -38,6 +40,7 @@ struct PodcastManifestEntry: Decodable {
         case audioUrl
         case hosts
         case publishedAt
+        case kind
     }
 
     init(from decoder: Decoder) throws {
@@ -65,6 +68,11 @@ struct PodcastManifestEntry: Decodable {
 
         hosts = try container.decodeIfPresent([String].self, forKey: .hosts) ?? []
         publishedAt = try container.decodeIfPresent(Date.self, forKey: .publishedAt)
+
+        let kind = try container.decodeIfPresent(String.self, forKey: .kind)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        isAINarration = (kind == "ai")
     }
 
     func toEpisode() -> PodcastEpisode? {
@@ -83,7 +91,8 @@ struct PodcastManifestEntry: Decodable {
             duration: nil,
             artworkURL: nil,
             hosts: hosts.isEmpty ? ["Apropos Magazine"] : hosts,
-            publishedDate: publishedAt
+            publishedDate: publishedAt,
+            isAINarration: isAINarration
         )
     }
 

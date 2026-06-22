@@ -691,25 +691,83 @@ final class PodcastPlayerManager: ObservableObject {
 
         if cachedArtworkIdentifier != identifier {
             cachedArtworkIdentifier = identifier
+            let isAINarration = episode.isAINarration
             if let url = episode.artworkURL {
                 Task.detached(priority: .utility) { [weak self] in
                     guard let self else { return }
-                    if let data = try? Data(contentsOf: url),
-                       let image = UIImage(data: data) {
-                        let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
-                        await MainActor.run {
-                            guard self.currentEpisode?.id == identifier else { return }
-                            self.nowPlayingInfo[MPMediaItemPropertyArtwork] = artwork
-                            MPNowPlayingInfoCenter.default().nowPlayingInfo = self.nowPlayingInfo
-                        }
+                    let baseImage = (try? Data(contentsOf: url)).flatMap(UIImage.init(data:))
+                    // For AI narrations, show the branded Apropos cover (white bar + logo)
+                    // instead of the raw article image on the lock screen / Now Playing.
+                    let finalImage: UIImage?
+                    if isAINarration {
+                        finalImage = Self.brandedNarrationArtwork(from: baseImage)
+                    } else {
+                        finalImage = baseImage
+                    }
+                    guard let finalImage else { return }
+                    let artwork = MPMediaItemArtwork(boundsSize: finalImage.size) { _ in finalImage }
+                    await MainActor.run {
+                        guard self.currentEpisode?.id == identifier else { return }
+                        self.nowPlayingInfo[MPMediaItemPropertyArtwork] = artwork
+                        MPNowPlayingInfoCenter.default().nowPlayingInfo = self.nowPlayingInfo
                     }
                 }
+            } else if isAINarration {
+                let branded = Self.brandedNarrationArtwork(from: nil)
+                nowPlayingInfo[MPMediaItemPropertyArtwork] =
+                    MPMediaItemArtwork(boundsSize: branded.size) { _ in branded }
             } else {
                 nowPlayingInfo[MPMediaItemPropertyArtwork] = nil
             }
         }
 
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
+    }
+
+    /// Builds a square branded cover for AI narrations: the article image (aspect-fill)
+    /// with a white bar across the bottom holding the Apropos logo. Falls back to a
+    /// dark branded background when no article image is available.
+    nonisolated static func brandedNarrationArtwork(from baseImage: UIImage?) -> UIImage {
+        let side: CGFloat = 1024
+        let canvas = CGSize(width: side, height: side)
+        let renderer = UIGraphicsImageRenderer(size: canvas)
+        return renderer.image { context in
+            if let baseImage {
+                let scale = max(side / baseImage.size.width, side / baseImage.size.height)
+                let width = baseImage.size.width * scale
+                let height = baseImage.size.height * scale
+                let origin = CGPoint(x: (side - width) / 2, y: (side - height) / 2)
+                baseImage.draw(in: CGRect(origin: origin, size: CGSize(width: width, height: height)))
+            } else {
+                UIColor(white: 0.07, alpha: 1).setFill()
+                context.fill(CGRect(origin: .zero, size: canvas))
+            }
+
+            let barHeight = side * 0.19
+            let barRect = CGRect(x: 0, y: side - barHeight, width: side, height: barHeight)
+            UIColor.white.setFill()
+            context.fill(barRect)
+
+            // Apropos wordmark (dark, since the bar is white), centered in the bar.
+            if let logo = UIImage(named: "AproposLogoBlack") ?? UIImage(named: "AM_logo_white 1") {
+                let maxLogoHeight = barHeight * 0.5
+                let maxLogoWidth = side * 0.7
+                let aspect = logo.size.width / max(logo.size.height, 1)
+                var logoHeight = maxLogoHeight
+                var logoWidth = logoHeight * aspect
+                if logoWidth > maxLogoWidth {
+                    logoWidth = maxLogoWidth
+                    logoHeight = logoWidth / aspect
+                }
+                let logoRect = CGRect(
+                    x: (side - logoWidth) / 2,
+                    y: barRect.midY - logoHeight / 2,
+                    width: logoWidth,
+                    height: logoHeight
+                )
+                logo.draw(in: logoRect)
+            }
+        }
     }
 
     private func updateNowPlayingPlaybackState() {

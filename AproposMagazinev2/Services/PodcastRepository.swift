@@ -76,11 +76,13 @@ final class PodcastRepository: PodcastProviding, ObservableObject {
     }
 
     func episode(for article: Article) -> PodcastEpisode? {
-        episodes.first(where: { episode in
+        let candidates = episodes.filter { episode in
             matches(episode: episode, article: article)
                 && episode.hasPlayableAudioURL
-        })
-        .map { enrich($0, with: article) }
+        }
+        // Prefer a human/NotebookLM podcast over an AI narration when both exist.
+        let preferred = candidates.first(where: { !$0.isAINarration }) ?? candidates.first
+        return preferred.map { enrich($0, with: article) }
     }
 
     func episodeMetadata(for article: Article) -> PodcastEpisode? {
@@ -188,7 +190,8 @@ final class PodcastRepository: PodcastProviding, ObservableObject {
             duration: episode.duration,
             artworkURL: artwork,
             hosts: episode.hosts,
-            publishedDate: episode.publishedDate
+            publishedDate: episode.publishedDate,
+            isAINarration: episode.isAINarration
         )
     }
 }

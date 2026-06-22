@@ -12,6 +12,9 @@ struct PodcastEpisode: Identifiable, Hashable {
     let artworkURL: URL?
     let hosts: [String]
     let publishedDate: Date?
+    /// True when the audio is an AI-generated narration (vs. a human/NotebookLM podcast).
+    /// Defaulted so existing initializers keep working.
+    var isAINarration: Bool = false
 
     var hasPlayableAudioURL: Bool {
         guard let audioURL else { return false }

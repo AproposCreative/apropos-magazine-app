@@ -31,29 +31,49 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
-import { BUCKET, publicURL, extractToken } from './lib/firebase-storage.mjs';
+import { BUCKET, publicURL, extractToken, resolveDownloadToken } from './lib/firebase-storage.mjs';
+import { findArticleBySlug, resolveAuthorName } from './lib/webflow.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, '..');
 const workDir = join(repoRoot, 'podcast-audio', 'work');
+
+// Load .env (Node >= 20.12) so WEBFLOW_API_KEY / PODCAST_NOTIFY_SECRET are available.
+try {
+  process.loadEnvFile(join(repoRoot, '.env'));
+} catch {
+  // Ignore — vars may already be set in the shell.
+}
 
 const require = createRequire(join(repoRoot, 'functions', 'package.json'));
 const admin = require('firebase-admin');
 
 const INCOMING_PREFIX = 'podcasts/incoming/';
 const ARTICLES_PREFIX = 'podcasts/articles/';
+const NARRATION_PREFIX = 'podcasts/narration/';
 const MANIFEST_PATH = 'podcasts/manifest.json';
 const OPTIMIZE_THRESHOLD_BYTES = 8 * 1024 * 1024;
 const TARGET_LUFS = '-16';
 const TARGET_BITRATE = process.env.PODCAST_BITRATE || '96k';
 const FORCE_MONO = process.env.PODCAST_MONO !== '0';
 
-const args = new Set(process.argv.slice(2));
+const rawArgs = process.argv.slice(2);
+const args = new Set(rawArgs);
 const dryRun = args.has('--dry-run');
 const incomingOnly = args.has('--incoming-only');
 const scanOnly = args.has('--scan-only');
 const manifestOnly = args.has('--manifest-only');
 const forceAll = args.has('--force');
+
+function argValue(name) {
+  const hit = rawArgs.find((a) => a.startsWith(`--${name}=`));
+  return hit ? hit.split('=').slice(1).join('=') : null;
+}
+// AI-oplæsning: udgiv en lokalt genereret narration-fil (fra narration-poc.mjs).
+const narrationSlug = argValue('publish-narration');
+const narrationFileArg = argValue('narration-file');
+// Spring den (uigenkaldelige) broadcast-push over — upload + manifest køres stadig.
+const noNotify = args.has('--no-notify');
 
 function formatBytes(bytes) {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -165,6 +185,97 @@ async function writeArticleMetadata(bucket, slug, metadata) {
   });
 }
 
+async function readNarrationMetadata(bucket, slug) {
+  const metadataPath = `${NARRATION_PREFIX}${slug}/narration.json`;
+  try {
+    const [buffer] = await bucket.file(metadataPath).download();
+    const parsed = JSON.parse(buffer.toString('utf8'));
+    return {
+      title: String(parsed.title || '').trim(),
+      hosts: Array.isArray(parsed.hosts) ? parsed.hosts.map(String) : [],
+    };
+  } catch {
+    return { title: '', hosts: [] };
+  }
+}
+
+async function writeNarrationMetadata(bucket, slug, metadata) {
+  const metadataPath = `${NARRATION_PREFIX}${slug}/narration.json`;
+  const payload = {
+    title: metadata.title,
+    hosts: metadata.hosts,
+    kind: 'ai',
+    updatedAt: new Date().toISOString(),
+  };
+  await bucket.file(metadataPath).save(JSON.stringify(payload, null, 2), {
+    contentType: 'application/json',
+    resumable: false,
+  });
+}
+
+/**
+ * Udgiv en lokalt genereret AI-oplæsning (fra narration-poc.mjs).
+ * Uploader lyd til podcasts/narration/{slug}/{slug}.m4a, skriver narration.json,
+ * og sender (efter manifest-sync) en AI-push. Springer over hvis filen allerede
+ * findes i Storage, medmindre --force.
+ */
+async function publishNarration(bucket, slug) {
+  const localPath = narrationFileArg
+    ? resolve(repoRoot, narrationFileArg)
+    : join(repoRoot, 'podcast-audio', 'poc', `${slug}.m4a`);
+
+  if (!existsSync(localPath)) {
+    throw new Error(
+      `Lydfil ikke fundet: ${localPath}\n` +
+      `Generér den først:  node scripts/narration-poc.mjs --slug=${slug} ...`,
+    );
+  }
+
+  const destPath = `${NARRATION_PREFIX}${slug}/${slug}.m4a`;
+  const file = bucket.file(destPath);
+  const [exists] = await file.exists();
+
+  if (exists && !forceAll) {
+    console.log(`\nAI-oplæsning findes allerede i Storage: ${destPath}`);
+    console.log('Brug --force for at gen-uploade (regenererer manifest uanset).');
+  } else {
+    // Hent titel + forfatter fra Webflow til manifest/push.
+    let title = titleFromSlug(slug);
+    let hosts = ['Apropos Magazine'];
+    try {
+      const item = await findArticleBySlug(slug);
+      if (item?.fieldData) {
+        const fd = item.fieldData;
+        if (fd.name) title = String(fd.name).trim();
+        const author = await resolveAuthorName(fd.author);
+        if (author) hosts = [author];
+      }
+    } catch (error) {
+      console.warn(`  webflow warning: ${error.message} (bruger fallback-titel)`);
+    }
+
+    const token = await resolveDownloadToken(bucket, destPath);
+    console.log(`\n=== Udgiv AI-oplæsning ===`);
+    console.log(`  slug: ${slug}`);
+    console.log(`  title: ${title}`);
+    console.log(`  fil: ${localPath} (${formatBytes(statSync(localPath).size)})`);
+    console.log(`  → ${destPath}`);
+
+    if (dryRun) {
+      console.log('  (dry run: ville uploade + skrive narration.json)');
+      return;
+    }
+
+    await uploadObject(bucket, localPath, destPath, token);
+    await writeNarrationMetadata(bucket, slug, { title, hosts });
+    console.log('  uploaded + narration.json skrevet');
+    console.log('  url:', publicURL(destPath, token));
+
+    // Gem til push efter manifest-sync.
+    publishNarration._pending = { slug, title, hosts };
+  }
+}
+
 async function uploadManifest(bucket, manifest, token) {
   mkdirSync(workDir, { recursive: true });
   const localPath = join(workDir, 'manifest.json');
@@ -186,6 +297,7 @@ async function uploadManifest(bucket, manifest, token) {
 async function syncManifest(bucket) {
   const files = await listAudioObjects(bucket, ARTICLES_PREFIX);
   const episodes = [];
+  const humanSlugs = new Set();
 
   for (const file of files) {
     const parts = file.name.split('/').filter(Boolean);
@@ -200,6 +312,7 @@ async function syncManifest(bucket) {
     const title = episodeMeta.title || titleFromSlug(slug);
     const publishedAt = metadata.updated || metadata.timeCreated || new Date().toISOString();
 
+    humanSlugs.add(slug);
     episodes.push({
       id: slugToId(slug),
       articleSlug: slug,
@@ -208,6 +321,33 @@ async function syncManifest(bucket) {
       audioURL: publicURL(file.name, token),
       hosts: episodeMeta.hosts.length ? episodeMeta.hosts : ['Apropos Magazine'],
       publishedAt,
+    });
+  }
+
+  // AI-oplæsninger (kind:'ai'). Dedupér pr. slug — en rigtig podcast vinder altid.
+  const narrationFiles = await listAudioObjects(bucket, NARRATION_PREFIX);
+  for (const file of narrationFiles) {
+    const parts = file.name.split('/').filter(Boolean);
+    const slug = parts[parts.length - 2];
+    if (!slug || humanSlugs.has(slug)) continue;
+
+    const [metadata] = await file.getMetadata();
+    const token = extractToken(metadata);
+    if (!token) continue;
+
+    const episodeMeta = await readNarrationMetadata(bucket, slug);
+    const title = episodeMeta.title || titleFromSlug(slug);
+    const publishedAt = metadata.updated || metadata.timeCreated || new Date().toISOString();
+
+    episodes.push({
+      id: `ai-${slugToId(slug)}`,
+      articleSlug: slug,
+      title,
+      subtitle: 'Lyt til artiklen',
+      audioURL: publicURL(file.name, token),
+      hosts: episodeMeta.hosts.length ? episodeMeta.hosts : ['Apropos Magazine'],
+      publishedAt,
+      kind: 'ai',
     });
   }
 
@@ -248,7 +388,7 @@ function readIncomingMetadata(bucket, slug) {
   }).catch(() => ({ title: '', hosts: [] }));
 }
 
-async function sendPodcastPushNotification({ slug, title, hosts }) {
+async function sendPodcastPushNotification({ slug, title, hosts, kind = 'podcast', force = false }) {
   const secret = process.env.PODCAST_NOTIFY_SECRET;
   const endpoint = process.env.PODCAST_NOTIFY_URL ||
     'https://us-central1-apropos-magazine-6004a.cloudfunctions.net/sendPodcastNotification';
@@ -268,6 +408,8 @@ async function sendPodcastPushNotification({ slug, title, hosts }) {
       articleSlug: slug,
       title,
       hosts,
+      kind,
+      force,
     }),
   });
 
@@ -276,7 +418,7 @@ async function sendPodcastPushNotification({ slug, title, hosts }) {
     throw new Error(`Podcast notify failed (${response.status}): ${body}`);
   }
 
-  console.log('  notify: push queued for new_podcasts topic');
+  console.log(`  notify: push queued (${kind === 'ai' ? 'AI-oplæsning' : 'podcast'}) for new_podcasts topic`);
 }
 
 async function downloadObject(file, localPath) {
@@ -446,6 +588,34 @@ async function main() {
   }
 
   const bucket = dryRun ? null : admin.storage().bucket();
+
+  // AI-oplæsning: udgiv én lokalt genereret narration-fil, regenerér manifest, push.
+  if (narrationSlug) {
+    if (!bucket) {
+      console.log(`(dry run: ville udgive AI-oplæsning for "${narrationSlug}")`);
+      console.log('\nDone.');
+      return;
+    }
+    await publishNarration(bucket, narrationSlug);
+    await syncManifest(bucket);
+    const pending = publishNarration._pending;
+    if (pending && noNotify) {
+      console.log('  notify: sprunget over (--no-notify). Lyden er i appen; send pushen senere.');
+    } else if (pending) {
+      try {
+        await sendPodcastPushNotification({ ...pending, kind: 'ai', force: forceAll });
+      } catch (error) {
+        console.warn(`  notify warning: ${error.message}`);
+      }
+    }
+    try {
+      rmSync(workDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
+    console.log('\nDone.');
+    return;
+  }
 
   if (manifestOnly) {
     if (bucket) await syncManifest(bucket);

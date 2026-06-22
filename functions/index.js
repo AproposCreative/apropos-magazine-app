@@ -528,6 +528,7 @@ exports.sendPodcastNotification = onRequest({secrets: [podcastNotifySecret]}, as
     const episodeTitle = String(payload.title || "").trim();
     const hosts = payload.hosts || [];
     const forceResend = payload.force === true || payload.force === "true";
+    const isAINarration = String(payload.kind || "").trim().toLowerCase() === "ai";
 
     if (!articleSlug || !episodeTitle) {
       response.status(400).json({
@@ -538,13 +539,18 @@ exports.sendPodcastNotification = onRequest({secrets: [podcastNotifySecret]}, as
     }
 
     const db = admin.firestore();
-    const podcastRef = db.collection("notified_podcasts").doc(articleSlug);
+    // AI-oplæsninger spores separat, så en evt. menneske-podcast for samme
+    // artikel ikke blokerer (eller bliver blokeret af) AI-pushen.
+    const dedupeCollection = isAINarration ? "notified_narrations" : "notified_podcasts";
+    const podcastRef = db.collection(dedupeCollection).doc(articleSlug);
     const podcastDoc = await podcastRef.get();
 
     if (podcastDoc.exists && !forceResend) {
       response.status(200).json({
         status: "ignored",
-        message: "Podcast was already notified",
+        message: isAINarration ?
+          "Narration was already notified" :
+          "Podcast was already notified",
       });
       return;
     }
@@ -556,14 +562,19 @@ exports.sendPodcastNotification = onRequest({secrets: [podcastNotifySecret]}, as
       articleId,
       episodeTitle,
       hosts,
+      kind: isAINarration ? "ai" : "podcast",
       notifiedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
     const hostLine = formatHostLine(hosts);
-    const notificationTitle = `Ny Apropos Podcast ude nu: ${episodeTitle}`;
-    const notificationBody = hostLine ? `${episodeTitle}, ${hostLine}` : episodeTitle;
+    const notificationTitle = isAINarration ?
+      `Artikel "${episodeTitle}" er nu blevet indtalt med AI` :
+      `Ny Apropos Podcast ude nu: ${episodeTitle}`;
+    const notificationBody = isAINarration ?
+      "Lyt nu." :
+      (hostLine ? `${episodeTitle}, ${hostLine}` : episodeTitle);
     const notificationData = {
-      type: "new_podcast",
+      type: isAINarration ? "new_narration" : "new_podcast",
       article_slug: articleSlug,
       article_id: articleId,
       podcast_title: episodeTitle,

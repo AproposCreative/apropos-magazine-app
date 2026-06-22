@@ -133,10 +133,14 @@ struct PodcastAudioPlayerSheet: View {
                         artworkView(for: episode)
 
                         VStack(alignment: .leading, spacing: 8) {
-                            Text(categoryLine)
-                                .font(.subheadline.weight(.medium))
-                                .foregroundStyle(secondaryForeground)
-                                .textCase(.uppercase)
+                            HStack(spacing: 8) {
+                                Text(categoryLine)
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(secondaryForeground)
+                                    .textCase(.uppercase)
+
+                                AINarrationBadge(style: .prominent)
+                            }
 
                             HStack(alignment: .top, spacing: 10) {
                                 VStack(alignment: .leading, spacing: 4) {
