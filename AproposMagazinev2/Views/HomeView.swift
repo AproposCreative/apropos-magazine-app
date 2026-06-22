@@ -633,7 +633,16 @@ struct HeroCardView: View {
         
         return categories.isEmpty ? ["Generelt"] : categories
     }
-    
+
+    // Top-tagget i heroen viser artiklens section (som i artikel-visningen),
+    // med topics som fallback hvis ingen section findes.
+    private var heroTopTag: String {
+        if let section = viewModel.sectionName(for: article), !section.isEmpty {
+            return section
+        }
+        return Array(articleCategories.prefix(2)).joined(separator: " | ")
+    }
+
     private var filledStarColor: Color {
         colorScheme == .dark ? .white : Color.black.opacity(0.92)
     }
@@ -738,8 +747,8 @@ struct HeroCardView: View {
                 Spacer()
 
                 VStack(alignment: .center, spacing: 30) {
-                    // Tagline (max 2 categories)
-                    Text(Array(articleCategories.prefix(2)).joined(separator: " | "))
+                    // Tagline: vis section (magen til artikel-visningen), fallback til topics
+                    Text(heroTopTag)
                         .font(.system(size: 15, weight: .semibold))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)

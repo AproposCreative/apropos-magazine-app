@@ -37,33 +37,17 @@ private struct ArticleStarRatingView: View {
 
 /// Review disclaimer shown when the CMS "Presseakkreditering" switch is on.
 private struct PressAccreditationDisclaimer: View {
-    @Environment(\.colorScheme) private var colorScheme
-
-    private var lineColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.18) : Color.black.opacity(0.14)
-    }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Rectangle()
-                .fill(lineColor)
-                .frame(height: 1)
-
-            (
-                Text("Disclaimer: ").font(.system(size: 14, weight: .semibold))
-                + Text("Apropos Magazine har modtaget adgang eller eksemplar til anmeldelse. Som altid deler vi vores egne indtryk - uden filter.")
-                    .font(.system(size: 14, weight: .regular))
-            )
-            .foregroundColor(.secondary)
-            .lineSpacing(3)
-            .fixedSize(horizontal: false, vertical: true)
-            .multilineTextAlignment(.leading)
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            Rectangle()
-                .fill(lineColor)
-                .frame(height: 1)
-        }
+        (
+            Text("Disclaimer: ").font(.system(size: 14, weight: .semibold))
+            + Text("Apropos Magazine har modtaget adgang eller eksemplar til anmeldelse. Som altid deler vi vores egne indtryk - uden filter.")
+                .font(.system(size: 14, weight: .regular))
+        )
+        .foregroundColor(.secondary)
+        .lineSpacing(3)
+        .fixedSize(horizontal: false, vertical: true)
+        .multilineTextAlignment(.leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
     }
 }
