@@ -333,17 +333,17 @@ import WidgetKit
     }
     
     func application(_ application: UIApplication, performFetchWithCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
-        // Refresh articles in background
-        WebflowService.shared.fetchArticles { [weak self] result in
+        // Refresh articles in background, reading from Firestore first and only
+        // falling back to Webflow if Firestore has not been synced yet.
+        let handle: (Result<[Article], Error>) -> Void = { [weak self] result in
             guard let self = self else {
                 completionHandler(.failed)
                 return
             }
-            
+
             switch result {
             case .success(let articles):
                 if !articles.isEmpty {
-                    // Cache the articles
                     CacheManager.shared.cacheArticles(articles)
                     completionHandler(.newData)
                 } else {
@@ -353,6 +353,15 @@ import WidgetKit
                 self.logger.error("Background fetch fejlede: \(error.localizedDescription, privacy: .public)")
                 AppDiagnostics.recordError(error, context: "background_fetch")
                 completionHandler(.failed)
+            }
+        }
+
+        FirestoreArticleService.shared.fetchArticles { result in
+            switch result {
+            case .failure(FirestoreArticleError.empty):
+                WebflowService.shared.fetchArticles(completion: handle)
+            default:
+                handle(result)
             }
         }
     }

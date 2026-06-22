@@ -93,10 +93,18 @@ class SecureConfig {
     
     // MARK: - API Key Getters
     
+    /// The Webflow API key intentionally no longer ships in the app.
+    ///
+    /// Articles and CMS metadata (topics/sections/authors/stars) are served from
+    /// Firestore, synced server-side by the `syncArticles`/`syncMetadata` Cloud
+    /// Functions which hold the key as a Firebase Secret. Returning an empty
+    /// string makes `WebflowService` short-circuit to its graceful fallback.
+    ///
+    /// A `WEBFLOW_API_KEY` environment variable is still honoured so the legacy
+    /// Webflow path can be exercised during local development if needed; it is
+    /// never present in release builds.
     var webflowAPIKey: String {
-        secretValue(for: "WEBFLOW_API_KEY", service: "webflow", envKey: "WEBFLOW_API_KEY")
-            ?? secretValue(for: "webflowAPIToken", service: "webflow", envKey: "WEBFLOW_API_TOKEN")
-            ?? ""
+        ProcessInfo.processInfo.environment["WEBFLOW_API_KEY"] ?? ""
     }
     
     var googleAPIKey: String {

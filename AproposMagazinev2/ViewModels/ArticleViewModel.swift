@@ -371,55 +371,113 @@ class ArticleViewModel: ObservableObject {
     }
     
     func fetchTopics() {
-        WebflowService.shared.fetchTopics { [weak self] result in
-            guard let self = self else { return }
-            
+        FirestoreMetadataService.shared.fetchTopics { [weak self] result in
+            guard let self else { return }
             switch result {
             case .success(let topics):
-                self.topics = topics
-                CacheManager.shared.cacheTopics(topics)
+                self.applyTopics(topics)
+            case .failure(FirestoreMetadataError.empty):
+                self.logger.info("Firestore topics empty – falling back to Webflow")
+                WebflowService.shared.fetchTopics { [weak self] webflowResult in
+                    guard let self else { return }
+                    switch webflowResult {
+                    case .success(let topics):
+                        self.applyTopics(topics)
+                    case .failure(let error):
+                        self.logger.error("Failed to fetch topics – keeping cached/bundled defaults: \(error.localizedDescription, privacy: .public)")
+                    }
+                }
             case .failure(let error):
-                self.logger.error("Failed to fetch topics – keeping cached/bundled defaults: \(error.localizedDescription, privacy: .public)")
+                self.logger.error("Failed to fetch topics from Firestore – keeping cached/bundled defaults: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
-    
+
+    private func applyTopics(_ topics: [Topic]) {
+        Task { @MainActor in
+            self.topics = topics
+            CacheManager.shared.cacheTopics(topics)
+        }
+    }
+
     func fetchSections() {
-        WebflowService.shared.fetchSections { [weak self] result in
-            guard let self = self else { return }
-            
+        FirestoreMetadataService.shared.fetchSections { [weak self] result in
+            guard let self else { return }
             switch result {
             case .success(let sections):
-                self.sections = sections
-                CacheManager.shared.cacheSections(sections)
+                self.applySections(sections)
+            case .failure(FirestoreMetadataError.empty):
+                self.logger.info("Firestore sections empty – falling back to Webflow")
+                WebflowService.shared.fetchSections { [weak self] webflowResult in
+                    guard let self else { return }
+                    switch webflowResult {
+                    case .success(let sections):
+                        self.applySections(sections)
+                    case .failure(let error):
+                        self.logger.error("Failed to fetch sections – keeping cached/bundled defaults: \(error.localizedDescription, privacy: .public)")
+                    }
+                }
             case .failure(let error):
-                self.logger.error("Failed to fetch sections – keeping cached/bundled defaults: \(error.localizedDescription, privacy: .public)")
+                self.logger.error("Failed to fetch sections from Firestore – keeping cached/bundled defaults: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
-    
+
+    private func applySections(_ sections: [WebflowSection]) {
+        Task { @MainActor in
+            self.sections = sections
+            CacheManager.shared.cacheSections(sections)
+        }
+    }
+
     func fetchAuthors() {
-        WebflowService.shared.fetchAuthors { [weak self] result in
-            guard let self = self else { return }
-            
+        FirestoreMetadataService.shared.fetchAuthors { [weak self] result in
+            guard let self else { return }
             switch result {
             case .success(let authors):
-                self.authors = authors
-                CacheManager.shared.cacheAuthors(authors)
+                self.applyAuthors(authors)
+            case .failure(FirestoreMetadataError.empty):
+                self.logger.info("Firestore authors empty – falling back to Webflow")
+                WebflowService.shared.fetchAuthors { [weak self] webflowResult in
+                    guard let self else { return }
+                    switch webflowResult {
+                    case .success(let authors):
+                        self.applyAuthors(authors)
+                    case .failure(let error):
+                        self.logger.error("Failed to fetch authors – keeping cached/bundled defaults: \(error.localizedDescription, privacy: .public)")
+                    }
+                }
             case .failure(let error):
-                self.logger.error("Failed to fetch authors – keeping cached/bundled defaults: \(error.localizedDescription, privacy: .public)")
+                self.logger.error("Failed to fetch authors from Firestore – keeping cached/bundled defaults: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
-    
+
+    private func applyAuthors(_ authors: [Author]) {
+        Task { @MainActor in
+            self.authors = authors
+            CacheManager.shared.cacheAuthors(authors)
+        }
+    }
+
     func fetchStars() {
-        WebflowService.shared.fetchStarsMapping { [weak self] mapping in
-            guard let self = self else { return }
-            
-            Task { @MainActor in
-                self.starsMapping = mapping
-                CacheManager.shared.cacheStarsMapping(mapping)
+        FirestoreMetadataService.shared.fetchStarsMapping { [weak self] mapping in
+            guard let self else { return }
+            if let mapping, !mapping.isEmpty {
+                self.applyStarsMapping(mapping)
+                return
             }
+            self.logger.info("Firestore stars mapping empty – falling back to Webflow")
+            WebflowService.shared.fetchStarsMapping { [weak self] webflowMapping in
+                self?.applyStarsMapping(webflowMapping)
+            }
+        }
+    }
+
+    private func applyStarsMapping(_ mapping: [String: String]) {
+        Task { @MainActor in
+            self.starsMapping = mapping
+            CacheManager.shared.cacheStarsMapping(mapping)
         }
     }
     
