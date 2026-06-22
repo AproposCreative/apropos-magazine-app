@@ -11,5 +11,26 @@ service cloud.firestore {
       allow read: if true;
       allow write: if false;
     }
+
+    // CMS metadata synced server-side by the syncMetadata Cloud Function.
+    match /topics/{topicId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /sections/{sectionId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /authors/{authorId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /metadata/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
   }
 }
