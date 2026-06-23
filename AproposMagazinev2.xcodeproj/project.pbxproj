@@ -96,6 +96,7 @@
 				AproposMagazineWidget/AproposMagazineWidgetBundle.swift,
 				AproposMagazineWidget/Assets.xcassets,
 				AproposMagazineWidget/Info.plist,
+				AproposMagazineWidget/PrivacyInfo.xcprivacy,
 				AproposMagazineWidget/PodcastLiveActivityWidget.swift,
 				AproposMagazineWidget/WidgetArticleCardView.swift,
 				AproposMagazineWidget/WidgetArticleCoverView.swift,
