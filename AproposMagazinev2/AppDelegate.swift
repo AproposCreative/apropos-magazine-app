@@ -258,6 +258,10 @@ import WidgetKit
     }
 
     func applicationDidBecomeActive(_ application: UIApplication) {
+        // Clear the app-icon badge on open. iOS does not clear it automatically,
+        // so a badge set by a delivered push/local notification would otherwise
+        // stay stuck (e.g. the persistent "1").
+        UNUserNotificationCenter.current().setBadgeCount(0)
         Task { @MainActor in
             syncWidgetFeedIfNeeded()
             WidgetCenter.shared.reloadAllTimelines()

@@ -93,16 +93,9 @@ private struct PodcastArtworkView: View {
                 Image(uiImage: uiImage)
                     .resizable()
                     .scaledToFill()
-            } else if let url {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image.resizable().scaledToFill()
-                    default:
-                        Color.gray.opacity(0.35)
-                    }
-                }
             } else {
+                // Live Activities cannot load network images; fall back to a solid
+                // tint when no cached App Group artwork is available.
                 Color.gray.opacity(0.35)
             }
         }

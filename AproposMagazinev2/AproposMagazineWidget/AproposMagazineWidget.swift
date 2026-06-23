@@ -20,9 +20,17 @@ struct LatestArticleProvider: TimelineProvider {
         let entry = currentEntry(fallbackToPreview: false)
         let articles = entry.articles.filter { !$0.id.hasPrefix("widget-preview") }
         let missingImages = articles.contains { !WidgetImageStore.hasCachedImage(for: $0.id) }
-        let nextUpdate = missingImages
-            ? Date().addingTimeInterval(300)
-            : Date().addingTimeInterval(1800)
+
+        // Refresh sooner right after install/first sync so the widget "comes to
+        // life" quickly, then settle into a calm 30-minute cadence.
+        let nextUpdate: Date
+        if articles.isEmpty {
+            nextUpdate = Date().addingTimeInterval(60)
+        } else if missingImages {
+            nextUpdate = Date().addingTimeInterval(120)
+        } else {
+            nextUpdate = Date().addingTimeInterval(1800)
+        }
 
         completion(Timeline(entries: [entry], policy: .after(nextUpdate)))
     }
@@ -122,29 +130,11 @@ private struct LatestArticleWidgetBackground: View {
                 .resizable()
                 .scaledToFill()
                 .overlay(Color.black.opacity(0.38))
-        } else if let article, let url = remoteImageURL(for: article) {
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFill()
-                        .overlay(Color.black.opacity(0.38))
-                default:
-                    WidgetArticleBackgroundFill(article: article)
-                }
-            }
         } else if let article {
             WidgetArticleBackgroundFill(article: article)
         } else {
             PremiumWidgetBackdrop()
         }
-    }
-
-    private func remoteImageURL(for article: WidgetArticle) -> URL? {
-        let value = article.thumbURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty else { return nil }
-        return URL(string: value)
     }
 }
 
@@ -229,23 +219,8 @@ struct WidgetArticleBackgroundFill: View {
                     .resizable()
                     .scaledToFill()
                     .overlay(WidgetImageOverlay())
-            } else if let url = remoteImageURL {
-                AsyncImage(url: url) { phase in
-                    if case .success(let image) = phase {
-                        image
-                            .resizable()
-                            .scaledToFill()
-                            .overlay(WidgetImageOverlay())
-                    }
-                }
             }
         }
-    }
-
-    private var remoteImageURL: URL? {
-        let value = article.thumbURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty else { return nil }
-        return URL(string: value)
     }
 }
 
@@ -303,27 +278,9 @@ private struct AproposTodayWidgetBackground: View {
                 .resizable()
                 .scaledToFill()
                 .overlay(WidgetImageOverlay())
-        } else if let article, let url = remoteImageURL(for: article) {
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFill()
-                        .overlay(WidgetImageOverlay())
-                default:
-                    PremiumWidgetBackdrop()
-                }
-            }
         } else {
             PremiumWidgetBackdrop()
         }
-    }
-
-    private func remoteImageURL(for article: WidgetArticle) -> URL? {
-        let value = article.thumbURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty else { return nil }
-        return URL(string: value)
     }
 }
 
