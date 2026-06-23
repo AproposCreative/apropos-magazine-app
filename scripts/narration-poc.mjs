@@ -66,7 +66,12 @@ const SPEED = parseFloat(argValue('speed', process.env.NARRATION_SPEED || '1.0')
 // Valgfri blød diskant-dæmpning i dB (negativ = mindre skarp), fx --treble=-2
 const TREBLE_GAIN = parseFloat(argValue('treble', process.env.NARRATION_TREBLE || '0'));
 // Valgfri baggrundsjingle der loopes under oplæsningen og dæmpes (dB).
-const JINGLE_PATH = argValue('jingle', process.env.NARRATION_JINGLE || '');
+// Default: committet repo-asset, så backfill/regenerering lyder identisk uden ekstra flag.
+const DEFAULT_JINGLE = join(repoRoot, 'scripts', 'assets', 'narration-jingle.wav');
+const JINGLE_PATH = argValue(
+  'jingle',
+  process.env.NARRATION_JINGLE || (existsSync(DEFAULT_JINGLE) ? DEFAULT_JINGLE : '')
+);
 const JINGLE_GAIN = argValue('jingle-gain', process.env.NARRATION_JINGLE_GAIN || '-18'); // dB
 const JINGLE_FADE_IN = parseFloat(argValue('jingle-fade-in', '1'));
 const JINGLE_FADE_OUT = parseFloat(argValue('jingle-fade-out', '3'));

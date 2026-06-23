@@ -28,6 +28,27 @@ const METADATA_COLLECTIONS = {
 // Mirrors the legacy in-app behaviour (collection metadata, field "stars-1-5").
 const STARS_SCHEMA_COLLECTION_ID = "67dbf17ba540975b5b21c294";
 
+// Storage bucket holding podcast/narration audio (new-style Firebase bucket).
+const NARRATION_BUCKET = "apropos-magazine-6004a.firebasestorage.app";
+const NARRATION_AUDIO_PREFIXES = ["podcasts/articles/", "podcasts/narration/"];
+const NARRATION_QUEUE_COLLECTION = "narration_queue";
+
+// Returns true if the article (by slug) already has any audio file in Storage
+// (a human/NotebookLM podcast or an AI narration). Best-effort; errors -> false.
+async function articleHasAudio(slug) {
+  if (!slug) return false;
+  const bucket = admin.storage().bucket(NARRATION_BUCKET);
+  for (const prefix of NARRATION_AUDIO_PREFIXES) {
+    try {
+      const [files] = await bucket.getFiles({prefix: `${prefix}${slug}/`});
+      if (files.some((f) => /\.(m4a|mp3|aac|wav)$/i.test(f.name))) return true;
+    } catch (error) {
+      logger.warn(`articleHasAudio(${slug}) failed for ${prefix}:`, error.message);
+    }
+  }
+  return false;
+}
+
 function extractCollectionId(webhookData, item) {
   const payload = webhookData.payload || {};
   const collection = payload.collection || webhookData.collection || {};
@@ -596,12 +617,32 @@ exports.webflowWebhook = onRequest({secrets: [webflowApiKey]}, async (request, r
       logger.error("Article sync after webhook failed:", error);
     }
 
+    // Fase 2: flag newly published articles that have no audio yet so they can
+    // be picked up by the AI-narration backfill command (scripts/narration-queue.mjs).
+    let queued = false;
+    try {
+      if (articleSlug && !(await articleHasAudio(articleSlug))) {
+        await db.collection(NARRATION_QUEUE_COLLECTION).doc(articleSlug).set({
+          slug: articleSlug,
+          articleId,
+          name: articleName,
+          status: "pending",
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, {merge: true});
+        queued = true;
+        logger.info(`Queued "${articleSlug}" for AI narration.`);
+      }
+    } catch (error) {
+      logger.error("narration_queue enqueue failed:", error);
+    }
+
     response.status(200).json({
       status: "success",
       message: "Notification sent successfully",
       fcm_response: fcmResponses,
       sync_count: syncCount,
       sync_error: syncError,
+      narration_queued: queued,
     });
   } catch (error) {
     logger.error("Error processing Webflow webhook:", error);
