@@ -10,7 +10,10 @@ enum NotificationNavigation {
         let podcastTitle: String?
 
         var isPodcastNotification: Bool {
-            type == "new_podcast"
+            // Both human/NotebookLM podcasts ("new_podcast") and AI narrations
+            // ("new_narration") are audio content: route them through the podcast
+            // path so the manifest is force-refreshed and the player opens.
+            type == "new_podcast" || type == "new_narration"
         }
 
         var isArticleNotification: Bool {
