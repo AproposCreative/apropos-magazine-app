@@ -172,7 +172,9 @@ import WidgetKit
         }
         let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
         impactFeedback.impactOccurred()
-        return [.banner, .sound, .badge]
+        // This app intentionally never shows an app-icon badge.
+        UNUserNotificationCenter.current().setBadgeCount(0)
+        return [.banner, .sound]
     }
     
     // Handle notification tap when app is in background
@@ -181,6 +183,9 @@ import WidgetKit
         let actionIdentifier = response.actionIdentifier
         let userInfo = response.notification.request.content.userInfo
         let payload = NotificationNavigation.payload(from: userInfo)
+
+        // Never leave an app-icon badge behind.
+        UNUserNotificationCenter.current().setBadgeCount(0)
 
         if let payload {
             let notificationType = payload.type

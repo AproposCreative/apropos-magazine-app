@@ -688,7 +688,7 @@ class NotificationService: NSObject, ObservableObject {
         content.title = "Apropos Magazine"
         content.body = "Lokal test — viser at iOS tillader notifikationer. Team-push er separat."
         content.sound = .default
-        content.badge = 1
+        content.badge = 0
         content.threadIdentifier = "test_notifications"
         
         content.userInfo = [
