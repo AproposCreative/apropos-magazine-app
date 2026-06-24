@@ -202,6 +202,33 @@ async function sendArticleNotificationOnce(db, {
   return {sent: true, fcmResponses};
 }
 
+// Sends a silent, data-only push (no alert/sound/badge) to wake the app so it
+// can refresh its cached feed and widget in the background. Best-effort.
+async function sendSilentRefreshPush(articleId, articleSlug) {
+  try {
+    await admin.messaging().send({
+      topic: "new_articles",
+      data: {
+        type: "content_refresh",
+        article_id: articleId || "",
+        article_slug: articleSlug || "",
+      },
+      apns: {
+        headers: {
+          "apns-priority": "5",
+          "apns-push-type": "background",
+        },
+        payload: {
+          aps: {"content-available": 1},
+        },
+      },
+      android: {priority: "normal"},
+    });
+  } catch (error) {
+    logger.warn("silent refresh push failed:", error.message);
+  }
+}
+
 const FIRESTORE_ARTICLES_COLLECTION = "articles";
 const WEBFLOW_PAGE_LIMIT = 100;
 
@@ -622,6 +649,11 @@ exports.webflowWebhook = onRequest({secrets: [webflowApiKey]}, async (request, r
       syncError = error.message;
       logger.error("Article sync after webhook failed:", error);
     }
+
+    // Silent background refresh: wake the app (content-available) so it updates
+    // its cached feed + widget right away, before any user-facing push and
+    // before the user opens the app. Best-effort (iOS throttles silent pushes).
+    await sendSilentRefreshPush(articleId, articleSlug);
 
     // Notification policy: if the article has no audio yet, DON'T notify now.
     // Instead queue an AI narration; the narration trigger sends a single

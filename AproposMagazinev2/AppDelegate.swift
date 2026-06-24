@@ -355,6 +355,40 @@ import WidgetKit
         logger.error("Fejl ved fortsættelse af user activity \(userActivityType, privacy: .public): \(error.localizedDescription, privacy: .public)")
     }
     
+    func application(_ application: UIApplication,
+                     didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+                     fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        // Silent ("content-available") refresh push, sent when a new article is
+        // published. Refresh the cached feed + widget in the background so the
+        // newest article is ready before the user even opens the app.
+        let apply: ([Article]) -> UIBackgroundFetchResult = { articles in
+            guard !articles.isEmpty else { return .noData }
+            CacheManager.shared.cacheArticles(articles)
+            CacheManager.shared.syncWidgetFeed(from: articles)
+            WidgetCenter.shared.reloadAllTimelines()
+            return .newData
+        }
+
+        FirestoreArticleService.shared.fetchArticles { [weak self] result in
+            switch result {
+            case .success(let articles):
+                completionHandler(apply(articles))
+            case .failure(FirestoreArticleError.empty):
+                WebflowService.shared.fetchArticles { wfResult in
+                    switch wfResult {
+                    case .success(let articles):
+                        completionHandler(apply(articles))
+                    case .failure:
+                        completionHandler(.noData)
+                    }
+                }
+            case .failure(let error):
+                self?.logger.error("Silent push refresh fejlede: \(error.localizedDescription, privacy: .public)")
+                completionHandler(.failed)
+            }
+        }
+    }
+
     func application(_ application: UIApplication, performFetchWithCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
         // Refresh articles in background, reading from Firestore first and only
         // falling back to Webflow if Firestore has not been synced yet.

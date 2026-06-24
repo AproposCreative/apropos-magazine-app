@@ -311,6 +311,29 @@ class ArticleViewModel: ObservableObject {
         }
     }
     
+    /// Silent refresh used when the app returns to the foreground. Shows no
+    /// loading state and only replaces the list if the content actually changed,
+    /// so the user sees fresh articles without a jarring spinner or scroll reset.
+    func refreshOnForeground() {
+        fetchRemoteArticles { [weak self] result in
+            guard let self = self else { return }
+            switch result {
+            case .success(let articles):
+                let sortedArticles = self.sortedNewestFirst(articles.filter(\.isPubliclyPublished))
+                Task { @MainActor in
+                    if sortedArticles != self.articles {
+                        self.articles = sortedArticles
+                        CacheManager.shared.cacheArticles(sortedArticles)
+                        CacheManager.shared.syncWidgetFeed(from: sortedArticles)
+                    }
+                }
+            case .failure(let error):
+                self.logger.error("Forgrunds-opdatering af artikler fejlede: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        Task { await PodcastRepository.shared.refreshManifest() }
+    }
+
     func fetchAIRecommendations() {
         fetchPersonalizedRecommendationsIfNeeded(force: true)
     }
