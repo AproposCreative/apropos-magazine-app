@@ -121,7 +121,9 @@ function richNotificationEnvelope(notificationData, title, body) {
     payload: {
       aps: {
         sound: "default",
-        badge: 1,
+        // Always reset the app-icon badge to 0 — this app intentionally never
+        // shows a badge. Sending 0 clears any previously stuck badge on delivery.
+        badge: 0,
         "mutable-content": 1,
         alert: {
           title,
@@ -152,6 +154,52 @@ function richNotificationEnvelope(notificationData, title, body) {
     },
     apns,
   };
+}
+
+// Sends exactly one article push, guarded by an atomic dedupe on
+// notified_articles/{articleId}. Both the Webflow webhook and the narration
+// trigger call this, so an article can only ever produce a single push.
+async function sendArticleNotificationOnce(db, {
+  articleId,
+  articleName,
+  notificationData,
+  topics,
+  title,
+  body,
+}) {
+  if (!articleId) {
+    return {sent: false, reason: "missing_article_id"};
+  }
+
+  const ref = db.collection("notified_articles").doc(articleId);
+  const created = await db.runTransaction(async (tx) => {
+    const doc = await tx.get(ref);
+    if (doc.exists) return false;
+    tx.set(ref, {
+      articleId,
+      articleName: articleName || "",
+      notifiedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    return true;
+  });
+
+  if (!created) {
+    return {sent: false, reason: "already_notified"};
+  }
+
+  const topicSet = new Set(["new_articles"]);
+  (topics || []).filter(Boolean).forEach((topic) => topicSet.add(topic));
+
+  const messageForTopic = (topic) => ({
+    ...richNotificationEnvelope(notificationData, title, body),
+    topic,
+  });
+
+  const fcmResponses = await Promise.all(
+      Array.from(topicSet).map((topic) => admin.messaging().send(messageForTopic(topic))),
+  );
+
+  return {sent: true, fcmResponses};
 }
 
 const FIRESTORE_ARTICLES_COLLECTION = "articles";
@@ -559,58 +607,13 @@ exports.webflowWebhook = onRequest({secrets: [webflowApiKey]}, async (request, r
     }
 
     const db = admin.firestore();
-    const articleRef = db.collection("notified_articles").doc(articleId);
-    const articleDoc = await articleRef.get();
-
-    if (articleDoc.exists) {
-      response.status(200).json({
-        status: "ignored",
-        message: "Article was already notified",
-      });
-      return;
-    }
-
-    await articleRef.set({
-      articleId,
-      articleName,
-      notifiedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-
     const imageData = articleImageData(fieldData);
-    const notificationData = {
-      article_id: articleId,
-      article_slug: articleSlug,
-      article_name: articleName,
-      type: "new_article",
-      click_action: "OPEN_ARTICLE",
-    };
-
-    if (imageData.thumbnailUrl) {
-      notificationData.thumbnail_url = imageData.thumbnailUrl;
-    }
-    if (imageData.coverUrl) {
-      notificationData.cover_url = imageData.coverUrl;
-    }
-
-    const topics = new Set(["new_articles"]);
-    articleTopicIds(fieldData)
+    const categoryTopics = articleTopicIds(fieldData)
         .map((topicId) => topicIdentifier("category", topicId))
-        .filter(Boolean)
-        .forEach((topic) => topics.add(topic));
+        .filter(Boolean);
 
-    const messageForTopic = (topic) => ({
-      ...richNotificationEnvelope(
-          notificationData,
-          "Ny artikel på Apropos Magazine",
-          `${articleName} er nu tilgængelig`,
-      ),
-      topic,
-    });
-
-    const fcmResponses = await Promise.all(
-        Array.from(topics).map((topic) => admin.messaging().send(messageForTopic(topic))),
-    );
-
+    // Sync the article into Firestore first so the narration trigger (and the
+    // app) can read it immediately.
     let syncCount = null;
     let syncError = null;
     try {
@@ -620,32 +623,76 @@ exports.webflowWebhook = onRequest({secrets: [webflowApiKey]}, async (request, r
       logger.error("Article sync after webhook failed:", error);
     }
 
-    // Fase 2: flag newly published articles that have no audio yet so they can
-    // be picked up by the AI-narration backfill command (scripts/narration-queue.mjs).
-    let queued = false;
+    // Notification policy: if the article has no audio yet, DON'T notify now.
+    // Instead queue an AI narration; the narration trigger sends a single
+    // "Ny artikel + AI-oplæsning" push once the audio is published (or a
+    // fallback "Ny artikel" push if narration fails). This guarantees the audio
+    // player is ready the moment the user taps the notification.
+    let willQueue = false;
     try {
-      if (articleSlug && !(await articleHasAudio(articleSlug))) {
-        await db.collection(NARRATION_QUEUE_COLLECTION).doc(articleSlug).set({
-          slug: articleSlug,
-          articleId,
-          name: articleName,
-          status: "pending",
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        }, {merge: true});
-        queued = true;
-        logger.info(`Queued "${articleSlug}" for AI narration.`);
-      }
+      willQueue = Boolean(articleSlug) && !(await articleHasAudio(articleSlug));
     } catch (error) {
-      logger.error("narration_queue enqueue failed:", error);
+      logger.warn(`articleHasAudio check failed for ${articleSlug}:`, error.message);
+      willQueue = false;
     }
 
+    if (willQueue) {
+      await db.collection(NARRATION_QUEUE_COLLECTION).doc(articleSlug).set({
+        slug: articleSlug,
+        articleId,
+        name: articleName,
+        status: "pending",
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        thumbnailUrl: imageData.thumbnailUrl || "",
+        coverUrl: imageData.coverUrl || "",
+        topics: categoryTopics,
+      }, {merge: true});
+      logger.info(`Queued "${articleSlug}" for AI narration (push deferred until audio is ready).`);
+
+      response.status(200).json({
+        status: "success",
+        message: "Article synced and queued for AI narration; notification deferred until audio is ready.",
+        sync_count: syncCount,
+        sync_error: syncError,
+        narration_queued: true,
+        notification_deferred: true,
+      });
+      return;
+    }
+
+    // Article already has audio (or has no slug): notify immediately.
+    const notificationData = {
+      article_id: articleId,
+      article_slug: articleSlug,
+      article_name: articleName,
+      type: "new_article",
+      click_action: "OPEN_ARTICLE",
+    };
+    if (imageData.thumbnailUrl) {
+      notificationData.thumbnail_url = imageData.thumbnailUrl;
+    }
+    if (imageData.coverUrl) {
+      notificationData.cover_url = imageData.coverUrl;
+    }
+
+    const pushResult = await sendArticleNotificationOnce(db, {
+      articleId,
+      articleName,
+      notificationData,
+      topics: categoryTopics,
+      title: "Ny artikel på Apropos Magazine",
+      body: `${articleName} er nu tilgængelig`,
+    });
+
     response.status(200).json({
-      status: "success",
-      message: "Notification sent successfully",
-      fcm_response: fcmResponses,
+      status: pushResult.sent ? "success" : "ignored",
+      message: pushResult.sent ?
+        "Notification sent successfully" :
+        `Notification not sent: ${pushResult.reason}`,
+      fcm_response: pushResult.fcmResponses || null,
       sync_count: syncCount,
       sync_error: syncError,
-      narration_queued: queued,
+      narration_queued: false,
     });
   } catch (error) {
     logger.error("Error processing Webflow webhook:", error);
@@ -658,9 +705,12 @@ exports.webflowWebhook = onRequest({secrets: [webflowApiKey]}, async (request, r
 
 // Fase 2 (fuld automatik): når webhook'en lægger en nyligt publiceret artikel
 // uden lyd i narration_queue, genererer denne trigger straks en AI-oplæsning
-// (samme recept som scripts/narration-poc.mjs), uploader den, opdaterer
-// manifestet og markerer kø-elementet. Sender INGEN ekstra push — den nye
-// artikel har allerede udløst en "Ny artikel"-notifikation ved publicering.
+// (samme recept som scripts/narration-poc.mjs), uploader den og opdaterer
+// manifestet. DERefter sendes ÉN push:
+//   • lyd klar  → "Ny artikel + AI-oplæsning" (type new_narration, åbner afspiller)
+//   • fejl/kvote → fallback "Ny artikel" (type new_article)
+// Webhook'en sender bevidst ingen push for køsatte artikler, så brugeren kun
+// får én notifikation, og lyden er klar i samme øjeblik den trykkes.
 exports.generateNarrationOnQueue = onDocumentCreated(
     {
       document: `${NARRATION_QUEUE_COLLECTION}/{slug}`,
@@ -672,6 +722,7 @@ exports.generateNarrationOnQueue = onDocumentCreated(
     async (event) => {
       const snap = event.data;
       if (!snap) return;
+      const db = admin.firestore();
       const data = snap.data() || {};
       const slug = data.slug || event.params.slug;
       const articleId = data.articleId || "";
@@ -683,8 +734,9 @@ exports.generateNarrationOnQueue = onDocumentCreated(
         return;
       }
 
+      let result = {status: "error"};
       try {
-        const result = await generateAndPublishNarration({
+        result = await generateAndPublishNarration({
           slug,
           articleId,
           name,
@@ -704,6 +756,46 @@ exports.generateNarrationOnQueue = onDocumentCreated(
           error: String((error && error.message) || error).slice(0, 500),
           processedAt: admin.firestore.FieldValue.serverTimestamp(),
         }, {merge: true});
+        result = {status: "error"};
+      }
+
+      // Send præcis én push for artiklen (dedupe via notified_articles).
+      try {
+        const audioReady = result.status === "published" || result.status === "exists";
+        const displayName = name || result.title || "Ny artikel";
+
+        const baseData = {
+          article_id: articleId,
+          article_slug: slug,
+          article_name: displayName,
+          click_action: "OPEN_ARTICLE",
+        };
+        if (data.thumbnailUrl) baseData.thumbnail_url = data.thumbnailUrl;
+        if (data.coverUrl) baseData.cover_url = data.coverUrl;
+
+        if (audioReady) {
+          await sendArticleNotificationOnce(db, {
+            articleId,
+            articleName: displayName,
+            notificationData: {...baseData, type: "new_narration"},
+            topics: data.topics || [],
+            title: "Ny artikel + AI-oplæsning",
+            body: `${displayName} kan nu læses og høres`,
+          });
+        } else {
+          // Narration fejlede/kvote opbrugt: send alligevel den almindelige
+          // artikel-notifikation, så ingen artikel går ud uden besked.
+          await sendArticleNotificationOnce(db, {
+            articleId,
+            articleName: displayName,
+            notificationData: {...baseData, type: "new_article"},
+            topics: data.topics || [],
+            title: "Ny artikel på Apropos Magazine",
+            body: `${displayName} er nu tilgængelig`,
+          });
+        }
+      } catch (pushError) {
+        logger.error(`narration push failed for ${slug}:`, pushError);
       }
     },
 );
@@ -794,7 +886,8 @@ exports.sendTestArticleNotification = onRequest({secrets: [podcastNotifySecret]}
         payload: {
           aps: {
             sound: "default",
-            badge: 1,
+            // Always reset the app-icon badge to 0 — never show a badge.
+            badge: 0,
             "mutable-content": 1,
             alert: {
               title: notificationTitle,
