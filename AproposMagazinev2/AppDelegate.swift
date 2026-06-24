@@ -1,3 +1,4 @@
+import AVFoundation
 import FirebaseCore
 import FirebaseMessaging
 import UserNotifications
@@ -16,6 +17,11 @@ import WidgetKit
 
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+
+        // Use a mixable ambient session by default so launch-time playback (the
+        // splash video) never interrupts audio the user is already playing in
+        // another app. The podcast player explicitly upgrades to `.playback`.
+        configureDefaultAudioSession()
 
         FirebaseConfiguration.shared.setLoggerLevel(.min)
         FirebaseApp.configure()
@@ -82,6 +88,14 @@ import WidgetKit
         }
 
         return true
+    }
+
+    private func configureDefaultAudioSession() {
+        try? AVAudioSession.sharedInstance().setCategory(
+            .ambient,
+            mode: .default,
+            options: [.mixWithOthers]
+        )
     }
 
     private func configureGlobalImageCaching() {

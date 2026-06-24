@@ -269,6 +269,7 @@ final class PodcastPlayerManager: ObservableObject {
         PodcastLiveActivityService.shared.endActivity()
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         MPNowPlayingInfoCenter.default().playbackState = .stopped
+        deactivateAudioSessionForOtherApps()
     }
 
     func setQueue(episodes: [PodcastEpisode]) {
@@ -500,6 +501,15 @@ final class PodcastPlayerManager: ObservableObject {
             options: [.allowAirPlay, .allowBluetoothA2DP, .allowBluetoothHFP]
         )
         try? AVAudioSession.sharedInstance().setActive(true)
+    }
+
+    /// Called when playback is fully torn down. Deactivates our session (so other
+    /// apps can resume their audio) and restores the mixable ambient default the
+    /// app launches with, so the splash/UI never interrupts other apps again.
+    private func deactivateAudioSessionForOtherApps() {
+        let session = AVAudioSession.sharedInstance()
+        try? session.setActive(false, options: [.notifyOthersOnDeactivation])
+        try? session.setCategory(.ambient, mode: .default, options: [.mixWithOthers])
     }
 
     private func startProgressObservationIfNeeded() {
