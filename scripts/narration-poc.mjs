@@ -44,11 +44,12 @@ const WEBFLOW_PAGE_LIMIT = 100;
 const VOICE_NAME = process.env.ELEVENLABS_VOICE_NAME || 'Ellen';
 const VOICE_ID_OVERRIDE = process.env.ELEVENLABS_VOICE_ID || '';
 const MODEL_ID = process.env.ELEVENLABS_MODEL_ID || 'eleven_v3';
-const OUTPUT_FORMAT = 'mp3_44100_128';
+// Højere kvalitet efter ElevenLabs-opgradering (Creator-plan understøtter 192 kbps).
+const OUTPUT_FORMAT = process.env.ELEVENLABS_OUTPUT_FORMAT || 'mp3_44100_192';
 // v3 har lavere tegngrænse pr. kald end multilingual_v2.
 const MAX_CHARS_PER_CHUNK = MODEL_ID === 'eleven_v3' ? 2800 : 9000;
 
-const TARGET_BITRATE = '128k';
+const TARGET_BITRATE = process.env.NARRATION_BITRATE || '192k';
 const TARGET_SAMPLE_RATE = '44100';
 
 const args = process.argv.slice(2);
@@ -81,6 +82,12 @@ const JINGLE_INTRO_SECS = parseFloat(argValue('jingle-intro', process.env.NARRAT
 const JINGLE_INTRO_GAIN = argValue('jingle-intro-gain', process.env.NARRATION_JINGLE_INTRO_GAIN || '-5');
 // Hvor hurtigt musikken dukker fra intro-niveau til bed-niveau (sek).
 const JINGLE_DUCK = parseFloat(argValue('jingle-duck', '1.5'));
+// Outro: efter oplæsningen svulmer jinglen op igen og spiller et par sekunder som afslutning.
+const JINGLE_OUTRO_SECS = parseFloat(argValue('jingle-outro', process.env.NARRATION_JINGLE_OUTRO || '6.5'));
+// Niveau på outro-jinglen (dB). Default = samme som intro, så det lyder som en rigtig afslutning.
+const JINGLE_OUTRO_GAIN = argValue('jingle-outro-gain', process.env.NARRATION_JINGLE_OUTRO_GAIN || JINGLE_INTRO_GAIN);
+// Hvor hurtigt musikken svulmer fra bed-niveau op til outro-niveau, når stemmen slutter (sek).
+const JINGLE_OUTRO_RISE = parseFloat(argValue('jingle-outro-rise', '1.2'));
 
 // "Stemme-polish": blød EQ der dæmper hård diskant/sibilance og tilfører lidt varme.
 // Slå fra med --no-polish.
@@ -364,21 +371,29 @@ function dbToLinear(db) {
 }
 
 // Musik-intro (højere) der dukker ned til bed-niveau, hvorefter stemmen begynder.
-// Stemmen forsinkes med JINGLE_INTRO_SECS; jinglen loopes under hele oplæsningen og fader ud til sidst.
+// Stemmen forsinkes med JINGLE_INTRO_SECS; jinglen loopes under hele oplæsningen.
+// Når stemmen slutter, svulmer jinglen op igen og spiller JINGLE_OUTRO_SECS som afslutning.
 function mixJingle(voicePath, jinglePath, outPath, voiceDuration) {
   return new Promise((resolvePromise, reject) => {
     const introLin = dbToLinear(JINGLE_INTRO_GAIN);
     const bedLin = dbToLinear(JINGLE_GAIN);
+    const outroLin = dbToLinear(JINGLE_OUTRO_GAIN);
     const duckStart = JINGLE_INTRO_SECS;
     const duckEnd = JINGLE_INTRO_SECS + JINGLE_DUCK;
-    const total = voiceDuration + JINGLE_INTRO_SECS;
+    const voiceEnd = JINGLE_INTRO_SECS + voiceDuration;   // hvor stemmen slutter
+    const riseStart = voiceEnd;                            // begynd at svulme op
+    const riseEnd = voiceEnd + JINGLE_OUTRO_RISE;          // jingle oppe på outro-niveau
+    const total = voiceEnd + JINGLE_OUTRO_SECS;            // inkl. outro-hale
     const fadeOutStart = Math.max(0, total - JINGLE_FADE_OUT);
 
-    // Lydstyrke-kurve for musikken: intro-niveau → lineær ramp ned → bed-niveau.
+    // Lydstyrke-kurve for musikken:
+    // intro (højt) → duck ned til bed → bed under oplæsning → svulm op → outro-niveau.
     const duckExpr =
       `if(lt(t,${duckStart}),${introLin.toFixed(4)},` +
       `if(lt(t,${duckEnd}),${introLin.toFixed(4)}+(${bedLin.toFixed(4)}-${introLin.toFixed(4)})*(t-${duckStart})/${JINGLE_DUCK},` +
-      `${bedLin.toFixed(4)}))`;
+      `if(lt(t,${riseStart.toFixed(2)}),${bedLin.toFixed(4)},` +
+      `if(lt(t,${riseEnd.toFixed(2)}),${bedLin.toFixed(4)}+(${outroLin.toFixed(4)}-${bedLin.toFixed(4)})*(t-${riseStart.toFixed(2)})/${JINGLE_OUTRO_RISE},` +
+      `${outroLin.toFixed(4)}))))`;
 
     const bed =
       `[1:a]aformat=channel_layouts=stereo,aresample=${TARGET_SAMPLE_RATE},` +
@@ -386,9 +401,10 @@ function mixJingle(voicePath, jinglePath, outPath, voiceDuration) {
       `volume=eval=frame:volume='${duckExpr}',` +
       `afade=t=out:st=${fadeOutStart.toFixed(2)}:d=${JINGLE_FADE_OUT}[bed]`;
 
-    // Forsink stemmen så den starter efter musik-introen.
+    // Forsink stemmen så den starter efter musik-introen, og pad med stilhed til den
+    // fulde længde, så outro-jinglen kan spille videre efter oplæsningen er slut.
     const delayMs = Math.round(JINGLE_INTRO_SECS * 1000);
-    const voice = `[0:a]adelay=${delayMs}:all=1[v]`;
+    const voice = `[0:a]adelay=${delayMs}:all=1,apad=whole_dur=${total.toFixed(2)}[v]`;
 
     const filterComplex = `${voice};${bed};[v][bed]amix=inputs=2:duration=first:normalize=0[out]`;
     const ffArgs = [
@@ -419,7 +435,7 @@ async function produceFinal(listPath, outPath) {
   const voiceWav = join(outDir, `${SLUG}.voice.wav`);
   await encodeFromList(listPath, voiceWav, { wav: true });
   const duration = probeDuration(voiceWav);
-  console.log(`mixer jingle (${JINGLE_GAIN} dB, loop, fade ${JINGLE_FADE_IN}s/${JINGLE_FADE_OUT}s) under ${duration.toFixed(0)}s stemme...`);
+  console.log(`mixer jingle (intro ${JINGLE_INTRO_SECS}s @ ${JINGLE_INTRO_GAIN}dB → bed ${JINGLE_GAIN}dB → outro ${JINGLE_OUTRO_SECS}s @ ${JINGLE_OUTRO_GAIN}dB) under ${duration.toFixed(0)}s stemme...`);
   await mixJingle(voiceWav, JINGLE_PATH, outPath, duration);
   try { rmSync(voiceWav, { force: true }); } catch { /* ignore */ }
 }

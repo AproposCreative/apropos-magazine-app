@@ -85,12 +85,20 @@ async function main() {
       missing.push({
         slug,
         name: String(fieldData.name || '').trim(),
+        // createdOn = artiklens rigtige alder. lastPublished er ubrugelig som
+        // nyeste-signal, fordi hele sitet er bulk-genudgivet med samme tidsstempel.
+        createdOn: data.createdOn || null,
         lastPublished: data.lastPublished || null,
       });
     }
   });
 
-  missing.sort((a, b) => String(b.lastPublished || '').localeCompare(String(a.lastPublished || '')));
+  // Sortér på createdOn (rigtig nyeste først); lastPublished kun som tie-break.
+  missing.sort((a, b) => {
+    const byCreated = String(b.createdOn || '').localeCompare(String(a.createdOn || ''));
+    if (byCreated !== 0) return byCreated;
+    return String(b.lastPublished || '').localeCompare(String(a.lastPublished || ''));
+  });
 
   if (jsonOut) {
     console.log(JSON.stringify({ publishedCount, withAudio: audioSlugs.size, missing }, null, 2));

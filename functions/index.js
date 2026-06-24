@@ -1,13 +1,16 @@
 const {setGlobalOptions} = require("firebase-functions");
 const {onRequest} = require("firebase-functions/https");
 const {onSchedule} = require("firebase-functions/v2/scheduler");
+const {onDocumentCreated} = require("firebase-functions/v2/firestore");
 const {defineSecret} = require("firebase-functions/params");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
+const {generateAndPublishNarration} = require("./narration");
 
 const podcastNotifySecret = defineSecret("PODCAST_NOTIFY_SECRET");
 const webflowApiKey = defineSecret("WEBFLOW_API_KEY");
 const openaiApiKey = defineSecret("OPENAI_API_KEY");
+const elevenLabsApiKey = defineSecret("ELEVENLABS_API_KEY");
 
 setGlobalOptions({maxInstances: 10});
 admin.initializeApp();
@@ -652,6 +655,58 @@ exports.webflowWebhook = onRequest({secrets: [webflowApiKey]}, async (request, r
     });
   }
 });
+
+// Fase 2 (fuld automatik): når webhook'en lægger en nyligt publiceret artikel
+// uden lyd i narration_queue, genererer denne trigger straks en AI-oplæsning
+// (samme recept som scripts/narration-poc.mjs), uploader den, opdaterer
+// manifestet og markerer kø-elementet. Sender INGEN ekstra push — den nye
+// artikel har allerede udløst en "Ny artikel"-notifikation ved publicering.
+exports.generateNarrationOnQueue = onDocumentCreated(
+    {
+      document: `${NARRATION_QUEUE_COLLECTION}/{slug}`,
+      secrets: [elevenLabsApiKey],
+      memory: "2GiB",
+      timeoutSeconds: 540,
+      maxInstances: 3,
+    },
+    async (event) => {
+      const snap = event.data;
+      if (!snap) return;
+      const data = snap.data() || {};
+      const slug = data.slug || event.params.slug;
+      const articleId = data.articleId || "";
+      const name = data.name || "";
+
+      // Behandl kun nyligt køsatte elementer (status "pending").
+      if (data.status && data.status !== "pending") {
+        logger.info(`narration trigger: ${slug} status=${data.status}, springer over`);
+        return;
+      }
+
+      try {
+        const result = await generateAndPublishNarration({
+          slug,
+          articleId,
+          name,
+          apiKey: elevenLabsApiKey.value(),
+        });
+        await snap.ref.set({
+          status: result.status === "published" ? "done" : result.status,
+          result: result.status,
+          processedAt: admin.firestore.FieldValue.serverTimestamp(),
+          ...(result.title ? {title: result.title} : {}),
+        }, {merge: true});
+        logger.info(`narration trigger: ${slug} → ${result.status}`);
+      } catch (error) {
+        logger.error(`generateNarrationOnQueue failed for ${slug}:`, error);
+        await snap.ref.set({
+          status: "error",
+          error: String((error && error.message) || error).slice(0, 500),
+          processedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, {merge: true});
+      }
+    },
+);
 
 function formatHostLine(hosts) {
   const list = Array.isArray(hosts) ?
