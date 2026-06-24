@@ -644,7 +644,7 @@
 				CODE_SIGN_ENTITLEMENTS = AproposMagazinev2/AproposMagazinev2.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = Q2LR5XQ8GK;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
@@ -662,7 +662,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.5;
+				MARKETING_VERSION = 1.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.frederikkragh.aproposmagazinev2;
 				PRODUCT_NAME = "Apropos Magazine";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -680,7 +680,7 @@
 				CODE_SIGN_ENTITLEMENTS = AproposMagazinev2/AproposMagazinev2Release.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = Q2LR5XQ8GK;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
@@ -698,7 +698,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.5;
+				MARKETING_VERSION = 1.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.frederikkragh.aproposmagazinev2;
 				PRODUCT_NAME = "Apropos Magazine";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -714,7 +714,7 @@
 				CODE_SIGN_ENTITLEMENTS = AproposMagazineNotificationService.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = Q2LR5XQ8GK;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AproposMagazinev2/AproposMagazineNotificationService/Info.plist;
@@ -726,7 +726,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.5;
+				MARKETING_VERSION = 1.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.frederikkragh.aproposmagazinev2.AproposMagazineNotificationService;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -745,7 +745,7 @@
 				CODE_SIGN_ENTITLEMENTS = AproposMagazineNotificationService.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = Q2LR5XQ8GK;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AproposMagazinev2/AproposMagazineNotificationService/Info.plist;
@@ -757,7 +757,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.5;
+				MARKETING_VERSION = 1.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.frederikkragh.aproposmagazinev2.AproposMagazineNotificationService;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -776,7 +776,7 @@
 				CODE_SIGN_ENTITLEMENTS = AproposMagazineWidget.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = Q2LR5XQ8GK;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AproposMagazinev2/AproposMagazineWidget/Info.plist;
@@ -788,7 +788,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.5;
+				MARKETING_VERSION = 1.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.frederikkragh.aproposmagazinev2.AproposMagazineWidget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -804,7 +804,7 @@
 				CODE_SIGN_ENTITLEMENTS = AproposMagazineWidget.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = Q2LR5XQ8GK;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AproposMagazinev2/AproposMagazineWidget/Info.plist;
@@ -816,7 +816,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.5;
+				MARKETING_VERSION = 1.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.frederikkragh.aproposmagazinev2.AproposMagazineWidget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;

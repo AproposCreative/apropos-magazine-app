@@ -217,7 +217,15 @@ struct TrailerWebView: UIViewRepresentable {
     func makeCoordinator() -> Coordinator {
         Coordinator()
     }
-    
+
+    /// Release the (heavy) WKWebView and stop any trailer playback when the article
+    /// closes, so browsing many articles doesn't accumulate web content processes.
+    static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
+        uiView.stopLoading()
+        uiView.navigationDelegate = nil
+        uiView.loadHTMLString("", baseURL: nil)
+    }
+
     class Coordinator: NSObject, WKNavigationDelegate {
         var lastLoadedTrailer: String = ""
         

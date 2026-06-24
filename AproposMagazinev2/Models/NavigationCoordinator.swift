@@ -20,6 +20,7 @@ enum AppRoute: Hashable, Codable {
     case favorites
     case article(Article)
     case categoryDetail(String) // category name
+    case categoryList(title: String, articles: [Article]) // "Se alle"-liste fra Home
 }
 
 /// Tab identifiers for the main tab bar

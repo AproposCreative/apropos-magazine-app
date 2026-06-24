@@ -259,6 +259,18 @@ struct HTMLTextView: UIViewRepresentable {
         Coordinator(self)
     }
 
+    /// Critical memory fix: WKWebView is very heavy (own web content process), and
+    /// `userContentController.add(_:name:)` keeps a strong reference to the coordinator.
+    /// Without this teardown each opened article leaks a WKWebView, so memory climbs
+    /// until the OS jetsams the app. Tear everything down when the view is dismantled.
+    static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
+        uiView.stopLoading()
+        uiView.navigationDelegate = nil
+        uiView.configuration.userContentController.removeScriptMessageHandler(forName: "heightHandler")
+        uiView.configuration.userContentController.removeAllUserScripts()
+        coordinator.resetHeightTracking()
+    }
+
     class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var parent: HTMLTextView
         var lastLoadedHTML: String?

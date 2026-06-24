@@ -913,7 +913,7 @@ import SwiftUI
                 Spacer()
                 
                 if allArticles.count > articles.count {
-                    NavigationLink(destination: SimpleCategoryView(title: title, articles: allArticles)) {
+                    NavigationLink(value: AppRoute.categoryList(title: title, articles: allArticles)) {
                         Text("Se alle")
                             .font(.subheadline)
                             .fontWeight(.medium)

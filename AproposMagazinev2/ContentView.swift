@@ -250,6 +250,9 @@ struct ContentView: View {
             CategoryDetailView(categoryName: categoryName)
                 .environmentObject(viewModel)
                 .environment(\.navigationCoordinator, navigationCoordinator)
+        case .categoryList(let title, let articles):
+            SimpleCategoryView(title: title, articles: articles)
+                .environmentObject(viewModel)
         }
     }
 }

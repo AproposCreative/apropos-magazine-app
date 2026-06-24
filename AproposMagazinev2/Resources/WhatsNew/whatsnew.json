@@ -1,5 +1,44 @@
 [
   {
+    "version": "1.6",
+    "title": "Nyheder i Apropos Magazine",
+    "subtitle": "Bedre navigation, automatisk opdatering og AI-oplæste artikler.",
+    "items": [
+      {
+        "icon": "arrow.uturn.backward",
+        "title": "Navigation rettet",
+        "description": "Når du åbner en artikel fra en liste på forsiden, lander du nu korrekt på artiklen — og Tilbage fører dig retur til listen."
+      },
+      {
+        "icon": "arrow.triangle.2.circlepath",
+        "title": "Automatisk opdatering",
+        "description": "Nye artikler dukker op af sig selv når du åbner appen — du behøver ikke længere trække ned for at opdatere."
+      },
+      {
+        "icon": "waveform",
+        "title": "AI-oplæste artikler",
+        "description": "Nye artikler får automatisk en oplæst version, så du kan lytte selv når der ikke er en podcast."
+      },
+      {
+        "icon": "bell.badge.fill",
+        "title": "Bedre notifikationer",
+        "description": "Beskeder om nyt indhold kommer først når lyden er klar, så afspilleren er der med det samme. Og den irriterende prik på app-ikonet er væk."
+      },
+      {
+        "icon": "photo.on.rectangle.angled",
+        "title": "Pænere artikler",
+        "description": "Fotokredit vises nu under hero-billedet, og tags fylder flere linjer i stedet for at blive klippet af."
+      },
+      {
+        "icon": "music.note",
+        "title": "Musik fortsætter",
+        "description": "Lytter du til musik eller en podcast i en anden app, fortsætter den nu når du åbner Apropos Magazine."
+      }
+    ],
+    "ctaTitle": "Se alle ændringer",
+    "ctaURL": "https://aproposmagazine.com/changelog"
+  },
+  {
     "version": "1.5",
     "title": "Nyheder i Apropos Magazine",
     "subtitle": "Pålideligere push, podcast-forbedringer og bedre overblik i denne opdatering.",
