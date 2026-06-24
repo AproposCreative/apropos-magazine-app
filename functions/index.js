@@ -774,13 +774,15 @@ exports.generateNarrationOnQueue = onDocumentCreated(
         if (data.coverUrl) baseData.cover_url = data.coverUrl;
 
         if (audioReady) {
+          // Same copy as a normal article push; only the type differs
+          // (new_narration) so the app opens the audio player.
           await sendArticleNotificationOnce(db, {
             articleId,
             articleName: displayName,
             notificationData: {...baseData, type: "new_narration"},
             topics: data.topics || [],
-            title: "Ny artikel + AI-oplæsning",
-            body: `${displayName} kan nu læses og høres`,
+            title: "Ny artikel på Apropos Magazine",
+            body: `${displayName} er nu tilgængelig`,
           });
         } else {
           // Narration fejlede/kvote opbrugt: send alligevel den almindelige
