@@ -76,6 +76,8 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
     let coverURL: URL?
     let location: String?
     let subtitle: String?
+    /// CMS "Foto Credit" (slug: foto-credit) — photographer/source credit for the hero image.
+    let fotoCredit: String?
     let isDraft: Bool?
     let date: String?
     let createdOn: String?
@@ -283,6 +285,7 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
         case cover
         case location
         case subtitle
+        case fotoCredit = "foto-credit"
         case date
         case featured
         case premium
@@ -460,6 +463,7 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
         try fieldData.encodeIfPresent(authorID, forKey: .authorID)
         try fieldData.encodeIfPresent(location, forKey: .location)
         try fieldData.encodeIfPresent(subtitle, forKey: .subtitle)
+        try fieldData.encodeIfPresent(fotoCredit, forKey: .fotoCredit)
         try fieldData.encodeIfPresent(date, forKey: .date)
         try fieldData.encodeIfPresent(featured, forKey: .featured)
         try fieldData.encodeIfPresent(isPremium, forKey: .premium)
@@ -510,6 +514,7 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
         authorID = try fieldDataContainer.decodeIfPresent(String.self, forKey: .authorID)
         location = try fieldDataContainer.decodeIfPresent(String.self, forKey: .location)
         subtitle = try fieldDataContainer.decodeIfPresent(String.self, forKey: .subtitle)
+        fotoCredit = try fieldDataContainer.decodeIfPresent(String.self, forKey: .fotoCredit)
         date = try fieldDataContainer.decodeIfPresent(String.self, forKey: .date)
         featured = try fieldDataContainer.decodeIfPresent(Bool.self, forKey: .featured)
         isPremium = Article.decodePremium(from: fieldDataContainer)
@@ -581,6 +586,7 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
         coverURL: URL? = nil,
         location: String? = nil,
         subtitle: String? = nil,
+        fotoCredit: String? = nil,
         isDraft: Bool? = nil,
         date: String? = nil,
         createdOn: String? = nil,
@@ -605,6 +611,7 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
         self.coverURL = coverURL
         self.location = location
         self.subtitle = subtitle
+        self.fotoCredit = fotoCredit
         self.isDraft = isDraft
         self.date = date
         self.createdOn = createdOn

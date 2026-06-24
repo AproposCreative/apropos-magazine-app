@@ -35,6 +35,96 @@ private struct ArticleStarRatingView: View {
     }
 }
 
+/// Single pill-shaped category/author tag used under the article header.
+private struct ArticleTagChip: View {
+    let text: String
+
+    var body: some View {
+        Text(text.uppercased())
+            .font(.caption.weight(.semibold))
+            .foregroundColor(.white)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            .frame(height: 22)
+            .padding(.horizontal, 10)
+            .background(Color(hex: "#262626"))
+            .cornerRadius(8)
+    }
+}
+
+/// Flow layout that places tag chips left-to-right and wraps onto new lines when
+/// they no longer fit, keeping each line centered within the available width.
+private struct ArticleTagFlowLayout: Layout {
+    var spacing: CGFloat = 8
+    var lineSpacing: CGFloat = 8
+    var alignment: HorizontalAlignment = .center
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Void) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        let rows = computeRows(maxWidth: maxWidth, subviews: subviews)
+        let width = proposal.width ?? (rows.map { $0.width }.max() ?? 0)
+        let height = rows.reduce(CGFloat.zero) { $0 + $1.height }
+            + CGFloat(max(0, rows.count - 1)) * lineSpacing
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Void) {
+        let rows = computeRows(maxWidth: bounds.width, subviews: subviews)
+        var y = bounds.minY
+
+        for row in rows {
+            var x: CGFloat
+            switch alignment {
+            case .leading: x = bounds.minX
+            case .trailing: x = bounds.maxX - row.width
+            default: x = bounds.minX + (bounds.width - row.width) / 2
+            }
+
+            for index in row.indices {
+                let size = subviews[index].sizeThatFits(.unspecified)
+                subviews[index].place(
+                    at: CGPoint(x: x, y: y + (row.height - size.height) / 2),
+                    proposal: ProposedViewSize(size)
+                )
+                x += size.width + spacing
+            }
+            y += row.height + lineSpacing
+        }
+    }
+
+    private struct Row {
+        var indices: [Int] = []
+        var width: CGFloat = 0
+        var height: CGFloat = 0
+    }
+
+    private func computeRows(maxWidth: CGFloat, subviews: Subviews) -> [Row] {
+        var rows: [Row] = []
+        var current = Row()
+
+        for index in subviews.indices {
+            let size = subviews[index].sizeThatFits(.unspecified)
+            let projectedWidth = current.indices.isEmpty
+                ? size.width
+                : current.width + spacing + size.width
+
+            if !current.indices.isEmpty && projectedWidth > maxWidth {
+                rows.append(current)
+                current = Row(indices: [index], width: size.width, height: size.height)
+            } else {
+                current.width = current.indices.isEmpty ? size.width : current.width + spacing + size.width
+                current.height = max(current.height, size.height)
+                current.indices.append(index)
+            }
+        }
+
+        if !current.indices.isEmpty {
+            rows.append(current)
+        }
+        return rows
+    }
+}
+
 /// Review disclaimer shown when the CMS "Presseakkreditering" switch is on.
 private struct PressAccreditationDisclaimer: View {
     var body: some View {
@@ -492,37 +582,23 @@ struct ArticleDetailView: View {
                         .padding(.top, -5)
                     }
 
-                    // Updated category tags section - centered and using real category names
-                    VStack(spacing: 8) {
-                        HStack(spacing: 8) {
-                            // Show author if available
-                            if let authorName = resolvedArticle.author?.name, !authorName.isEmpty {
-                                Text(authorName)
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundColor(.white)
-                                    .frame(height: 22)
-                                    .padding(.horizontal, 10)
-                                    .background(Color(hex: "#262626"))
-                                    .cornerRadius(8)
-                                    .textCase(.uppercase)
-                            }
+                    // Category tags section - wraps onto multiple lines when needed so
+                    // long tag names are shown in full instead of being truncated.
+                    ArticleTagFlowLayout(spacing: 8, lineSpacing: 8, alignment: .center) {
+                        // Show author if available
+                        if let authorName = resolvedArticle.author?.name, !authorName.isEmpty {
+                            ArticleTagChip(text: authorName)
+                        }
 
-                            // Display real category names from the article
-                            ForEach(displayCategories, id: \.self) { category in
-                                if !category.isEmpty {
-                                    Text(category.uppercased())
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundColor(.white)
-                                        .frame(height: 22)
-                                        .padding(.horizontal, 10)
-                                        .background(Color(hex: "#262626"))
-                                        .cornerRadius(8)
-                                        .textCase(.uppercase)
-                                }
+                        // Display real category names from the article
+                        ForEach(displayCategories, id: \.self) { category in
+                            if !category.isEmpty {
+                                ArticleTagChip(text: category)
                             }
                         }
-                        .frame(maxWidth: .infinity, alignment: .center) // Center the entire HStack
                     }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.horizontal, 16)
                     .padding(.top, 5)
 
                     if let episode = latestPodcastEpisode {
@@ -581,6 +657,18 @@ struct ArticleDetailView: View {
                     .frame(maxWidth: .infinity, minHeight: 220, maxHeight: 340)
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .padding(.horizontal, 16)
+
+                    // Photo credit for the hero image (CMS "Foto Credit"). Same small
+                    // gray caption style as inline body-image credits, but left-aligned.
+                    if let credit = resolvedArticle.fotoCredit?.trimmingCharacters(in: .whitespacesAndNewlines),
+                       !credit.isEmpty {
+                        Text(credit)
+                            .font(.system(size: 12))
+                            .foregroundColor(colorScheme == .dark ? Color(white: 0.67) : Color(white: 0.4))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 16)
+                            .padding(.top, -8)
+                    }
 
                     if let imageCaption = resolvedArticle.intro, !imageCaption.isEmpty {
                         Text(imageCaption)
