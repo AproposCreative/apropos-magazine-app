@@ -25,8 +25,17 @@ final class PodcastRepository: PodcastProviding, ObservableObject {
         initialEpisodes: [PodcastEpisode]
     ) {
         self.manifestService = manifestService
-        let cached = manifestService.cachedEpisodes()
-        self.episodes = cached.isEmpty ? initialEpisodes : cached
+        // Seed with the bundled fallback immediately (no disk I/O on the main thread
+        // at launch), then hydrate from the on-disk cache off the main actor.
+        self.episodes = initialEpisodes
+        Task { [weak self] in
+            guard let self else { return }
+            let cached = await self.manifestService.cachedEpisodesOffMain()
+            // Only apply the cache if a network refresh hasn't already replaced episodes.
+            if !cached.isEmpty, self.episodes == initialEpisodes {
+                self.episodes = cached
+            }
+        }
     }
 
     func refreshManifest(force: Bool = false) async {

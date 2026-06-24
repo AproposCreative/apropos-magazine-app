@@ -14,11 +14,12 @@ class NetworkManager {
         config.httpMaximumConnectionsPerHost = 6
         config.requestCachePolicy = .useProtocolCachePolicy
         
-        // Add custom headers
+        // Add custom headers. Note: do NOT set Accept-Encoding manually — URLSession
+        // adds it automatically and transparently decompresses the response. Setting
+        // it by hand disables that automatic decompression and can yield raw/garbled bytes.
         config.httpAdditionalHeaders = [
             "User-Agent": "AproposMagazine-iOS/1.0",
-            "Accept": "application/json",
-            "Accept-Encoding": "gzip, deflate"
+            "Accept": "application/json"
         ]
         
         self.session = URLSession(configuration: config)

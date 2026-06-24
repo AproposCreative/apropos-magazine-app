@@ -29,6 +29,19 @@ final class PodcastManifestService {
         loadCachedManifest()?.episodes.compactMap { $0.toEpisode() } ?? []
     }
 
+    /// Reads and decodes the cached manifest off the main actor so app launch is
+    /// never blocked by synchronous disk I/O.
+    func cachedEpisodesOffMain() async -> [PodcastEpisode] {
+        let url = cacheURL
+        return await Task.detached(priority: .userInitiated) {
+            guard let data = try? Data(contentsOf: url) else { return [] }
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            guard let manifest = try? decoder.decode(PodcastManifest.self, from: data) else { return [] }
+            return manifest.episodes.compactMap { $0.toEpisode() }
+        }.value
+    }
+
     @discardableResult
     func refreshEpisodes(force: Bool = false) async -> [PodcastEpisode] {
         if let inFlightRefresh, !force {
