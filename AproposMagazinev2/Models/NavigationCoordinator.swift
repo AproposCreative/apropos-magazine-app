@@ -23,6 +23,55 @@ enum AppRoute: Hashable, Codable {
     case categoryList(title: String, articles: [Article]) // "Se alle"-liste fra Home
 }
 
+/// A parsed, side-effect-free representation of an incoming deep link or
+/// widget/notification URL. Parsing is intentionally separated from navigation
+/// so it can be unit-tested in isolation (the navigation side effects are what
+/// previously caused articles to open twice).
+enum DeepLink: Equatable {
+    case article(id: String)
+    case category(name: String)
+    case author(id: String)
+
+    /// Parse an `aproposmagazine://` (or `https://aproposmagazine.com`) URL into
+    /// a concrete action. Returns `nil` for unknown schemes/hosts or malformed
+    /// links so callers can ignore them safely.
+    static func parse(_ url: URL) -> DeepLink? {
+        guard url.scheme == "aproposmagazine" || url.host == "aproposmagazine.com" else {
+            return nil
+        }
+
+        let knownTypes = ["article", "category", "author"]
+        let pathComponents = url.pathComponents.filter { $0 != "/" }
+
+        // Resolve a (type, identifier) pair from any of the supported URL shapes:
+        //  - custom-scheme host form:   aproposmagazine://article/{id}
+        //  - universal-link path form:  https://aproposmagazine.com/article/{id}
+        //  - fragment form:             aproposmagazine://home#article/{id}
+        var type: String?
+        var identifier: String?
+
+        if url.scheme == "aproposmagazine", let host = url.host, knownTypes.contains(host) {
+            type = host
+            identifier = pathComponents.first
+        } else if pathComponents.count >= 2 {
+            type = pathComponents[0]
+            identifier = pathComponents[1]
+        } else if let fragment = url.fragment, fragment.hasPrefix("article/") {
+            type = "article"
+            identifier = String(fragment.dropFirst("article/".count))
+        }
+
+        guard let type, let identifier, !identifier.isEmpty else { return nil }
+
+        switch type {
+        case "article": return .article(id: identifier)
+        case "category": return .category(name: identifier)
+        case "author": return .author(id: identifier)
+        default: return nil
+        }
+    }
+}
+
 /// Tab identifiers for the main tab bar
 enum Tab: String, CaseIterable, Identifiable, Codable {
     case home = "Hjem"
@@ -218,52 +267,20 @@ class NavigationCoordinator: ObservableObject {
     /// Handle deep link navigation
     func handleDeepLink(_ url: URL) {
         logger.info("Håndterer deep link: \(url.absoluteString, privacy: .public)")
-        
-        guard url.scheme == "aproposmagazine" || url.host == "aproposmagazine.com" else {
-            logger.warning("Ukendt URL scheme: \(url.scheme ?? "nil", privacy: .public)")
+
+        guard let link = DeepLink.parse(url) else {
+            logger.warning("Ukendt eller ugyldigt deep link: \(url.absoluteString, privacy: .public)")
             return
         }
 
-        // Widget / notification format: aproposmagazine://article/{id}
-        // Here "article" is the URL host and the id lives in the path.
-        if url.scheme == "aproposmagazine", url.host == "article" {
-            let articleId = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-            if !articleId.isEmpty {
-                navigateToArticleFromNotification(articleId: articleId)
-                return
-            }
-        }
-        
-        let pathComponents = url.pathComponents.filter { $0 != "/" }
-        
-        // Handle different deep link types
-        if pathComponents.count >= 2 {
-            let type = pathComponents[0]
-            let identifier = pathComponents[1]
-            
-            switch type {
-            case "article":
-                // Navigate to article: aproposmagazine://article/123
-                navigateToArticleFromNotification(articleId: identifier)
-                
-            case "category":
-                // Navigate to category: aproposmagazine://category/musik
-                navigateToCategory(identifier, in: .categories)
-                
-            case "author":
-                // Navigate to author: aproposmagazine://author/123
-                // This can be expanded when author detail view is implemented
-                logger.debug("Author deep link: \(identifier, privacy: .public)")
-                
-            default:
-                logger.warning("Ukendt deep link type: \(type, privacy: .public)")
-            }
-        } else if let fragment = url.fragment, !fragment.isEmpty {
-            // Handle URL fragment: aproposmagazine://#article/123
-            if fragment.hasPrefix("article/") {
-                let articleId = String(fragment.dropFirst(8))
-                navigateToArticleFromNotification(articleId: articleId)
-            }
+        switch link {
+        case .article(let id):
+            navigateToArticleFromNotification(articleId: id)
+        case .category(let name):
+            navigateToCategory(name, in: .categories)
+        case .author(let id):
+            // Can be expanded when an author detail view is implemented.
+            logger.debug("Author deep link: \(id, privacy: .public)")
         }
     }
     
