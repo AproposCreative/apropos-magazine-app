@@ -524,6 +524,15 @@ class ArticleViewModel: ObservableObject {
     }
 
     private func fetchArticleFromWebflow(by id: String, completion: @escaping (Result<Article, Error>) -> Void) {
+        // Articles are served from Firestore in release builds; the Webflow key is
+        // only present during local development. Skip the request when we have no
+        // token rather than firing a guaranteed 401.
+        let token = WebflowService.shared.apiToken
+        guard !token.isEmpty else {
+            completion(.failure(FirestoreArticleError.empty))
+            return
+        }
+
         let urlString = "https://api.webflow.com/v2/collections/67dbf17ba540975b5b21c2a6/items/\(id)/live"
         guard let url = URL(string: urlString) else {
             completion(.failure(NSError(domain: "Invalid URL", code: 0)))
@@ -532,7 +541,7 @@ class ArticleViewModel: ObservableObject {
         
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue("Bearer \(WebflowService.shared.apiToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 
         URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
@@ -575,7 +584,28 @@ class ArticleViewModel: ObservableObject {
             completion(.failure(NSError(domain: "Invalid ID", code: 0, userInfo: [NSLocalizedDescriptionKey: "Author ID is empty"])))
             return
         }
-        
+
+        // Authors are served from Firestore (synced server-side). Resolve from the
+        // already-loaded list or the on-disk cache before touching the network.
+        if let resolved = authors.first(where: { $0.id == id })
+            ?? CacheManager.shared.getCachedAuthors()?.first(where: { $0.id == id }) {
+            completion(.success(resolved))
+            return
+        }
+
+        // The Webflow key no longer ships in release builds, so only attempt the
+        // legacy direct fetch when a token is actually available (local dev).
+        // Without it the request would just return 401 on every article open.
+        let token = WebflowService.shared.apiToken
+        guard !token.isEmpty else {
+            completion(.failure(NSError(
+                domain: "AuthorUnavailable",
+                code: 404,
+                userInfo: [NSLocalizedDescriptionKey: "Forfatter ikke tilgængelig i cache."]
+            )))
+            return
+        }
+
         let urlString = "https://api.webflow.com/v2/collections/67dbf17ba540975b5b21c294/items/\(id)"
         
         guard let url = URL(string: urlString) else {
@@ -586,7 +616,7 @@ class ArticleViewModel: ObservableObject {
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue("Bearer \(WebflowService.shared.apiToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         
         URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
