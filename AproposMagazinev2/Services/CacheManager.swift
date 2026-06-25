@@ -244,51 +244,12 @@ class CacheManager: ObservableObject {
     }
     
     // MARK: - Image Caching
-    
-    func cacheImage(_ image: UIImage, for url: URL) {
-        guard let imageData = image.jpegData(compressionQuality: 0.8) else {
-            return
-        }
-        let fileName = url.lastPathComponent
-        let fileURL = cacheDirectory.appendingPathComponent(fileName)
-        
-        do {
-            try imageData.write(to: fileURL)
-        } catch {
-            return
-        }
-        
-        // Update cache metadata safely
-        var cachedImages = getCachedImageURLs()
-        if !cachedImages.contains(url.absoluteString) {
-            cachedImages.append(url.absoluteString)
-            userDefaults.set(cachedImages, forKey: imagesCacheKey)
-        }
-        
-        Task {
-            await updateCacheSize()
-        }
-    }
-    
-    func getCachedImage(for url: URL) -> UIImage? {
-        let fileName = url.lastPathComponent
-        let fileURL = cacheDirectory.appendingPathComponent(fileName)
-        
-        guard fileManager.fileExists(atPath: fileURL.path) else {
-            return nil
-        }
-        
-        do {
-            let imageData = try Data(contentsOf: fileURL)
-            guard let image = UIImage(data: imageData) else {
-                return nil
-            }
-            return image
-        } catch {
-            return nil
-        }
-    }
-    
+    //
+    // Note: image bytes are cached exclusively by SDWebImage (configured in
+    // AppDelegate with a 60 MB memory cap + 350 MB disk cap). We only track the
+    // legacy URL list here for the cache-size UI and cleanup; nothing writes to
+    // it anymore.
+
     func getCachedImageURLs() -> [String] {
         guard let urls = userDefaults.stringArray(forKey: imagesCacheKey) else {
             return []
@@ -621,32 +582,5 @@ struct CacheStatus {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
         return formatter.localizedString(for: lastUpdate, relativeTo: Date())
-    }
-}
-
-// MARK: - SwiftUI Extensions
-
-extension View {
-    func cacheImage(_ url: URL) -> some View {
-        self.onAppear {
-            // Defensive check: ensure URL is valid and non-empty before caching
-            guard !url.absoluteString.isEmpty else {
-                return
-            }
-
-            // Check if image is cached
-            if CacheManager.shared.getCachedImage(for: url) == nil {
-                // Image not cached, trigger download
-                SDWebImageManager.shared.loadImage(
-                    with: url,
-                    options: [.scaleDownLargeImages, .continueInBackground, .queryMemoryData],
-                    progress: nil
-                ) { image, _, _, _, _, _ in
-                    if let image = image {
-                        CacheManager.shared.cacheImage(image, for: url)
-                    }
-                }
-            }
-        }
     }
 }
