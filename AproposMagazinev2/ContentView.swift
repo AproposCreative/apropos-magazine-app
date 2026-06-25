@@ -172,11 +172,6 @@ struct ContentView: View {
             UITabBar.appearance().standardAppearance = appearance
             UITabBar.appearance().scrollEdgeAppearance = appearance
 
-            if let deepLink = navigationCoordinator.pendingDeepLink {
-                navigationCoordinator.handleDeepLink(deepLink)
-                navigationCoordinator.pendingDeepLink = nil
-            }
-
             navigationCoordinator.flushPendingNotificationNavigationIfNeeded()
             AppReadiness.markUIReady()
         }

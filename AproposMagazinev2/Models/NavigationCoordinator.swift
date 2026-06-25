@@ -59,7 +59,6 @@ class NavigationCoordinator: ObservableObject {
     @Published var favoritesPath = NavigationPath()
     
     // Deep linking support
-    @Published var pendingDeepLink: URL?
     @Published private(set) var homeStackID = UUID()
     private(set) var pendingNotificationPayload: NotificationNavigation.Payload?
 
@@ -231,7 +230,6 @@ class NavigationCoordinator: ObservableObject {
             let articleId = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             if !articleId.isEmpty {
                 navigateToArticleFromNotification(articleId: articleId)
-                pendingDeepLink = url
                 return
             }
         }
@@ -267,8 +265,6 @@ class NavigationCoordinator: ObservableObject {
                 navigateToArticleFromNotification(articleId: articleId)
             }
         }
-        
-        pendingDeepLink = url
     }
     
     // MARK: - Notification Navigation
