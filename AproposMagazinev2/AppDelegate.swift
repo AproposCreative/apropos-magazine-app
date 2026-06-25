@@ -32,6 +32,10 @@ import WidgetKit
         configureGlobalImageCaching()
         application.beginReceivingRemoteControlEvents()
         AppDiagnostics.breadcrumb("app_launch")
+        // Capture OOM/jetsam + watchdog terminations, which Crashlytics can't see.
+        #if canImport(MetricKit)
+        MetricKitObserver.shared.start()
+        #endif
         Task { @MainActor in
             PodcastLiveActivityService.shared.dismissUnsupportedActivitiesIfNeeded()
             SubscriptionManager.shared.start()
