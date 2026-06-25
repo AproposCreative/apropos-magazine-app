@@ -71,24 +71,6 @@ struct LatestArticleWidget: Widget {
     }
 }
 
-struct AproposTodayWidget: Widget {
-    let kind = "AproposTodayWidget"
-
-    var body: some WidgetConfiguration {
-        StaticConfiguration(kind: kind, provider: LatestArticleProvider()) { entry in
-            AproposTodayWidgetContent(entry: entry)
-                .widgetURL(deepLinkURL(for: entry))
-                .containerBackground(for: .widget) {
-                    AproposTodayWidgetBackground(entry: entry)
-                }
-        }
-        .configurationDisplayName("Apropos i dag")
-        .description("Viser dagens artikler fra Apropos Magazine.")
-        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
-        .contentMarginsDisabled()
-    }
-}
-
 // MARK: - Latest article (small / medium)
 
 private struct LatestArticleWidgetContent: View {
@@ -135,73 +117,6 @@ private struct LatestArticleWidgetBackground: View {
         } else {
             PremiumWidgetBackdrop()
         }
-    }
-}
-
-// MARK: - Today list (medium / large)
-
-private struct AproposTodayWidgetContent: View {
-    @Environment(\.widgetFamily) private var family
-    let entry: LatestArticleEntry
-
-    private var articleLimit: Int {
-        if family == .systemSmall { return 1 }
-        return family == .systemLarge ? 5 : 3
-    }
-
-    private var showsPlaceholder: Bool {
-        entry.articles.isEmpty
-    }
-
-    var body: some View {
-        if showsPlaceholder {
-            WidgetPlaceholderContent(title: "Apropos i dag")
-        } else if family == .systemSmall {
-            WidgetArticleCardView(
-                article: entry.articles.first ?? WidgetArticle.galleryPreview,
-                isMedium: false
-            )
-        } else {
-            VStack(alignment: .leading, spacing: family == .systemLarge ? 14 : 10) {
-                HStack(alignment: .firstTextBaseline) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("APROPOS")
-                            .font(.system(size: 9, weight: .semibold))
-                            .tracking(0.8)
-                            .foregroundStyle(.white.opacity(0.72))
-
-                        Text("Apropos i dag")
-                            .font(.system(size: family == .systemLarge ? 18 : 16, weight: .bold))
-                            .foregroundStyle(.white)
-                    }
-
-                    Spacer(minLength: 8)
-
-                    Text("\(min(entry.articles.count, articleLimit)) nye")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.86))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color.white.opacity(0.14), in: Capsule())
-                }
-
-                ForEach(entry.articles.prefix(articleLimit)) { article in
-                    Link(destination: articleDeepLink(for: article)) {
-                        WidgetTodayArticleRow(
-                            article: article,
-                            thumbnailSize: family == .systemLarge ? 68 : 56
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(family == .systemLarge ? 18 : 16)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        }
-    }
-
-    private func articleDeepLink(for article: WidgetArticle) -> URL {
-        widgetArticleDeepLink(for: article)
     }
 }
 
@@ -262,29 +177,6 @@ struct WidgetPlaceholderContent: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-}
-
-private struct AproposTodayWidgetBackground: View {
-    @Environment(\.widgetFamily) private var family
-    let entry: LatestArticleEntry
-
-    private var article: WidgetArticle? {
-        entry.articles.first
-    }
-
-    var body: some View {
-        // The small size shows a single hero card, so it keeps the photo background.
-        // Medium/large show a multi-article list, which is far more readable on a
-        // calm dark backdrop than layered on top of a full-bleed photo.
-        if family == .systemSmall, let article, let uiImage = WidgetImageStore.uiImage(for: article) {
-            Image(uiImage: uiImage)
-                .resizable()
-                .scaledToFill()
-                .overlay(WidgetImageOverlay())
-        } else {
-            PremiumWidgetBackdrop()
-        }
     }
 }
 
@@ -359,20 +251,6 @@ private func widgetArticleDeepLink(for article: WidgetArticle) -> URL {
 
 // MARK: - Previews
 
-private let previewArticles: [WidgetArticle] = [
-    WidgetArticle.galleryPreview,
-    WidgetArticle(
-        id: "preview-2",
-        name: "En anden artikel fra Apropos",
-        slug: "preview-2",
-        thumbURL: "",
-        intro: "",
-        date: "",
-        stjerne: 3,
-        topic: "Musik"
-    ),
-]
-
 #Preview(as: .systemSmall) {
     LatestArticleWidget()
 } timeline: {
@@ -389,22 +267,4 @@ private let previewArticles: [WidgetArticle] = [
     LatestArticleWidget()
 } timeline: {
     LatestArticleEntry(date: .now, articles: WidgetArticle.galleryPreviewArticles, isPlaceholder: false)
-}
-
-#Preview(as: .systemSmall) {
-    AproposTodayWidget()
-} timeline: {
-    LatestArticleEntry(date: .now, articles: previewArticles, isPlaceholder: false)
-}
-
-#Preview(as: .systemMedium) {
-    AproposTodayWidget()
-} timeline: {
-    LatestArticleEntry(date: .now, articles: previewArticles, isPlaceholder: false)
-}
-
-#Preview(as: .systemLarge) {
-    AproposTodayWidget()
-} timeline: {
-    LatestArticleEntry(date: .now, articles: previewArticles, isPlaceholder: false)
 }

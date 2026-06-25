@@ -5,7 +5,6 @@ import SwiftUI
 struct AproposMagazineWidgetBundle: WidgetBundle {
     var body: some Widget {
         LatestArticleWidget()
-        AproposTodayWidget()
         PodcastLiveActivityWidget()
     }
 }
