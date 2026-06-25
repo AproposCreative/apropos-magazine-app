@@ -85,20 +85,28 @@ final class PodcastRepository: PodcastProviding, ObservableObject {
     }
 
     func episode(for article: Article) -> PodcastEpisode? {
-        let candidates = episodes.filter { episode in
-            matches(episode: episode, article: article)
-                && episode.hasPlayableAudioURL
-        }
-        // Prefer a human/NotebookLM podcast over an AI narration when both exist.
-        let preferred = candidates.first(where: { !$0.isAINarration }) ?? candidates.first
-        return preferred.map { enrich($0, with: article) }
+        bestEpisode(for: article, requirePlayableAudio: true)
     }
 
     func episodeMetadata(for article: Article) -> PodcastEpisode? {
-        episodes.first(where: { episode in
-            matches(episode: episode, article: article)
-        })
-        .map { enrich($0, with: article) }
+        bestEpisode(for: article, requirePlayableAudio: false)
+    }
+
+    /// Finds the single best-matching episode for an article. Matches are ranked so
+    /// an exact id/slug match always beats a loose title match. This prevents several
+    /// distinct articles (e.g. multiple "…Heartland Festival 2026" pieces) from all
+    /// resolving to the same generic episode and showing identical titles.
+    private func bestEpisode(for article: Article, requirePlayableAudio: Bool) -> PodcastEpisode? {
+        let scored = episodes.compactMap { episode -> (episode: PodcastEpisode, score: Int)? in
+            if requirePlayableAudio && !episode.hasPlayableAudioURL { return nil }
+            guard let score = matchScore(episode: episode, article: article) else { return nil }
+            return (episode, score)
+        }
+        guard let bestScore = scored.map(\.score).max() else { return nil }
+        let best = scored.filter { $0.score == bestScore }.map(\.episode)
+        // Prefer a human/NotebookLM podcast over an AI narration when both exist at the same rank.
+        let preferred = best.first(where: { !$0.isAINarration }) ?? best.first
+        return preferred.map { enrich($0, with: article) }
     }
 
     func episode(forSlug slug: String) -> PodcastEpisode? {
@@ -150,40 +158,37 @@ final class PodcastRepository: PodcastProviding, ObservableObject {
             .map { $0 }
     }
 
-    private func matches(episode: PodcastEpisode, article: Article) -> Bool {
+    /// Ranks how strongly an episode matches an article. Higher = better; `nil` = no match.
+    /// 3: article id, 2: article slug, 1: exact title, 0: loose title contains.
+    /// The loose `contains` tier is only ever used when no id/slug/exact-title match
+    /// exists, so it can no longer hijack an article that has its own dedicated episode.
+    private func matchScore(episode: PodcastEpisode, article: Article) -> Int? {
         if let articleId = episode.articleId?.trimmingCharacters(in: .whitespacesAndNewlines),
            !articleId.isEmpty,
            article.id.caseInsensitiveCompare(articleId) == .orderedSame {
-            return true
+            return 3
         }
 
-        guard let episodeSlug = normalized(episode.articleSlug),
-              let articleSlug = normalized(article.slug) else {
-            return titleMatches(episode: episode, article: article)
+        if let episodeSlug = normalized(episode.articleSlug),
+           let articleSlug = normalized(article.slug),
+           episodeSlug == articleSlug {
+            return 2
         }
 
-        if episodeSlug == articleSlug {
-            return true
+        guard let episodeTitle = normalized(episode.title),
+              let articleTitle = normalized(article.name) else {
+            return nil
         }
 
-        return titleMatches(episode: episode, article: article)
+        if episodeTitle == articleTitle { return 1 }
+        if articleTitle.contains(episodeTitle) || episodeTitle.contains(articleTitle) { return 0 }
+        return nil
     }
 
     private func normalized(_ value: String?) -> String? {
         guard let value else { return nil }
         let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return normalized.isEmpty ? nil : normalized
-    }
-
-    private func titleMatches(episode: PodcastEpisode, article: Article) -> Bool {
-        guard let episodeTitle = normalized(episode.title),
-              let articleTitle = normalized(article.name) else {
-            return false
-        }
-
-        return articleTitle == episodeTitle
-            || articleTitle.contains(episodeTitle)
-            || episodeTitle.contains(articleTitle)
     }
 
     private func enrich(_ episode: PodcastEpisode, with article: Article) -> PodcastEpisode {

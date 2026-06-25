@@ -91,8 +91,6 @@ private struct PodcastListView: View {
                                     .lineLimit(1)
 
                                 HStack(spacing: 8) {
-                                    AINarrationBadge(style: .compact)
-
                                     Text(categoriesProvider(pair.article).first ?? pair.episode.subtitle ?? "Lydindhold")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
@@ -108,25 +106,29 @@ private struct PodcastListView: View {
 
                             Spacer(minLength: 8)
 
-                            Button {
-                                onPlayEpisode(pair.episode)
-                            } label: {
-                                HStack(spacing: 4) {
-                                    Image(systemName: pair.episode.hasPlayableAudioURL ? "play.fill" : "clock")
-                                        .font(.caption2.weight(.bold))
-                                    Text(pair.episode.hasPlayableAudioURL
-                                        ? PodcastPlaybackProgressStore.playButtonTitle(for: pair.episode.id)
-                                        : "Kommer")
-                                        .font(.caption.weight(.semibold))
+                            VStack(alignment: .trailing, spacing: 8) {
+                                Button {
+                                    onPlayEpisode(pair.episode)
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: pair.episode.hasPlayableAudioURL ? "play.fill" : "clock")
+                                            .font(.caption2.weight(.bold))
+                                        Text(pair.episode.hasPlayableAudioURL
+                                            ? PodcastPlaybackProgressStore.playButtonTitle(for: pair.episode.id)
+                                            : "Kommer")
+                                            .font(.caption.weight(.semibold))
+                                    }
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(pair.episode.hasPlayableAudioURL ? Color(hex: "#262626") : Color.gray.opacity(0.55))
+                                    .clipShape(Capsule())
                                 }
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(pair.episode.hasPlayableAudioURL ? Color(hex: "#262626") : Color.gray.opacity(0.55))
-                                .clipShape(Capsule())
+                                .buttonStyle(.plain)
+                                .disabled(!pair.episode.hasPlayableAudioURL)
+
+                                AINarrationBadge(style: .compact)
                             }
-                            .buttonStyle(.plain)
-                            .disabled(!pair.episode.hasPlayableAudioURL)
                         }
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)
