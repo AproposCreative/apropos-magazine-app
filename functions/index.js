@@ -184,6 +184,7 @@ async function sendArticleNotificationOnce(db, {
   });
 
   if (!created) {
+    logger.info(`push skipped for ${articleId} (${articleName}): already_notified`);
     return {sent: false, reason: "already_notified"};
   }
 
@@ -195,10 +196,19 @@ async function sendArticleNotificationOnce(db, {
     topic,
   });
 
-  const fcmResponses = await Promise.all(
-      Array.from(topicSet).map((topic) => admin.messaging().send(messageForTopic(topic))),
-  );
+  const topicList = Array.from(topicSet);
+  let fcmResponses;
+  try {
+    fcmResponses = await Promise.all(
+        topicList.map((topic) => admin.messaging().send(messageForTopic(topic))),
+    );
+  } catch (error) {
+    // A single bad topic name would otherwise reject the whole batch silently.
+    logger.error(`push send failed for ${articleId} (topics=${topicList.join(",")}):`, error);
+    throw error;
+  }
 
+  logger.info(`push sent for ${articleId} (${articleName}) type=${notificationData.type} topics=[${topicList.join(", ")}] messageIds=[${fcmResponses.join(", ")}]`);
   return {sent: true, fcmResponses};
 }
 
