@@ -88,7 +88,9 @@ struct WidgetArticle: Codable, Identifiable, Hashable {
 enum WidgetImageStore {
     private static let folderName = "WidgetImages"
     private static let cacheVersionKey = "widget_image_cache_version"
-    private static let currentCacheVersion = 2
+    // v3: images are now rendered at scale 1 (true pixel size) so they stay under
+    // WidgetKit's archive limit. Bumping clears the old oversized (3x) cache.
+    private static let currentCacheVersion = 3
 
     /// Widget extensions should read cached files only — the main app downloads images.
     private static var isWidgetExtension: Bool {
@@ -237,20 +239,26 @@ enum WidgetImageStore {
 
         let maxDimension: CGFloat = 800
         let maxSide = max(image.size.width, image.size.height)
-        let normalized: UIImage
 
+        // Render at scale 1 so the output is sized in *pixels*, not points. Without
+        // this, UIGraphicsImageRenderer uses the device scale (e.g. 3x), turning an
+        // 800pt target into a 2400px image — which exceeds WidgetKit's archive limit
+        // and makes the widget render black.
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        format.opaque = true
+
+        let targetSize: CGSize
         if maxSide > maxDimension {
             let scale = maxDimension / maxSide
-            let newSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
-            let renderer = UIGraphicsImageRenderer(size: newSize)
-            normalized = renderer.image { _ in
-                image.draw(in: CGRect(origin: .zero, size: newSize))
-            }
+            targetSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
         } else {
-            let renderer = UIGraphicsImageRenderer(size: image.size)
-            normalized = renderer.image { _ in
-                image.draw(in: CGRect(origin: .zero, size: image.size))
-            }
+            targetSize = image.size
+        }
+
+        let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
+        let normalized = renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: targetSize))
         }
 
         guard let jpeg = normalized.jpegData(compressionQuality: 0.85) else { return false }

@@ -266,6 +266,7 @@ struct WidgetPlaceholderContent: View {
 }
 
 private struct AproposTodayWidgetBackground: View {
+    @Environment(\.widgetFamily) private var family
     let entry: LatestArticleEntry
 
     private var article: WidgetArticle? {
@@ -273,7 +274,10 @@ private struct AproposTodayWidgetBackground: View {
     }
 
     var body: some View {
-        if let article, let uiImage = WidgetImageStore.uiImage(for: article) {
+        // The small size shows a single hero card, so it keeps the photo background.
+        // Medium/large show a multi-article list, which is far more readable on a
+        // calm dark backdrop than layered on top of a full-bleed photo.
+        if family == .systemSmall, let article, let uiImage = WidgetImageStore.uiImage(for: article) {
             Image(uiImage: uiImage)
                 .resizable()
                 .scaledToFill()
