@@ -1,4 +1,5 @@
 import SwiftUI
+import SDWebImageSwiftUI
 
 // Temporary type aliases removed - using real types now
 
@@ -231,16 +232,12 @@ struct ArticleRowCompact: View {
                 ArticleImagePlaceholder(showShimmer: !imageLoaded, cornerRadius: 8)
 
                 if let url = article.listThumbnailURL {
-                    AsyncImage(url: url) { phase in
-                        if let image = phase.image {
-                            image
-                                .resizable()
-                                .scaledToFill()
-                                .onAppear {
-                                    imageLoaded = true
-                                }
+                    WebImage(url: url, options: [.retryFailed, .continueInBackground])
+                        .onSuccess { _, _, _ in
+                            DispatchQueue.main.async { imageLoaded = true }
                         }
-                    }
+                        .resizable()
+                        .scaledToFill()
                 }
             }
             .frame(width: 80, height: 60)
