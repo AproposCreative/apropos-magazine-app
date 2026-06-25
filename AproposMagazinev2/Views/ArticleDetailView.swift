@@ -442,7 +442,15 @@ struct ArticleDetailView: View {
     }
     
     private var resolvedArticle: Article {
-        viewModel.articles.first(where: { $0.id == article.id }) ?? article
+        // Prefer the freshly fetched full article (guaranteed to carry the body
+        // content + author). The feed list can be stale or omit a brand-new
+        // article entirely — in which case updateArticleInAllArrays never inserts
+        // it — so relying on it alone leaves the body blank ("et stort felt").
+        if let full = viewModel.fullArticle, full.id == article.id,
+           let content = full.content, !content.isEmpty {
+            return full
+        }
+        return viewModel.articles.first(where: { $0.id == article.id }) ?? article
     }
 
     private var canReadFullArticle: Bool {
