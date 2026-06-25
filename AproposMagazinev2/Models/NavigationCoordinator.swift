@@ -275,11 +275,14 @@ class NavigationCoordinator: ObservableObject {
 
         switch link {
         case .article(let id):
+            AppDiagnostics.breadcrumb("deeplink_article:\(id.prefix(16))")
             navigateToArticleFromNotification(articleId: id)
         case .category(let name):
+            AppDiagnostics.breadcrumb("deeplink_category:\(name.prefix(24))")
             navigateToCategory(name, in: .categories)
         case .author(let id):
             // Can be expanded when an author detail view is implemented.
+            AppDiagnostics.breadcrumb("deeplink_author:\(id.prefix(16))")
             logger.debug("Author deep link: \(id, privacy: .public)")
         }
     }
@@ -288,6 +291,7 @@ class NavigationCoordinator: ObservableObject {
     
     /// Navigate to article from notification
     func navigateToArticleFromNotification(articleId: String) {
+        AppDiagnostics.breadcrumb("nav_article_from_notification:\(articleId.prefix(16))")
         selectedTab = .home
         homePath = NavigationPath()
 
