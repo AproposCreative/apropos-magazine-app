@@ -433,7 +433,7 @@ struct HomeView: View {
                     title: "Anmeldelser",
                     articles: viewModel.allAnmeldelser, istopic: false
                 )
-                .padding(.top, 40)
+                .padding(.top, 20)
             }
 
             if !viewModel.popular.isEmpty {
@@ -441,7 +441,7 @@ struct HomeView: View {
                     title: "Populært",
                     articles: viewModel.popular, istopic: false
                 )
-                .padding(.top, 40)
+                .padding(.top, 20)
             }
 
             if !viewModel.musicArticles.isEmpty {
@@ -449,7 +449,7 @@ struct HomeView: View {
                     title: "Musik",
                     articles: viewModel.musicArticles, istopic: true
                 )
-                .padding(.top, 40)
+                .padding(.top, 20)
             }
             
             if !viewModel.kulturArticles.isEmpty {
@@ -457,7 +457,7 @@ struct HomeView: View {
                     title: "Kultur",
                     articles: viewModel.kulturArticles, istopic: true
                 )
-                .padding(.top, 40)
+                .padding(.top, 20)
             }
             
             if !viewModel.serierFilmArticles.isEmpty {
@@ -465,7 +465,7 @@ struct HomeView: View {
                     title: "Serier & Film",
                     articles: viewModel.serierFilmArticles, istopic: true
                 )
-                .padding(.top, 40)
+                .padding(.top, 20)
             }
             Color.clear
                 .frame(height: PodcastMiniPlayerLayout.feedBottomPadding(isPlayerVisible: podcastPlayerManager.hasActiveEpisode))

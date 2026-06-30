@@ -90,3 +90,4 @@ temp_interactive_push.bat
 
 # Podcast script local overrides
 scripts/podcast-download-sources.env
+branch_structure.json
