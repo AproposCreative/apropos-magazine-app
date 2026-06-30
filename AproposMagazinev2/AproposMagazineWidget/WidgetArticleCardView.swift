@@ -64,7 +64,7 @@ struct WidgetStarRatingView: View {
 
     var body: some View {
         HStack(spacing: 2) {
-            ForEach(0..<5, id: \.self) { index in
+            ForEach(0..<6, id: \.self) { index in
                 Image(systemName: index < rating ? "star.fill" : "star")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(starColor)
