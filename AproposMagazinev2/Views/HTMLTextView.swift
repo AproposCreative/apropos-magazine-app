@@ -43,7 +43,17 @@ struct HTMLTextView: UIViewRepresentable {
 
         let css = """
           <style>
-              body, div, span {
+              body {
+                  font-family: -apple-system, BlinkMacSystemFont, 'San Francisco', Arial, sans-serif !important;
+                  font-size: 18px !important;
+                  font-weight: 400 !important;
+                  color: black !important;
+                  background-color: transparent !important;
+                  line-height: 1.7 !important;
+                  margin: 0 !important;
+                  padding: 0 16px !important;
+              }
+              div, span {
                   font-family: -apple-system, BlinkMacSystemFont, 'San Francisco', Arial, sans-serif !important;
                   font-size: 18px !important;
                   font-weight: 400 !important;
@@ -76,7 +86,10 @@ struct HTMLTextView: UIViewRepresentable {
               img {
                   width: 100vw !important;
                   max-width: 100vw !important;
-                  height: auto !important;
+                  height: 360px !important;
+                  min-height: 360px !important;
+                  object-fit: cover !important;
+                  object-position: center center !important;
                   display: block;
                   margin: 0 0 0.35em 0 !important;
                   margin-left: calc(-50vw + 50%) !important;
@@ -87,7 +100,7 @@ struct HTMLTextView: UIViewRepresentable {
                   background-color: #0a0a0a !important;
               }
               img.apropos-lazy {
-                  min-height: 180px !important;
+                  min-height: 360px !important;
                   background-color: #f0f0f0 !important;
               }
               .apropos-offline-media {
@@ -130,6 +143,7 @@ struct HTMLTextView: UIViewRepresentable {
                   font-weight: bold;
                   margin-top: 1.5em;
                   margin-bottom: 0.5em;
+                  padding: 0 !important;
               }
               .apropos-image-credit {
                   text-align: center !important;
@@ -158,6 +172,11 @@ struct HTMLTextView: UIViewRepresentable {
               img + figcaption,
               .apropos-offline-media + figcaption {
                   margin-top: 0.65em !important;
+              }
+              ul, ol, blockquote {
+                  padding: 0 !important;
+                  margin-left: 0 !important;
+                  margin-right: 0 !important;
               }
               /* Spotify link styling */
               a[href*="spotify.com"], a[href*="open.spotify.com"] {

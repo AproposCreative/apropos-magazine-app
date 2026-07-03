@@ -100,6 +100,13 @@ class ArticleViewModel: ObservableObject {
         guard !hasStarted else { return }
         hasStarted = true
 
+        // Hydrate cached articles synchronously so repeat launches can skip the
+        // splash and show Home immediately instead of waiting on async work.
+        if let cached = CacheManager.shared.getCachedArticles(), !cached.isEmpty {
+            articles = sortedNewestFirst(cached.filter(\.isPubliclyPublished))
+            isLoading = false
+        }
+
         // Let SwiftUI paint the first frame before decoding caches or starting network work.
         Task { @MainActor in
             await Task.yield()
@@ -315,6 +322,7 @@ class ArticleViewModel: ObservableObject {
     /// loading state and only replaces the list if the content actually changed,
     /// so the user sees fresh articles without a jarring spinner or scroll reset.
     func refreshOnForeground() {
+        guard !PodcastPlayerManager.shared.isPlaybackSessionActive else { return }
         fetchRemoteArticles { [weak self] result in
             guard let self = self else { return }
             switch result {
@@ -331,7 +339,10 @@ class ArticleViewModel: ObservableObject {
                 self.logger.error("Forgrunds-opdatering af artikler fejlede: \(error.localizedDescription, privacy: .public)")
             }
         }
-        Task { await PodcastRepository.shared.refreshManifest() }
+        Task { @MainActor in
+            guard !PodcastPlayerManager.shared.isPlaybackSessionActive else { return }
+            await PodcastRepository.shared.refreshManifest()
+        }
     }
 
     func fetchAIRecommendations() {

@@ -13,19 +13,32 @@ struct PodcastAudioPlayerSheet: View {
     @State private var showQueueSheet = false
     @State private var showShareSheet = false
     @State private var shareItems: [Any] = []
+    @State private var cachedQueueEpisodes: [PodcastEpisode] = []
+    @State private var frozenTitle = ""
+    @State private var frozenCategory = ""
+    @State private var frozenAuthor = ""
+    @State private var frozenArtworkURL: URL?
 
     private var currentEpisode: PodcastEpisode? {
         podcastPlayer.currentEpisode
     }
 
-    private var queueEpisodes: [PodcastEpisode] {
+    private func refreshFrozenDisplay(for episode: PodcastEpisode) {
+        frozenTitle = episode.title
+        frozenCategory = categoryLine.uppercased()
+        frozenAuthor = authorLine
+        frozenArtworkURL = artworkDisplayURL
+    }
+
+    private func rebuildQueueEpisodes() {
         let repoEpisodes = PodcastRepository.shared
             .latestPodcastPairs(from: viewModel.articles, limit: 100)
             .map(\.episode)
         if let currentEpisode {
-            return [currentEpisode] + repoEpisodes.filter { $0.id != currentEpisode.id }
+            cachedQueueEpisodes = [currentEpisode] + repoEpisodes.filter { $0.id != currentEpisode.id }
+        } else {
+            cachedQueueEpisodes = repoEpisodes
         }
-        return repoEpisodes
     }
 
     private var currentArticle: Article? {
@@ -134,23 +147,26 @@ struct PodcastAudioPlayerSheet: View {
 
                         VStack(alignment: .leading, spacing: 8) {
                             HStack(spacing: 8) {
-                                Text(categoryLine)
+                                Text(frozenCategory.isEmpty ? categoryLine.uppercased() : frozenCategory)
                                     .font(.subheadline.weight(.medium))
                                     .foregroundStyle(secondaryForeground)
-                                    .textCase(.uppercase)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
 
                                 AINarrationBadge(style: .prominent)
+                                    .fixedSize()
                             }
 
                             HStack(alignment: .top, spacing: 10) {
                                 VStack(alignment: .leading, spacing: 4) {
-                                    Text(episode.title)
+                                    Text(frozenTitle.isEmpty ? episode.title : frozenTitle)
                                         .font(.title2.weight(.bold))
                                         .foregroundStyle(primaryForeground)
                                         .lineLimit(2)
                                         .multilineTextAlignment(.leading)
 
-                                    Text(authorLine)
+                                    Text(frozenAuthor.isEmpty ? authorLine : frozenAuthor)
                                         .font(.headline.weight(.regular))
                                         .foregroundStyle(secondaryForeground)
                                         .lineLimit(2)
@@ -339,11 +355,17 @@ struct PodcastAudioPlayerSheet: View {
                     }
                 }
                 .onAppear {
+                    refreshFrozenDisplay(for: episode)
                     sliderValue = progress
-                    podcastPlayer.setQueue(episodes: queueEpisodes)
+                    rebuildQueueEpisodes()
+                    podcastPlayer.setQueue(episodes: cachedQueueEpisodes)
                 }
-                .onChange(of: queueEpisodes) { _, newQueue in
-                    podcastPlayer.setQueue(episodes: newQueue)
+                .onChange(of: currentEpisode?.id) { _, _ in
+                    if let episode = currentEpisode {
+                        refreshFrozenDisplay(for: episode)
+                    }
+                    rebuildQueueEpisodes()
+                    podcastPlayer.setQueue(episodes: cachedQueueEpisodes)
                 }
                 .onChange(of: podcastPlayer.currentTime) { _, _ in
                     guard !isSeeking else { return }
@@ -414,6 +436,7 @@ struct PodcastAudioPlayerSheet: View {
 
     private func artworkView(for episode: PodcastEpisode) -> some View {
         let side = min(UIScreen.main.bounds.width - 64, 320)
+        let imageURL = frozenArtworkURL ?? artworkDisplayURL
 
         return ZStack {
             RoundedRectangle(cornerRadius: 22, style: .continuous)
@@ -421,7 +444,7 @@ struct PodcastAudioPlayerSheet: View {
 
             ArticleImagePlaceholder(showShimmer: false, cornerRadius: 22)
 
-            WebImage(url: artworkDisplayURL)
+            WebImage(url: imageURL)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
 

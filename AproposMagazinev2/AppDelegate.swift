@@ -275,18 +275,20 @@ import WidgetKit
         Task { @MainActor in
             let categoryIds = NotificationService.shared.loadPersistedAllCategoryIds()
             await NotificationService.shared.bootstrapPushNotifications(allCategoryIds: categoryIds)
-            await PodcastRepository.shared.refreshManifest()
             syncWidgetFeedIfNeeded()
+
+            guard !PodcastPlayerManager.shared.isPlaybackSessionActive else { return }
+
+            await PodcastRepository.shared.refreshManifest()
         }
     }
 
     func applicationDidBecomeActive(_ application: UIApplication) {
-        // Clear the app-icon badge on open. iOS does not clear it automatically,
-        // so a badge set by a delivered push/local notification would otherwise
-        // stay stuck (e.g. the persistent "1").
         UNUserNotificationCenter.current().setBadgeCount(0)
         Task { @MainActor in
             syncWidgetFeedIfNeeded()
+            // Widget reloads are expensive; skip while audio is playing.
+            guard !PodcastPlayerManager.shared.isPlaying else { return }
             WidgetCenter.shared.reloadAllTimelines()
         }
     }
@@ -298,6 +300,11 @@ import WidgetKit
         }
     }
     
+    func applicationDidReceiveMemoryWarning(_ application: UIApplication) {
+        AppDiagnostics.breadcrumb("memory_warning")
+        SDImageCache.shared.clearMemory()
+    }
+
     func applicationWillResignActive(_ application: UIApplication) {
     }
     

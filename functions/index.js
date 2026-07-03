@@ -6,6 +6,10 @@ const {defineSecret} = require("firebase-functions/params");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
 const {generateAndPublishNarration} = require("./narration");
+const {
+  evaluateArticleNotificationPolicy,
+  isEnglishArticleContent,
+} = require("./notificationPolicy");
 
 const podcastNotifySecret = defineSecret("PODCAST_NOTIFY_SECRET");
 const webflowApiKey = defineSecret("WEBFLOW_API_KEY");
@@ -210,6 +214,78 @@ async function sendArticleNotificationOnce(db, {
 
   logger.info(`push sent for ${articleId} (${articleName}) type=${notificationData.type} topics=[${topicList.join(", ")}] messageIds=[${fcmResponses.join(", ")}]`);
   return {sent: true, fcmResponses};
+}
+
+// Marks an article as handled so republications / translations cannot spam
+// users with duplicate pushes later (including narration fallbacks).
+async function suppressArticleNotifications(db, articleId, articleName, reason) {
+  if (!articleId) {
+    return;
+  }
+
+  const ref = db.collection("notified_articles").doc(articleId);
+  await ref.set({
+    articleId,
+    articleName: articleName || "",
+    notifiedAt: admin.firestore.FieldValue.serverTimestamp(),
+    suppressed: true,
+    suppressReason: reason || "suppressed",
+  }, {merge: true});
+
+  logger.info(`push suppressed for ${articleId} (${articleName}): ${reason}`);
+}
+
+async function queueNarrationIfNeeded(db, {
+  articleSlug,
+  articleId,
+  articleName,
+  fieldData,
+  item,
+  categoryTopics,
+  imageData,
+}) {
+  if (!articleSlug) {
+    return {queued: false, reason: "missing_slug"};
+  }
+
+  if (isEnglishArticleContent(fieldData, item)) {
+    logger.info(`narration queue skipped (english): ${articleSlug}`);
+    return {queued: false, reason: "english_translation"};
+  }
+
+  try {
+    if (await articleHasAudio(articleSlug)) {
+      return {queued: false, reason: "audio_exists"};
+    }
+  } catch (error) {
+    logger.warn(`articleHasAudio check failed for ${articleSlug}:`, error.message);
+  }
+
+  const queueRef = db.collection(NARRATION_QUEUE_COLLECTION).doc(articleSlug);
+  const existing = await queueRef.get();
+  if (existing.exists && existing.data()?.status === "done") {
+    return {queued: false, reason: "already_done"};
+  }
+
+  // Recreate the queue doc so generateNarrationOnQueue fires again after a
+  // prior error, or when republication/sync happened before audio existed.
+  if (existing.exists) {
+    await queueRef.delete();
+  }
+
+  await queueRef.set({
+    slug: articleSlug,
+    articleId,
+    name: articleName,
+    status: "pending",
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    thumbnailUrl: imageData.thumbnailUrl || "",
+    coverUrl: imageData.coverUrl || "",
+    topics: categoryTopics,
+  });
+
+  logger.info(`Queued "${articleSlug}" for AI narration.`);
+  return {queued: true, reason: "pending"};
 }
 
 // Sends a silent, data-only push (no alert/sound/badge) to wake the app so it
@@ -644,6 +720,10 @@ exports.webflowWebhook = onRequest({secrets: [webflowApiKey]}, async (request, r
     }
 
     const db = admin.firestore();
+    const notifyPolicy = await evaluateArticleNotificationPolicy(
+        db, articleId, fieldData, item,
+    );
+
     const imageData = articleImageData(fieldData);
     const categoryTopics = articleTopicIds(fieldData)
         .map((topicId) => topicIdentifier("category", topicId))
@@ -660,37 +740,51 @@ exports.webflowWebhook = onRequest({secrets: [webflowApiKey]}, async (request, r
       logger.error("Article sync after webhook failed:", error);
     }
 
+    if (!notifyPolicy.send) {
+      const narrationResult = await queueNarrationIfNeeded(db, {
+        articleSlug,
+        articleId,
+        articleName,
+        fieldData,
+        item,
+        categoryTopics,
+        imageData,
+      });
+
+      await suppressArticleNotifications(
+          db, articleId, articleName, notifyPolicy.reason,
+      );
+      await sendSilentRefreshPush(articleId, articleSlug);
+
+      response.status(200).json({
+        status: "success",
+        message: `Notification skipped (${notifyPolicy.reason})`,
+        sync_count: syncCount,
+        sync_error: syncError,
+        notification_skipped: true,
+        skip_reason: notifyPolicy.reason,
+        narration_queued: narrationResult.queued,
+        narration_skip_reason: narrationResult.queued ? null : narrationResult.reason,
+      });
+      return;
+    }
+
     // Silent background refresh: wake the app (content-available) so it updates
     // its cached feed + widget right away, before any user-facing push and
     // before the user opens the app. Best-effort (iOS throttles silent pushes).
     await sendSilentRefreshPush(articleId, articleSlug);
 
-    // Notification policy: if the article has no audio yet, DON'T notify now.
-    // Instead queue an AI narration; the narration trigger sends a single
-    // "Ny artikel + AI-oplæsning" push once the audio is published (or a
-    // fallback "Ny artikel" push if narration fails). This guarantees the audio
-    // player is ready the moment the user taps the notification.
-    let willQueue = false;
-    try {
-      willQueue = Boolean(articleSlug) && !(await articleHasAudio(articleSlug));
-    } catch (error) {
-      logger.warn(`articleHasAudio check failed for ${articleSlug}:`, error.message);
-      willQueue = false;
-    }
+    const narrationResult = await queueNarrationIfNeeded(db, {
+      articleSlug,
+      articleId,
+      articleName,
+      fieldData,
+      item,
+      categoryTopics,
+      imageData,
+    });
 
-    if (willQueue) {
-      await db.collection(NARRATION_QUEUE_COLLECTION).doc(articleSlug).set({
-        slug: articleSlug,
-        articleId,
-        name: articleName,
-        status: "pending",
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        thumbnailUrl: imageData.thumbnailUrl || "",
-        coverUrl: imageData.coverUrl || "",
-        topics: categoryTopics,
-      }, {merge: true});
-      logger.info(`Queued "${articleSlug}" for AI narration (push deferred until audio is ready).`);
-
+    if (narrationResult.queued) {
       response.status(200).json({
         status: "success",
         message: "Article synced and queued for AI narration; notification deferred until audio is ready.",
@@ -702,7 +796,7 @@ exports.webflowWebhook = onRequest({secrets: [webflowApiKey]}, async (request, r
       return;
     }
 
-    // Article already has audio (or has no slug): notify immediately.
+    // Article already has audio (or narration could not be queued): notify now.
     const notificationData = {
       article_id: articleId,
       article_slug: articleSlug,
@@ -803,6 +897,21 @@ exports.generateNarrationOnQueue = onDocumentCreated(
 
       // Send præcis én push for artiklen (dedupe via notified_articles).
       try {
+        const articleDoc = articleId ?
+          await db.collection(FIRESTORE_ARTICLES_COLLECTION).doc(articleId).get() :
+          null;
+        const fieldData = articleDoc && articleDoc.exists ?
+          (articleDoc.data().fieldData || {}) :
+          {};
+
+        if (isEnglishArticleContent(fieldData, {})) {
+          await suppressArticleNotifications(
+              db, articleId, name, "english_translation",
+          );
+          logger.info(`narration push skipped (english): ${slug}`);
+          return;
+        }
+
         const audioReady = result.status === "published" || result.status === "exists";
         const displayName = name || result.title || "Ny artikel";
 

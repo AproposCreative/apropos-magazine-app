@@ -34,8 +34,11 @@ struct PodcastCardView: View {
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)
 
+                    Spacer(minLength: 0)
+
                     AINarrationBadge(style: .compact)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 Text(pair.episode.title)
                     .font(.headline.weight(.semibold))

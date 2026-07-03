@@ -80,6 +80,12 @@ final class PodcastPlayerManager: ObservableObject {
     private var pendingResumePosition: TimeInterval?
     private var didApplyResumePosition = false
     private var lastProgressPersistAt: Date?
+    private var lastLiveActivityUpdateAt: Date?
+    private var lastLiveActivityPlayingState: Bool?
+    private var lastLiveActivityElapsedSecond: Int = -1
+    private var deferredCacheDownloadURL: URL?
+    private var isHandlingProgressTick = false
+    private var playbackStateUpdateTask: Task<Void, Never>?
     private var currentArticleId: String?
     private var playerObservation: NSKeyValueObservation?
     private var itemObservations: [NSKeyValueObservation] = []
@@ -89,6 +95,12 @@ final class PodcastPlayerManager: ObservableObject {
     }
 
     var hasActiveEpisode: Bool {
+        currentEpisode != nil
+    }
+
+    /// True while an episode is loaded (playing or paused). Used to defer heavy
+    /// background work that competes with streaming for memory and CPU.
+    var isPlaybackSessionActive: Bool {
         currentEpisode != nil
     }
 
@@ -118,6 +130,7 @@ final class PodcastPlayerManager: ObservableObject {
             NotificationCenter.default.removeObserver(routeChangeObserver)
         }
         sleepTimer?.invalidate()
+        playbackStateUpdateTask?.cancel()
         playerObservation?.invalidate()
         itemObservations.forEach { $0.invalidate() }
     }
@@ -160,7 +173,11 @@ final class PodcastPlayerManager: ObservableObject {
         #endif
 
         if playbackResolution.cacheResult == .miss {
-            PodcastAudioCache.shared.scheduleBackgroundDownload(from: audioURL)
+            // Defer disk caching until playback ends — downloading the full file
+            // while streaming doubles network/memory pressure and has caused jetsam.
+            deferredCacheDownloadURL = audioURL
+        } else {
+            deferredCacheDownloadURL = nil
         }
 
         let item = makePlayerItem(url: playbackResolution.url)
@@ -201,6 +218,7 @@ final class PodcastPlayerManager: ObservableObject {
             AppDiagnostics.breadcrumb("podcast_pause:\(episodeID)")
         }
         updateNowPlayingPlaybackState()
+        scheduleDeferredCacheDownloadIfNeeded()
     }
 
     func resume() {
@@ -265,11 +283,22 @@ final class PodcastPlayerManager: ObservableObject {
         nowPlayingInfo = [:]
         cachedArtworkIdentifier = nil
         resetPlaybackMetrics()
+        lastLiveActivityUpdateAt = nil
+        lastLiveActivityPlayingState = nil
+        lastLiveActivityElapsedSecond = -1
         updatePublishedPlaybackState()
         PodcastLiveActivityService.shared.endActivity()
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         MPNowPlayingInfoCenter.default().playbackState = .stopped
         deactivateAudioSessionForOtherApps()
+        scheduleDeferredCacheDownloadIfNeeded()
+    }
+
+    private func scheduleDeferredCacheDownloadIfNeeded() {
+        guard !wantsPlayback, !isPlaying else { return }
+        guard let url = deferredCacheDownloadURL else { return }
+        deferredCacheDownloadURL = nil
+        PodcastAudioCache.shared.scheduleBackgroundDownload(from: url)
     }
 
     func setQueue(episodes: [PodcastEpisode]) {
@@ -439,6 +468,21 @@ final class PodcastPlayerManager: ObservableObject {
 
     private func updateLiveActivityIfNeeded() {
         guard currentEpisode != nil else { return }
+
+        let elapsedSecond = Int(currentTime.rounded(.down))
+        let playingStateChanged = lastLiveActivityPlayingState != isPlaying
+        let now = Date()
+        let intervalElapsed = lastLiveActivityUpdateAt.map { now.timeIntervalSince($0) >= 30 } ?? true
+
+        // Live Activity updates are expensive — only on play/pause or every 30s.
+        guard playingStateChanged || (isPlaying && intervalElapsed) else {
+            return
+        }
+
+        lastLiveActivityUpdateAt = now
+        lastLiveActivityPlayingState = isPlaying
+        lastLiveActivityElapsedSecond = elapsedSecond
+
         PodcastLiveActivityService.shared.updateActivity(
             isPlaying: isPlaying,
             elapsed: currentTime,
@@ -452,9 +496,18 @@ final class PodcastPlayerManager: ObservableObject {
         guard playerObservation == nil else { return }
         playerObservation = player.observe(\.timeControlStatus, options: [.new, .initial]) { [weak self] _, _ in
             Task { @MainActor [weak self] in
-                self?.updatePublishedPlaybackState()
-                self?.updateNowPlayingPlaybackState()
+                self?.schedulePublishedPlaybackStateUpdate()
             }
+        }
+    }
+
+    private func schedulePublishedPlaybackStateUpdate() {
+        playbackStateUpdateTask?.cancel()
+        playbackStateUpdateTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 80_000_000)
+            guard let self, !Task.isCancelled else { return }
+            self.updatePublishedPlaybackState()
+            self.updateNowPlayingPlaybackState()
         }
     }
 
@@ -464,26 +517,22 @@ final class PodcastPlayerManager: ObservableObject {
         itemObservations = [
             item.observe(\.status, options: [.new]) { [weak self] _, _ in
                 Task { @MainActor [weak self] in
-                    self?.updatePublishedPlaybackState()
-                    self?.updateNowPlayingPlaybackState()
+                    self?.schedulePublishedPlaybackStateUpdate()
                 }
             },
             item.observe(\.isPlaybackLikelyToKeepUp, options: [.new]) { [weak self] _, _ in
                 Task { @MainActor [weak self] in
-                    self?.updatePublishedPlaybackState()
-                    self?.updateNowPlayingPlaybackState()
+                    self?.schedulePublishedPlaybackStateUpdate()
                 }
             },
             item.observe(\.isPlaybackBufferEmpty, options: [.new]) { [weak self] _, _ in
                 Task { @MainActor [weak self] in
-                    self?.updatePublishedPlaybackState()
-                    self?.updateNowPlayingPlaybackState()
+                    self?.schedulePublishedPlaybackStateUpdate()
                 }
             },
             item.observe(\.isPlaybackBufferFull, options: [.new]) { [weak self] _, _ in
                 Task { @MainActor [weak self] in
-                    self?.updatePublishedPlaybackState()
-                    self?.updateNowPlayingPlaybackState()
+                    self?.schedulePublishedPlaybackStateUpdate()
                 }
             }
         ]
@@ -514,31 +563,37 @@ final class PodcastPlayerManager: ObservableObject {
 
     private func startProgressObservationIfNeeded() {
         guard timeObserver == nil else { return }
-        let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
+        let interval = CMTime(seconds: 1.0, preferredTimescale: 600)
         timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             Task { @MainActor [weak self] in
-                guard let self else { return }
-                let observedTime = max(0, CMTimeGetSeconds(time))
-                let uiPublishThreshold: TimeInterval = self.isFullPlayerPresented
-                    ? FeatureFlags.playerForegroundPublishThreshold
-                    : FeatureFlags.playerBackgroundPublishThreshold
-                if abs(observedTime - self.currentTime) >= uiPublishThreshold {
-                    self.currentTime = observedTime
-                }
-
-                self.persistPlaybackProgress(force: false)
-
-                if let itemDuration = self.player.currentItem?.duration.seconds,
-                   itemDuration.isFinite,
-                   itemDuration > 0,
-                   abs(itemDuration - self.duration) >= 0.35 {
-                    self.duration = itemDuration
-                    self.refreshNowPlayingMetadataIfNeeded(force: false)
-                }
-
-                self.updateNowPlayingPlaybackState()
+                guard let self, !self.isHandlingProgressTick else { return }
+                self.isHandlingProgressTick = true
+                defer { self.isHandlingProgressTick = false }
+                self.handleProgressTick(time)
             }
         }
+    }
+
+    private func handleProgressTick(_ time: CMTime) {
+        let observedTime = max(0, CMTimeGetSeconds(time))
+        let uiPublishThreshold: TimeInterval = isFullPlayerPresented
+            ? FeatureFlags.playerForegroundPublishThreshold
+            : FeatureFlags.playerBackgroundPublishThreshold
+        if abs(observedTime - currentTime) >= uiPublishThreshold {
+            currentTime = observedTime
+        }
+
+        persistPlaybackProgress(force: false)
+
+        if let itemDuration = player.currentItem?.duration.seconds,
+           itemDuration.isFinite,
+           itemDuration > 0,
+           abs(itemDuration - duration) >= 0.35 {
+            duration = itemDuration
+            refreshNowPlayingMetadataIfNeeded(force: false)
+        }
+
+        updateNowPlayingPlaybackState()
     }
 
     private func startPlaybackCompletionObservationIfNeeded() {
@@ -715,7 +770,8 @@ final class PodcastPlayerManager: ObservableObject {
                         finalImage = baseImage
                     }
                     guard let finalImage else { return }
-                    let artwork = MPMediaItemArtwork(boundsSize: finalImage.size) { _ in finalImage }
+                    let displayImage = Self.downscaledArtwork(finalImage, maxSide: 600)
+                    let artwork = MPMediaItemArtwork(boundsSize: displayImage.size) { _ in displayImage }
                     await MainActor.run {
                         guard self.currentEpisode?.id == identifier else { return }
                         self.nowPlayingInfo[MPMediaItemPropertyArtwork] = artwork
@@ -738,7 +794,7 @@ final class PodcastPlayerManager: ObservableObject {
     /// with a white bar across the bottom holding the Apropos logo. Falls back to a
     /// dark branded background when no article image is available.
     nonisolated static func brandedNarrationArtwork(from baseImage: UIImage?) -> UIImage {
-        let side: CGFloat = 1024
+        let side: CGFloat = 600
         let canvas = CGSize(width: side, height: side)
         let renderer = UIGraphicsImageRenderer(size: canvas)
         return renderer.image { context in
@@ -777,6 +833,17 @@ final class PodcastPlayerManager: ObservableObject {
                 )
                 logo.draw(in: logoRect)
             }
+        }
+    }
+
+    nonisolated static func downscaledArtwork(_ image: UIImage, maxSide: CGFloat) -> UIImage {
+        let longest = max(image.size.width, image.size.height)
+        guard longest > maxSide, longest > 0 else { return image }
+        let scale = maxSide / longest
+        let target = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let renderer = UIGraphicsImageRenderer(size: target)
+        return renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: target))
         }
     }
 

@@ -3,9 +3,17 @@ import AVKit
 import UIKit
 
 struct BootloaderView: View {
+    private static let hasCompletedInitialBootKey = "apropos_has_completed_initial_boot"
+
     @EnvironmentObject private var viewModel: ArticleViewModel
     @State private var showBootloader = true
     @State private var videoFinished = false
+
+    private var shouldSkipBootVideo: Bool {
+        UserDefaults.standard.bool(forKey: Self.hasCompletedInitialBootKey)
+            || UserDefaults.standard.bool(forKey: NotificationNavigation.skipBootloaderKey)
+            || UIAccessibility.isReduceMotionEnabled
+    }
 
     var body: some View {
         ZStack {
@@ -27,10 +35,7 @@ struct BootloaderView: View {
         .ignoresSafeArea()
         .onAppear {
             viewModel.start()
-            if UserDefaults.standard.bool(forKey: NotificationNavigation.skipBootloaderKey) {
-                videoFinished = true
-                tryFinishBootloader()
-            } else if UIAccessibility.isReduceMotionEnabled {
+            if shouldSkipBootVideo {
                 videoFinished = true
                 tryFinishBootloader()
             }
@@ -38,7 +43,12 @@ struct BootloaderView: View {
         .onChange(of: viewModel.isLoading) { _, _ in
             tryFinishBootloader()
         }
+        .onChange(of: viewModel.articles.count) { _, _ in
+            tryFinishBootloader()
+        }
         .task {
+            // First launch only: cap the splash video so a stalled fetch cannot block entry.
+            guard !shouldSkipBootVideo else { return }
             try? await Task.sleep(nanoseconds: 5_000_000_000)
             videoFinished = true
             tryFinishBootloader()
@@ -49,11 +59,16 @@ struct BootloaderView: View {
         guard showBootloader else { return }
         guard videoFinished else { return }
         guard !viewModel.isLoading else { return }
+        if shouldSkipBootVideo, viewModel.articles.isEmpty {
+            // Repeat launch: wait for the synchronously hydrated cache before showing Home.
+            return
+        }
 
         withAnimation(.easeInOut(duration: 0.3)) {
             showBootloader = false
         }
 
+        UserDefaults.standard.set(true, forKey: Self.hasCompletedInitialBootKey)
         UserDefaults.standard.removeObject(forKey: NotificationNavigation.skipBootloaderKey)
     }
 }

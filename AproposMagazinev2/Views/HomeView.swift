@@ -360,7 +360,7 @@ struct HomeView: View {
                         navigationCoordinator.navigateToArticle(pair.article, in: .home)
                     }
                 )
-                .padding(.top, 20)
+                .padding(.top, 32)
             }
 
             if !podcastPairs.isEmpty {
@@ -412,7 +412,7 @@ struct HomeView: View {
                         RecommendationService.shared.trackRecommendationTap(article: article, reason: reason)
                     }
                 )
-                .padding(.top, 20)
+                .padding(.top, 44)
                 .onAppear {
                     guard !didRequestRecommendations else { return }
                     didRequestRecommendations = true

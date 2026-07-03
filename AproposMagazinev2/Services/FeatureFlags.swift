@@ -4,7 +4,7 @@ enum FeatureFlags {
     private static let defaults: [String: Any] = [
         "perf_home_image_preload_limit": 12,
         "perf_player_background_publish_threshold": 1.0,
-        "perf_player_foreground_publish_threshold": 0.35,
+        "perf_player_foreground_publish_threshold": 1.0,
         "perf_enable_html_diff_guard": true,
         "perf_podcast_prefetch_enabled": true,
         "perf_podcast_prefetch_wifi_only": true,
@@ -34,7 +34,7 @@ enum FeatureFlags {
 
     static var playerForegroundPublishThreshold: TimeInterval {
         let value = store.double(forKey: "perf_player_foreground_publish_threshold")
-        return value > 0 ? value : 0.35
+        return value > 0 ? value : 1.0
     }
 
     static var htmlDiffGuardEnabled: Bool {

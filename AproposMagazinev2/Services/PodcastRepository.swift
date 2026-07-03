@@ -38,11 +38,13 @@ final class PodcastRepository: PodcastProviding, ObservableObject {
         }
     }
 
-    func refreshManifest(force: Bool = false) async {
+    func refreshManifest(force: Bool = false, allowPrefetch: Bool = true) async {
         let refreshed = await manifestService.refreshEpisodes(force: force)
         episodes = refreshed
         OfflineManager.shared.savePodcastsForOffline(OfflineManager.shared.getOfflineArticles())
-        prefetchLatestEpisodesIfNeeded()
+        if allowPrefetch {
+            prefetchLatestEpisodesIfNeeded()
+        }
     }
 
     /// Warms the on-disk cache with the most recent episodes so first playback

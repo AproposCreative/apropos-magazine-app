@@ -722,7 +722,6 @@ struct ArticleDetailView: View {
                             VStack(spacing: 0) {
                                 HTMLTextView(html: content, articleId: resolvedArticle.id, dynamicHeight: $htmlHeight)
                                     .frame(height: max(htmlHeight, 240))
-                                    .padding(.horizontal, 16)
 
                                 if let trailer = resolvedArticle.trailer, !trailer.isEmpty {
                                     LazyVStack {
