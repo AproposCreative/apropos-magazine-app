@@ -1,465 +1,133 @@
-# Feature Roadmap - Fremtidige Features
+# Feature Roadmap — Apropos Magazine (iOS)
 
-## 🎯 Prioriterede Features
-
-### 1. AI Oplæsning (Text-to-Speech) ⭐⭐⭐
-
-#### Implementering
-- **Framework**: AVSpeechSynthesizer (native iOS)
-- **Alternativ**: OpenAI TTS API for bedre kvalitet
-- **Features**:
-  - Oplæs artikel med én klik
-  - Speed control (0.5x - 2.0x)
-  - Voice selection (dansk, engelsk)
-  - Background playback support
-  - Lock screen controls
-  - Resume fra hvor man stoppede
-
-#### UI/UX
-```
-┌─────────────────────────────┐
-│  [▶️] Oplæs artikel         │
-│  [⏸️] Pause                 │
-│  [⏭️] Næste afsnit          │
-│  [⏮️] Forrige afsnit        │
-│  Speed: [0.5x] [1.0x] [1.5x] │
-│  Voice: [Dansk] [English]    │
-└─────────────────────────────┘
-```
-
-#### Teknisk Implementation
-```swift
-// Services/TextToSpeechService.swift
-class TextToSpeechService: NSObject, AVSpeechSynthesizerDelegate {
-    private let synthesizer = AVSpeechSynthesizer()
-    @Published var isPlaying = false
-    @Published var currentWord: String = ""
-    
-    func speakArticle(_ article: Article, speed: Float = 1.0) {
-        // Extract text from HTML
-        let plainText = article.content?.htmlToString() ?? ""
-        let utterance = AVSpeechUtterance(string: plainText)
-        utterance.voice = AVSpeechSynthesisVoice(language: "da-DK")
-        utterance.rate = speed
-        synthesizer.speak(utterance)
-    }
-}
-```
-
-#### Integration Points
-- ArticleDetailView: Tilføj "Oplæs" knap
-- Lock screen: Media controls
-- Background: Continue playback
-- Settings: Voice preferences
+**Opdateret:** juli 2026  
+**Formål:** Afspejle hvad der er bygget, hvad der er bag feature flags, og hvad der giver mest værdi næste.
 
 ---
 
-### 2. Video Features ⭐⭐⭐
+## ✅ Shipped (produktion / TestFlight-klar)
 
-#### A. In-Article Video Player
-- **Native AVPlayer** i stedet for WKWebView
-- Bedre performance og kontrol
-- Picture-in-Picture support
-- Custom controls med branding
+### Kerne-app
+- **4 tabs:** Hjem, Artikler, Kategorier, Min side
+- **Artikler:** Webflow/Firestore-sync, hero, kategorier, søg, relaterede artikler
+- **Artikelvisning:** HTML-brødtekst (WebView), intro, stjerner (6-skala), foto-credit, trailer-embed, share cards
+- **Offline:** Billed-cache til artikler, disk-cache til podcast-lyd
+- **Læseprogress:** iCloud-sync + analytics
+- **Push:** Ny artikel (+ AI-oplæsning når lyd er klar), silent refresh til feed/widget
+- **Deep links:** `aproposmagazine://article/{id}` fra widget og notifikationer
 
-#### B. Video Playlist
-- Saml relaterede videoer
-- Auto-play næste video
-- Video chapters/segments
+### AI-oplæsning (ElevenLabs) — ikke AVSpeech
+- **Pipeline:** Webflow webhook → `narration_queue` → `generateNarrationOnQueue` (Cloud Function)
+- **TTS:** ElevenLabs med chunking, jingle, upload til `podcasts/narration/{slug}/`
+- **Politik:** Ingen push ved engelske oversættelser eller republication; narration køes stadig
+- **Scripts:** `scripts/narration-poc.mjs`, `narration-queue.mjs`, `narration-scan.mjs`, `podcast-auto-publish.mjs`
+- **UI:** "Oplæst med AI"-badge på lydindhold-kort og i afspilleren
+- **Afhængighed:** ElevenLabs-kvote — generering fejler med `quota_exceeded` når kvoten er brugt op
 
-#### C. Video Download (Offline)
-- Download videoer til offline viewing
-- Background download
-- Storage management
+### Podcast / lydafspiller
+- **Kilder:** AI-narration (`podcasts/narration/`) + manuelle/NotebookLM-afsnit (`podcasts/articles/`)
+- **Manifest:** `podcasts/manifest.json` — app henter automatisk
+- **Afspiller:** Mini-player, fuld player, kø, sleep timer, hastighed, lock screen / Control Center
+- **Live Activity:** Dynamic Island + lock screen under afspilning
+- **Performance:** Throttled UI-opdateringer, deferred disk-cache, ingen feed-refresh under aktiv afspilning
+- **Hjem:** Sektion "Lydindhold", "Fortsæt hvor du slap"
 
-#### D. Video Analytics
-- Track watch time
-- Completion rate
-- Popular videoer
+### Widget
+- **Seneste artikel:** Small / medium / large via App Group (`WidgetDataStore`)
+- **Billeder:** WidgetImageStore med hurtig refresh efter første sync
+- **Live Activity:** Podcast-widget (se ovenfor)
 
-#### Implementation
-```swift
-// Views/Components/ArticleVideoPlayer.swift
-struct ArticleVideoPlayer: View {
-    let videoURL: URL
-    @State private var player: AVPlayer?
-    @State private var isPlaying = false
-    
-    var body: some View {
-        VideoPlayer(player: player)
-            .onAppear { setupPlayer() }
-            .onDisappear { player?.pause() }
-    }
-}
-```
-
----
-
-### 3. Interaktive Artikler ⭐⭐
-
-#### A. Embedded Polls
-- Spørgsmål i artikler
-- Real-time resultater
-- Share results
-
-#### B. Interactive Timelines
-- Tidslinje for historiske artikler
-- Swipe gennem tidsperioder
-
-#### C. Embedded Audio Clips
-- Interview clips
-- Podcast snippets
-- Sound effects
-
-#### D. 360° Images/Video
-- Immersive experiences
-- AR integration
+### Backend (Firebase Functions)
+| Function | Rolle |
+|----------|--------|
+| `webflowWebhook` | Sync artikel + kø narration + push-politik |
+| `generateNarrationOnQueue` | ElevenLabs TTS + manifest + push |
+| `syncArticlesScheduled` | Firestore-sync hvert 30. min |
+| `generateSeries` / scheduled | AI-genererede artikelserier |
+| `generateRecommendationReasons` | Personlige anbefalingstekster |
+| `sendPodcastNotification` | Manuel podcast-push |
 
 ---
 
-### 4. Social Features ⭐⭐⭐
+## 🟡 Bygget men ikke tændt (paywall)
 
-#### A. Article Sharing
-- Custom share cards med branding
-- Social media integration
-- Deep linking
-
-#### B. Reading Groups
-- Opret læsegrupper
-- Diskuter artikler
-- Share highlights
-
-#### C. Comments Enhancement
-- Rich text comments
-- @mentions
-- Comment reactions
-- Threaded replies
-
-#### D. Collaborative Reading
-- Read together feature
-- Shared highlights
-- Group discussions
+### Abonnement
+- **Feature flag:** `subscriptions_enabled` = `false` i `FeatureFlags` (default)
+- **Adgangspolitik:** `ArticleAccessPolicy` + `isPremium` på artikler
+- **UI:** Paywall-kort i artikelvisning når flag er slået til og bruger ikke er abonnent
+- **Mangler før launch:**
+  1. Produkter i App Store Connect (StoreKit 2)
+  2. `SubscriptionManager` koblet til køb/gendannelse
+  3. Sæt `subscriptions_enabled` til `true` når produkter er live
+  4. TestFlight-test af premium vs. gratis artikler
 
 ---
 
-### 5. Personalization & AI ⭐⭐⭐
+## 🔧 Kendte opfølgningspunkter
 
-#### A. Smart Reading Mode
-- AI-genereret summary
-- Key points extraction
-- Auto-highlight important passages
-
-#### B. Personalized Feed
-- Machine learning baseret på læsehistorik
-- Topic preferences
-- Time-based recommendations
-
-#### C. Reading Insights
-- Weekly reading report
-- Reading streaks
-- Time spent analytics
-- Favorite topics
-
-#### D. AI Article Generation
-- Generate article summaries
-- Translate articles
-- Create reading lists
+| Emne | Status |
+|------|--------|
+| ElevenLabs backfill | Kør `narration-scan.mjs` → `narration-queue.mjs --run` efter kvote-genopfyldning |
+| Widget-freshness | Silent push + `WidgetDataStore` — verificér på device efter ny artikel |
+| `FEATURE_ROADMAP.md` | Denne fil |
+| Orphan components | `MarqueeText.swift` fjernet (erstattet af statisk/truncated tekst i player) |
 
 ---
 
-### 6. Offline & Sync ⭐⭐
+## 🎯 Anbefalet næste sprint (prioriteret)
 
-#### A. Enhanced Offline Mode
-- Download hele artikler (inkl. media)
-- Offline reading mode
-- Sync when online
+### 1. Monetisering (høj impact)
+- App Store Connect-abonnementer
+- Tænd `subscriptions_enabled`
+- Paywall-copy og onboarding
 
-#### B. Cross-Device Sync
-- Continue reading på anden enhed
-- Sync favorites
-- Sync reading progress
+### 2. Indhold & lyd (høj impact)
+- ElevenLabs-kvote + backfill manglende artikler
+- Overvåg `generateNarrationOnQueue`-logs
 
-#### C. Background Sync
-- Auto-sync i baggrunden
-- Smart sync (kun på WiFi)
+### 3. Discovery (medium impact)
+- Vis `generateRecommendationReasons` i "Anbefalet til dig"
+- Forbedret søg (filtre, historik)
 
----
+### 4. Læseoplevelse — quick wins (medium impact, lav indsats)
+- Læsetid på artikelkort ("X min")
+- Fontstørrelse i artikelvisning (UserDefaults)
+- Læsehistorik på Min side
 
-### 7. Discovery Features ⭐⭐
-
-#### A. Trending Articles
-- Most read this week
-- Trending topics
-- Editor's picks
-
-#### B. Article Collections
-- Curated collections
-- Themed reading lists
-- Seasonal collections
-
-#### C. Search Enhancement
-- Full-text search
-- Search filters (date, topic, author)
-- Search history
-- Saved searches
-
-#### D. Related Articles
-- AI-powered related articles
-- "People also read"
-- Topic-based suggestions
+### 5. Video (medium impact, høj indsats)
+- Native `AVPlayer` til trailere i stedet for `WKWebView`
+- Picture-in-Picture
 
 ---
 
-### 8. Reading Experience ⭐⭐⭐
+## 📋 Backlog (ikke startet / tidligere idéer)
 
-#### A. Reading Modes
-- **Focus Mode**: Minimalistisk, ingen distraktioner
-- **Night Mode**: Bedre for øjnene
-- **Sepia Mode**: Vintage look
-- **High Contrast**: Accessibility
+Disse stod i den gamle roadmap og er **ikke** implementeret:
 
-#### B. Font Customization
-- Font size slider
-- Font family selection
-- Line spacing
-- Letter spacing
-
-#### C. Reading Progress
-- Visual progress bar
-- Estimated reading time
-- Reading speed tracking
-- "X min read" badge
-
-#### D. Article Bookmarks
-- Bookmark specifikke afsnit
-- Add notes til bookmarks
-- Share bookmarks
+- AVSpeechSynthesizer on-device TTS (erstattet af ElevenLabs-pipeline)
+- Social: læsegrupper, kommentarer, threaded replies
+- Interaktive artikler: polls, timelines, 360°/AR
+- Gamification: achievements, leaderboards
+- macOS-app, App Clips, Siri shortcuts
+- Cross-device sync ud over iCloud læseprogress
 
 ---
 
-### 9. Content Features ⭐⭐
+## 📊 Fase-overblik
 
-#### A. Article Series
-- Link relaterede artikler
-- "Part 1 of 3" indicators
-- Auto-navigate til næste i serie
-
-#### B. Live Articles
-- Real-time updates
-- Live comments
-- Breaking news alerts
-
-#### C. Multimedia Articles
-- Rich media integration
-- Interactive infographics
-- Embedded maps
-- Audio narrations
-
-#### D. Article Versions
-- Multiple language versions
-- Abridged versions
-- Extended versions
+| Fase | Fokus | Status |
+|------|--------|--------|
+| **1 — Core** | Artikler, push, widget, offline billeder | ✅ |
+| **2 — Lyd** | ElevenLabs, podcast player, Live Activity | ✅ (kvote/backfill rester) |
+| **3 — Monetisering** | Paywall + StoreKit | 🟡 Kode klar, flag off |
+| **4 — Personalisering** | Recommendation reasons, smarter feed | 🔜 |
+| **5 — Polish** | Læsetid, font, video player | 🔜 |
 
 ---
 
-### 10. Gamification ⭐
+## Relateret dokumentation
 
-#### A. Reading Achievements
-- Badges for milestones
-- Reading streaks
-- Topic expert badges
-
-#### B. Reading Challenges
-- Weekly reading goals
-- Topic challenges
-- Community challenges
-
-#### C. Leaderboards
-- Most read articles
-- Top readers
-- Topic experts
-
----
-
-## 🚀 Quick Wins (Lette at implementere)
-
-### 1. Reading Time Estimation
-```swift
-func estimateReadingTime(_ article: Article) -> Int {
-    let wordsPerMinute = 200
-    let wordCount = article.content?.wordCount ?? 0
-    return max(1, wordCount / wordsPerMinute)
-}
-```
-
-### 2. Share Article Card
-- Custom share image med artikel info
-- Deep link til artikel
-- Social media preview
-
-### 3. Article Bookmarks
-- Bookmark specifikke afsnit
-- Quick access fra profile
-
-### 4. Reading History
-- Vis læste artikler
-- Continue reading
-- Recently viewed
-
-### 5. Font Size Control
-- Slider i article view
-- Persist i UserDefaults
-- Accessibility support
-
----
-
-## 🎨 UI/UX Improvements
-
-### 1. Article Detail Enhancements
-- Sticky header med progress
-- Floating action buttons
-- Swipe gestures (next/prev article)
-- Pull to refresh
-
-### 2. Home Screen
-- Personalized hero section
-- Quick access shortcuts
-- Recent articles
-- Recommended for you
-
-### 3. Search
-- Recent searches
-- Search suggestions
-- Voice search
-- Image search (find articles med billeder)
-
-### 4. Profile
-- Reading statistics
-- Achievement showcase
-- Reading goals
-- Preferences
-
----
-
-## 🔧 Technical Improvements
-
-### 1. Performance
-- Image lazy loading optimization
-- Article preloading
-- Cache optimization
-- Background prefetching
-
-### 2. Analytics
-- User behavior tracking
-- Article performance metrics
-- Feature usage analytics
-- Crash reporting
-
-### 3. Testing
-- Unit tests for services
-- UI tests for critical flows
-- Performance tests
-- Accessibility tests
-
-### 4. Accessibility
-- VoiceOver support
-- Dynamic Type support
-- High contrast mode
-- Reduced motion support
-
----
-
-## 📱 Platform Features
-
-### 1. iOS Specific
-- **Widgets**: Home screen widgets med seneste artikler
-- **Shortcuts**: Siri shortcuts ("Læs seneste artikel")
-- **Live Activities**: Live updates for breaking news
-- **App Clips**: Quick article preview
-- **Focus Modes**: Integration med iOS Focus modes
-
-### 2. iPad Optimization
-- Split view support
-- Multi-column layout
-- Keyboard shortcuts
-- Apple Pencil support (annotations)
-
-### 3. macOS Support
-- Native macOS app
-- Menu bar integration
-- Keyboard navigation
-
----
-
-## 🎯 Prioritization Matrix
-
-### High Impact, Low Effort (Do First)
-1. ✅ Reading time estimation
-2. ✅ Font size control
-3. ✅ Article bookmarks
-4. ✅ Share article card
-5. ✅ Reading history
-
-### High Impact, High Effort (Plan Carefully)
-1. ⭐ AI Text-to-Speech
-2. ⭐ Video player improvements
-3. ⭐ Personalized feed
-4. ⭐ Offline sync enhancements
-
-### Low Impact, Low Effort (Nice to Have)
-1. Reading achievements
-2. Widgets
-3. Siri shortcuts
-4. UI polish
-
----
-
-## 📊 Implementation Timeline
-
-### Phase 1 (1-2 måneder)
-- AI Text-to-Speech
-- Reading time estimation
-- Font customization
-- Article bookmarks
-
-### Phase 2 (2-3 måneder)
-- Video player improvements
-- Enhanced offline mode
-- Reading insights
-- Social features
-
-### Phase 3 (3-4 måneder)
-- Personalized feed
-- Interactive articles
-- Cross-device sync
-- Advanced analytics
-
----
-
-## 💡 Innovation Ideas
-
-### 1. AR Article Experience
-- View articles i AR
-- 3D visualizations
-- Immersive storytelling
-
-### 2. Voice-First Mode
-- Voice navigation
-- Voice search
-- Voice commands
-
-### 3. AI Writing Assistant
-- Help users write comments
-- Article summaries
-- Translation assistance
-
-### 4. Community Features
-- User-generated content
-- Article submissions
-- Community voting
-
----
-
-**Opdateret**: November 2024
-**Status**: Planning Phase
-
+- `Docs/LaunchReadinessChecklist.md` — device profiling og release-smoke-test
+- `Docs/PodcastAudioWorkflow.md` — manuel NotebookLM-upload + manifest
+- `Docs/PODCAST_UPLOAD.md` — upload-detaljer
+- `functions/notificationPolicy.js` — push-filtrering (engelsk, republication)
