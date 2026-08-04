@@ -30,6 +30,12 @@ struct HTMLTextView: UIViewRepresentable {
             dynamicHeight = 100
             return
         }
+
+        // Guard BEFORE expensive HTML processing — parent body updates are frequent.
+        let cacheKey = "\(articleId ?? "")|\(html.count)|\(html.hashValue)"
+        if FeatureFlags.htmlDiffGuardEnabled && context.coordinator.lastLoadedHTML == cacheKey {
+            return
+        }
         
         // Fjern alle <style>...</style> tags fra HTML
         let cleanedHTML = html.replacingOccurrences(of: "<style[\\s\\S]*?</style>", with: "", options: .regularExpression)
@@ -264,11 +270,6 @@ struct HTMLTextView: UIViewRepresentable {
             return
         }
 
-        let cacheKey = "\(articleId ?? "")|\(htmlString)"
-        // Critical perf guard: avoid reloading identical HTML on every parent state update.
-        if FeatureFlags.htmlDiffGuardEnabled && context.coordinator.lastLoadedHTML == cacheKey {
-            return
-        }
         context.coordinator.lastLoadedHTML = cacheKey
         context.coordinator.resetHeightTracking()
         uiView.loadHTMLString(htmlString, baseURL: offlineBaseURL)

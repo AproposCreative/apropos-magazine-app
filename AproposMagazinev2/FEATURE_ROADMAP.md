@@ -28,14 +28,17 @@
 - **Kilder:** AI-narration (`podcasts/narration/`) + manuelle/NotebookLM-afsnit (`podcasts/articles/`)
 - **Manifest:** `podcasts/manifest.json` — app henter automatisk
 - **Afspiller:** Mini-player, fuld player, kø, sleep timer, hastighed, lock screen / Control Center
-- **Live Activity:** Dynamic Island + lock screen under afspilning
+- **Lock screen:** Kun native Now Playing (Live Activity er slået fra for at undgå dobbelt afspiller)
 - **Performance:** Throttled UI-opdateringer, deferred disk-cache, ingen feed-refresh under aktiv afspilning
 - **Hjem:** Sektion "Lydindhold", "Fortsæt hvor du slap"
 
 ### Widget
 - **Seneste artikel:** Small / medium / large via App Group (`WidgetDataStore`)
 - **Billeder:** WidgetImageStore med hurtig refresh efter første sync
-- **Live Activity:** Podcast-widget (se ovenfor)
+
+### Dual home-screen icons
+- Ikke en packaging-bug: én app-target. To ikoner = to installs med samme display-navn (fx Xcode + TestFlight, eller gammel bundle ID).
+- Slet den forældede install på enheden. Display-navn er forkortet til **"Apropos"**.
 
 ### Backend (Firebase Functions)
 | Function | Rolle |

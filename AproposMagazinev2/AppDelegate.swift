@@ -22,6 +22,7 @@ import WidgetKit
         // splash video) never interrupts audio the user is already playing in
         // another app. The podcast player explicitly upgrades to `.playback`.
         configureDefaultAudioSession()
+        UIScrollView.appearance().bounces = false
 
         FirebaseConfiguration.shared.setLoggerLevel(.min)
         FirebaseApp.configure()

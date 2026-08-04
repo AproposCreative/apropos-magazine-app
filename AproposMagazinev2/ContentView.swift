@@ -202,7 +202,7 @@ struct ContentView: View {
             }
             .interactiveDismissDisabled()
         }
-        .sheet(isPresented: $showNotificationOnboarding) {
+        .fullScreenCover(isPresented: $showNotificationOnboarding) {
             NotificationOnboardingView {
                 showNotificationOnboarding = false
             }
@@ -215,12 +215,29 @@ struct ContentView: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.hidden)
         }
+        .alert(
+            "Kan ikke afspille offline",
+            isPresented: Binding(
+                get: { podcastPlayerManager.offlinePlaybackMessage != nil },
+                set: { if !$0 { podcastPlayerManager.clearOfflinePlaybackMessage() } }
+            )
+        ) {
+            Button("OK", role: .cancel) {
+                podcastPlayerManager.clearOfflinePlaybackMessage()
+            }
+        } message: {
+            Text(podcastPlayerManager.offlinePlaybackMessage ?? "")
+        }
     }
 
     @MainActor
     private func presentNotificationOnboardingIfNeeded() async {
         guard !showNotificationOnboarding else { return }
         guard await NotificationService.shared.shouldPresentOnboarding() else { return }
+        if viewModel.topics.isEmpty {
+            // Give topic fetch a moment so the emner step is useful.
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+        }
         showNotificationOnboarding = true
     }
     
@@ -240,6 +257,9 @@ struct ContentView: View {
             FavoritesView()
         case .article(let article):
             ArticleDetailView(article: article)
+                .environmentObject(viewModel)
+        case .author(let author):
+            AuthorDetailView(author: author)
                 .environmentObject(viewModel)
         case .categoryDetail(let categoryName):
             CategoryDetailView(categoryName: categoryName)

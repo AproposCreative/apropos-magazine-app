@@ -23,7 +23,8 @@ class CacheManager: ObservableObject {
     private let sectionsCacheKey = "cached_sections"
     private let authorsCacheKey = "cached_authors"
     private let starsCacheKey = "cached_stars"
-    private static let articlesCacheVersion = "1.2"
+    /// Bumped when feed cache stops storing full HTML bodies (metadata-only).
+    private static let articlesCacheVersion = "1.3"
     
     // Cache policies
     private let maxCacheSize: Int64 = 500 * 1024 * 1024 // 500 MB
@@ -133,7 +134,9 @@ class CacheManager: ObservableObject {
     }
     
     func cacheArticles(_ articles: [Article]) {
-        let publishedArticles = articles.filter(\.isPubliclyPublished)
+        let publishedArticles = articles
+            .filter(\.isPubliclyPublished)
+            .map { $0.strippingBodyContent() }
         let cacheData = CacheData(
             articles: publishedArticles,
             timestamp: Date(),
@@ -157,9 +160,10 @@ class CacheManager: ObservableObject {
 
             // Create simplified cache data for extension (id, name, lastPublished, createdOn)
             // Name is included for fallback search when article_id is missing from notifications
+            let cachedTopics = getCachedTopics() ?? []
             let simplifiedArticles = publishedArticles.map { article -> [String: String] in
                 let thumbURL = (article.thumbURL ?? article.mobileImageURL ?? article.coverURL)?.absoluteString ?? ""
-                let topic = topicName(for: article, topics: getCachedTopics() ?? [])
+                let topic = topicName(for: article, topics: cachedTopics)
                 return [
                     "id": article.id,
                     "name": article.name ?? "",
@@ -210,18 +214,9 @@ class CacheManager: ObservableObject {
             return cachedArticles
         }
 
-        // Return cached articles if available and valid
-        if cachedArticles != nil {
-            guard let data = userDefaults.data(forKey: articlesCacheKey) else {
-                clearArticlesCache()
-                return nil
-            }
-            do {
-                return try loadArticles(from: data)
-            } catch {
-                clearArticlesCache()
-                return nil
-            }
+        // Return in-memory articles without re-decoding from disk.
+        if let cachedArticles {
+            return cachedArticles
         }
         
         // Attempt to load from UserDefaults if no cached articles in memory

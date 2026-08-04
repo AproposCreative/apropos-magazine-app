@@ -10,9 +10,8 @@ final class PodcastLiveActivityService {
 
     private init() {}
 
-    var isSupported: Bool {
-        DeviceCapabilities.hasDynamicIsland && ActivityAuthorizationInfo().areActivitiesEnabled
-    }
+    /// Live Activities are disabled — native Now Playing is the single lock-screen player.
+    var isSupported: Bool { false }
 
     func dismissUnsupportedActivitiesIfNeeded() {
         guard !DeviceCapabilities.hasDynamicIsland else { return }

@@ -38,25 +38,34 @@ final class FirestoreArticleService {
                 return
             }
 
-            do {
-                let articles = try self.decodeArticles(from: snapshot.documents)
-                    .filter(\.isPubliclyPublished)
-                if articles.isEmpty {
-                    completion(.failure(FirestoreArticleError.empty))
-                    return
-                }
-
-                let sorted = articles.sorted { lhs, rhs in
-                    let leftCreated = lhs.createdOn ?? ""
-                    let rightCreated = rhs.createdOn ?? ""
-                    if leftCreated != rightCreated {
-                        return leftCreated > rightCreated
+            let documents = snapshot.documents
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let articles = try self.decodeArticles(from: documents)
+                        .filter(\.isPubliclyPublished)
+                    if articles.isEmpty {
+                        DispatchQueue.main.async {
+                            completion(.failure(FirestoreArticleError.empty))
+                        }
+                        return
                     }
-                    return (lhs.lastPublished ?? "") > (rhs.lastPublished ?? "")
+
+                    let sorted = articles.sorted { lhs, rhs in
+                        let leftCreated = lhs.createdOn ?? ""
+                        let rightCreated = rhs.createdOn ?? ""
+                        if leftCreated != rightCreated {
+                            return leftCreated > rightCreated
+                        }
+                        return (lhs.lastPublished ?? "") > (rhs.lastPublished ?? "")
+                    }
+                    DispatchQueue.main.async {
+                        completion(.success(sorted))
+                    }
+                } catch {
+                    DispatchQueue.main.async {
+                        completion(.failure(error))
+                    }
                 }
-                completion(.success(sorted))
-            } catch {
-                completion(.failure(error))
             }
         }
     }
@@ -132,12 +141,14 @@ final class FirestoreArticleService {
     }
 
     private func decodeArticles(from documents: [QueryDocumentSnapshot]) throws -> [Article] {
+        // Decode off the caller’s thread when possible; strip body HTML so list
+        // decode stays light (full content is fetched per article on open).
         var articles: [Article] = []
         var decodeErrors: [String] = []
 
         for document in documents {
             do {
-                articles.append(try decodeArticle(from: document.data()))
+                articles.append(try decodeArticle(from: document.data(), stripBodyContent: true))
             } catch {
                 decodeErrors.append("\(document.documentID): \(error.localizedDescription)")
             }
@@ -153,7 +164,7 @@ final class FirestoreArticleService {
         return articles
     }
 
-    private func decodeArticle(from data: [String: Any]) throws -> Article {
+    private func decodeArticle(from data: [String: Any], stripBodyContent: Bool = false) throws -> Article {
         var payload: [String: Any] = [:]
 
         if let id = data["id"] as? String {
@@ -162,7 +173,10 @@ final class FirestoreArticleService {
             throw FirestoreArticleError.decodeFailed("Missing article id")
         }
 
-        if let fieldData = data["fieldData"] as? [String: Any] {
+        if var fieldData = data["fieldData"] as? [String: Any] {
+            if stripBodyContent {
+                fieldData.removeValue(forKey: "content")
+            }
             payload["fieldData"] = fieldData
         } else {
             payload["fieldData"] = [:]

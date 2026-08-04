@@ -8,7 +8,7 @@ PLIST="$ROOT/AproposMagazinev2/Resources/Secrets.plist"
 GSI_PLIST="$ROOT/AproposMagazinev2/AproposMagazinev2/GoogleService-Info.plist"
 ENV_FILE="$ROOT/.env"
 PROJECT="${GCP_PROJECT:-apropos-magazine-6004a}"
-BUNDLE_ID="${IOS_BUNDLE_ID:-com.aproposmagazine.app}"
+BUNDLE_ID="${IOS_BUNDLE_ID:-com.frederikkragh.aproposmagazinev2}"
 KEY_DISPLAY_NAME="Apropos Magazine iOS $(date +%Y-%m-%d)"
 
 read_old_google() {

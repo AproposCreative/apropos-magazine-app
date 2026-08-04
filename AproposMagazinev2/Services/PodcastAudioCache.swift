@@ -94,6 +94,26 @@ final class PodcastAudioCache {
         loadPinnedMapping()[articleId] != nil
     }
 
+    /// True when a local audio file exists for the remote URL.
+    func isDownloaded(for remoteURL: URL?) -> Bool {
+        guard let remoteURL else { return false }
+        return localFileURL(for: remoteURL) != nil
+    }
+
+    func isDownloaded(for episode: PodcastEpisode?) -> Bool {
+        isDownloaded(for: episode?.audioURL)
+    }
+
+    /// Checks pinned mapping first, then falls back to the episode URL if known.
+    func isDownloaded(forArticleId articleId: String) -> Bool {
+        if let urlString = loadPinnedMapping()[articleId],
+           let remoteURL = URL(string: urlString),
+           localFileURL(for: remoteURL) != nil {
+            return true
+        }
+        return false
+    }
+
     func totalCacheSizeBytes() -> Int64 {
         guard let files = try? fileManager.contentsOfDirectory(
             at: cacheDirectory,

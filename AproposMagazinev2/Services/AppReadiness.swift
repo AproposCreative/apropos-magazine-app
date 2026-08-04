@@ -15,10 +15,26 @@ enum AppReadiness {
         waiters.removeAll()
     }
 
-    static func waitUntilUIReady() async {
+    /// Wait until ContentView has appeared, or until `timeout` elapses.
+    static func waitUntilUIReady(timeout: TimeInterval = 8) async {
         if isUIReady { return }
-        await withCheckedContinuation { continuation in
-            waiters.append(continuation)
+
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { @MainActor in
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    if isUIReady {
+                        continuation.resume()
+                    } else {
+                        waiters.append(continuation)
+                    }
+                }
+            }
+            group.addTask {
+                let ns = UInt64(max(0.1, timeout) * 1_000_000_000)
+                try? await Task.sleep(nanoseconds: ns)
+            }
+            _ = await group.next()
+            group.cancelAll()
         }
     }
 }

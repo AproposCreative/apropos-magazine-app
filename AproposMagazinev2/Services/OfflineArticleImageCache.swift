@@ -30,6 +30,10 @@ final class OfflineArticleImageCache {
 
     func displayURL(for remote: URL?, articleId: String) -> URL? {
         guard let remote else { return nil }
+        // Prefer CDN while online — local file URLs are only for true offline.
+        if isDeviceOnline {
+            return remote
+        }
         guard isArticleAvailableOffline(articleId) else { return remote }
 
         let candidates = [
@@ -55,8 +59,13 @@ final class OfflineArticleImageCache {
         return fileManager.fileExists(atPath: fileURL.path) ? fileURL : nil
     }
 
+    /// Rewrites image `src` for offline reading.
+    /// When online, returns the original HTML unchanged so CDN images keep working.
+    /// When offline, embeds cached images as data-URIs (WKWebView cannot reliably
+    /// load relative `file://` assets from `loadHTMLString`).
     func prepareHTMLForOfflineDisplay(_ html: String, articleId: String?) -> (html: String, baseURL: URL?) {
-        guard let articleId, !articleId.isEmpty,
+        guard !isDeviceOnline,
+              let articleId, !articleId.isEmpty,
               isArticleAvailableOffline(articleId),
               let mapping = loadMapping(articleId: articleId),
               !mapping.isEmpty else {
@@ -65,17 +74,38 @@ final class OfflineArticleImageCache {
 
         let directory = articleDirectory(for: articleId)
         var result = html
-        var didReplaceAny = false
 
         for (remote, filename) in mapping.sorted(by: { $0.key.count > $1.key.count }) {
             let fileURL = directory.appendingPathComponent(filename)
             guard fileManager.fileExists(atPath: fileURL.path) else { continue }
             guard result.contains(remote) else { continue }
-            result = result.replacingOccurrences(of: remote, with: filename)
-            didReplaceAny = true
+            guard let dataURI = dataURI(forFileAt: fileURL) else { continue }
+            result = result.replacingOccurrences(of: remote, with: dataURI)
         }
 
-        return (result, didReplaceAny ? directory : nil)
+        return (result, nil)
+    }
+
+    private var isDeviceOnline: Bool {
+        // HTMLTextView / image helpers are invoked on the main thread.
+        if Thread.isMainThread {
+            return MainActor.assumeIsolated { OfflineManager.shared.isOnline }
+        }
+        return true
+    }
+
+    private func dataURI(forFileAt fileURL: URL) -> String? {
+        guard let data = try? Data(contentsOf: fileURL), !data.isEmpty else { return nil }
+        let ext = fileURL.pathExtension.lowercased()
+        let mime: String
+        switch ext {
+        case "png": mime = "image/png"
+        case "gif": mime = "image/gif"
+        case "webp": mime = "image/webp"
+        case "jpg", "jpeg": mime = "image/jpeg"
+        default: mime = "image/jpeg"
+        }
+        return "data:\(mime);base64,\(data.base64EncodedString())"
     }
 
     func pruneOrphanedCaches(keeping articleIds: Set<String>) {

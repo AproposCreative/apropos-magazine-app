@@ -32,5 +32,14 @@ service cloud.firestore {
       allow read: if true;
       allow write: if false;
     }
+
+    // Per-user profile + favorites (Min side sync).
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+
+      match /favorites/{favoriteId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+    }
   }
 }

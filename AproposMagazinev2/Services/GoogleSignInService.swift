@@ -40,24 +40,20 @@ class GoogleSignInService: ObservableObject {
 
     @MainActor
     func signIn() async {
-        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-              let window = windowScene.windows.first,
-              let rootViewController = window.rootViewController else {
+        guard let presenter = topViewController() else {
             self.errorMessage = "Could not find root view controller"
             self.showErrorDialog = true
             return
         }
         
         do {
-            // Use the new sign-in method that uses ASWebAuthenticationSession
-            let result = try await GIDSignIn.sharedInstance.signIn(withPresenting: rootViewController)
+            // Present from the topmost VC so a login sheet does not block/loop Google auth.
+            let result = try await GIDSignIn.sharedInstance.signIn(withPresenting: presenter)
 
-            await MainActor.run {
-                self.user = result.user
-                self.isSignedIn = true
-                self.errorMessage = nil
-                self.showErrorDialog = false
-            }
+            self.user = result.user
+            self.isSignedIn = true
+            self.errorMessage = nil
+            self.showErrorDialog = false
 
             // Sign in to Firebase with Google credentials
             await signInToFirebase(with: result.user)
@@ -67,23 +63,42 @@ class GoogleSignInService: ObservableObject {
                 NotificationService.shared.updateFCMTokenOnServer(fcmToken)
             }
         } catch {
-            await MainActor.run {
-                // Handle specific error cases
-                if let signInError = error as? GIDSignInError {
-                    switch signInError.code {
-                    case .canceled:
-                        self.errorMessage = "Sign-in was canceled"
-                    case .hasNoAuthInKeychain:
-                        self.errorMessage = "No previous sign-in found"
-                    default:
-                        self.errorMessage = "Sign-in failed: \(error.localizedDescription)"
-                    }
-                } else {
-                    self.errorMessage = error.localizedDescription
+            // Handle specific error cases
+            if let signInError = error as? GIDSignInError {
+                switch signInError.code {
+                case .canceled:
+                    self.errorMessage = "Sign-in was canceled"
+                case .hasNoAuthInKeychain:
+                    self.errorMessage = "No previous sign-in found"
+                default:
+                    self.errorMessage = "Sign-in failed: \(error.localizedDescription)"
                 }
-                self.showErrorDialog = true
+            } else {
+                self.errorMessage = error.localizedDescription
             }
+            self.showErrorDialog = true
         }
+    }
+
+    /// Walk the presented-view hierarchy so Google Sign-In can appear above sheets.
+    @MainActor
+    private func topViewController(from controller: UIViewController? = nil) -> UIViewController? {
+        let root = controller ?? UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first(where: \.isKeyWindow)?
+            .rootViewController
+
+        if let nav = root as? UINavigationController {
+            return topViewController(from: nav.visibleViewController)
+        }
+        if let tab = root as? UITabBarController {
+            return topViewController(from: tab.selectedViewController)
+        }
+        if let presented = root?.presentedViewController {
+            return topViewController(from: presented)
+        }
+        return root
     }
 
     private func signInToFirebase(with user: GIDGoogleUser) async {

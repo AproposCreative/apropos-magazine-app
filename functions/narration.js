@@ -2,9 +2,9 @@
  * Server-side AI-oplæsning (narration).
  *
  * Genskaber præcis recepten fra scripts/narration-poc.mjs:
- *   stemme "Ellen", model eleven_v3, talt intro (+ stjerne) + artikeltekst + outro,
+ *   stemme "Ellen", model eleven_v3, intro + stjerner + artikel + stjerne-outro + tak,
  *   ffmpeg voice-polish EQ + blød stereobredde, baggrundsjingle med musik-intro,
- *   bed under oplæsningen og en svulmende jingle-outro til sidst.
+ *   3s musik-breaker mellem TTS-chunks, bed under oplæsningen og jingle-outro til sidst.
  *
  * Kører i Cloud Functions via ffmpeg-static/ffprobe-static (Linux-binaries hentes
  * ved deploy). Lyd skrives midlertidigt i /tmp og ryddes op bagefter.
@@ -45,6 +45,9 @@ const JINGLE_FADE_OUT = 3;
 const JINGLE_OUTRO_SECS = 6.5;
 const JINGLE_OUTRO_GAIN = -5;
 const JINGLE_OUTRO_RISE = 1.2;
+// Pause mellem TTS-chunks hvor musikken åbner lidt (radio-breaker).
+const CHUNK_BREAKER_SECS = 3;
+const JINGLE_BREAKER_GAIN = -12; // lidt over bed (-18)
 
 // Kredit-sikkerhed: stop auto-generering ved dette forbrug af ElevenLabs-kvoten.
 const QUOTA_THRESHOLD = 0.80;
@@ -131,11 +134,17 @@ function ratingFromFieldData(fieldData, starsMapping) {
   return 0;
 }
 
-function buildNarrationText(fieldData, authorName, rating) {
+/**
+ * Bygger oplæsningsscript:
+ *   bodyText   — intro + stjerner (åbning) + artikel (chunkes)
+ *   ratingLine — stjerne-opsummering til sidst (eget TTS-kald)
+ *   outroLine  — tak for lytning (eget TTS-kald)
+ */
+function buildNarrationScript(fieldData, authorName, rating) {
   const title = String(fieldData.name || "").trim();
   const subtitle = String(fieldData.subtitle || "").trim();
   const intro = htmlToReadableText(fieldData.intro || "");
-  const bodyText = htmlToReadableText(fieldData.content || "");
+  const articleBody = htmlToReadableText(fieldData.content || "");
 
   const introLine = authorName ?
     `Du lytter til artiklen "${title}", skrevet af ${authorName}, ` +
@@ -144,13 +153,17 @@ function buildNarrationText(fieldData, authorName, rating) {
       "på vegne af Apropos Magazine.";
 
   const danishNumbers = ["nul", "en", "to", "tre", "fire", "fem", "seks"];
-  const ratingLine = rating >= 1 && rating <= 6 ?
+  const ratingOpening = rating >= 1 && rating <= 6 ?
     `Anmeldelsen får ${danishNumbers[rating]} ud af seks stjerner.` : "";
+  const ratingLine = rating >= 1 && rating <= 6 ?
+    `Det blev til ${danishNumbers[rating]} ud af seks stjerner.` : "";
   const outroLine = "Tak fordi du lyttede med på Apropos Magazine.";
 
-  return [introLine, ratingLine, subtitle, intro, bodyText, outroLine]
+  const bodyText = [introLine, ratingOpening, subtitle, intro, articleBody]
       .filter(Boolean)
       .join("\n\n");
+  const fullText = [bodyText, ratingLine, outroLine].filter(Boolean).join("\n\n");
+  return {bodyText, ratingLine, outroLine, fullText};
 }
 
 // ---- ElevenLabs ------------------------------------------------------------
@@ -275,6 +288,17 @@ function encodeVoiceWav(listPath, outPath) {
   return runFfmpeg(args);
 }
 
+/** Stilhed som MP3 (samme sample rate) til concat mellem TTS-chunks. */
+function makeSilenceMp3(outPath, seconds) {
+  return runFfmpeg([
+    "-hide_banner", "-loglevel", "error", "-y",
+    "-f", "lavfi", "-i", `anullsrc=r=${TARGET_SAMPLE_RATE}:cl=stereo`,
+    "-t", String(seconds),
+    "-c:a", "libmp3lame", "-b:a", "192k",
+    outPath,
+  ]);
+}
+
 function probeDuration(filePath) {
   const out = execFileSync(ffprobePath, [
     "-v", "error",
@@ -285,10 +309,52 @@ function probeDuration(filePath) {
   return parseFloat(out) || 0;
 }
 
-// Musik-intro (højt) → duck til bed → bed under oplæsning → svulm op til outro.
-function mixJingle(voicePath, jinglePath, outPath, voiceDuration) {
+function escapeConcatPath(p) {
+  return p.replace(/'/g, "'\\''");
+}
+
+/**
+ * Byg concat-liste med stilhed mellem stemme-segmenter, og absolutte
+ * breaker-vinduer (inkl. jingle-intro-offset) til musik-bump.
+ */
+function buildConcatWithBreakers(voicePaths, silencePath, workDir) {
+  const lines = [];
+  const breakerWindows = [];
+  let t = 0;
+  for (let i = 0; i < voicePaths.length; i++) {
+    const dur = probeDuration(voicePaths[i]);
+    lines.push(`file '${escapeConcatPath(voicePaths[i])}'`);
+    t += dur;
+    if (i < voicePaths.length - 1) {
+      breakerWindows.push({
+        start: JINGLE_INTRO_SECS + t,
+        end: JINGLE_INTRO_SECS + t + CHUNK_BREAKER_SECS,
+      });
+      lines.push(`file '${escapeConcatPath(silencePath)}'`);
+      t += CHUNK_BREAKER_SECS;
+    }
+  }
+  const listPath = path.join(workDir, "concat.txt");
+  fs.writeFileSync(listPath, lines.join("\n"));
+  return {listPath, breakerWindows, voiceTimelineSecs: t};
+}
+
+function bedVolumeWithBreakers(bedLin, breakerLin, windows) {
+  let expr = bedLin.toFixed(4);
+  for (let i = windows.length - 1; i >= 0; i--) {
+    const start = windows[i].start.toFixed(2);
+    const end = windows[i].end.toFixed(2);
+    expr =
+      `if(between(t,${start},${end}),${breakerLin.toFixed(4)},${expr})`;
+  }
+  return expr;
+}
+
+// Musik-intro (højt) → duck til bed → bed/breaker under oplæsning → svulm op til outro.
+function mixJingle(voicePath, jinglePath, outPath, voiceDuration, breakerWindows = []) {
   const introLin = dbToLinear(JINGLE_INTRO_GAIN);
   const bedLin = dbToLinear(JINGLE_GAIN);
+  const breakerLin = dbToLinear(JINGLE_BREAKER_GAIN);
   const outroLin = dbToLinear(JINGLE_OUTRO_GAIN);
   const duckStart = JINGLE_INTRO_SECS;
   const duckEnd = JINGLE_INTRO_SECS + JINGLE_DUCK;
@@ -297,11 +363,12 @@ function mixJingle(voicePath, jinglePath, outPath, voiceDuration) {
   const riseEnd = voiceEnd + JINGLE_OUTRO_RISE;
   const total = voiceEnd + JINGLE_OUTRO_SECS;
   const fadeOutStart = Math.max(0, total - JINGLE_FADE_OUT);
+  const bedExpr = bedVolumeWithBreakers(bedLin, breakerLin, breakerWindows);
 
   const duckExpr =
     `if(lt(t,${duckStart}),${introLin.toFixed(4)},` +
     `if(lt(t,${duckEnd}),${introLin.toFixed(4)}+(${bedLin.toFixed(4)}-${introLin.toFixed(4)})*(t-${duckStart})/${JINGLE_DUCK},` +
-    `if(lt(t,${riseStart.toFixed(2)}),${bedLin.toFixed(4)},` +
+    `if(lt(t,${riseStart.toFixed(2)}),${bedExpr},` +
     `if(lt(t,${riseEnd.toFixed(2)}),${bedLin.toFixed(4)}+(${outroLin.toFixed(4)}-${bedLin.toFixed(4)})*(t-${riseStart.toFixed(2)})/${JINGLE_OUTRO_RISE},` +
     `${outroLin.toFixed(4)}))))`;
 
@@ -328,16 +395,20 @@ function mixJingle(voicePath, jinglePath, outPath, voiceDuration) {
   return runFfmpeg(args);
 }
 
-async function produceFinal(listPath, outPath, workDir) {
+async function produceFinal(listPath, outPath, workDir, breakerWindows = []) {
   const voiceWav = path.join(workDir, "voice.wav");
   await encodeVoiceWav(listPath, voiceWav);
   const duration = probeDuration(voiceWav);
   logger.info(
       `narration mix: intro ${JINGLE_INTRO_SECS}s @ ${JINGLE_INTRO_GAIN}dB → ` +
-      `bed ${JINGLE_GAIN}dB → outro ${JINGLE_OUTRO_SECS}s @ ${JINGLE_OUTRO_GAIN}dB, ` +
+      `bed ${JINGLE_GAIN}dB` +
+      (breakerWindows.length ?
+        ` (breaker ${CHUNK_BREAKER_SECS}s @ ${JINGLE_BREAKER_GAIN}dB ×${breakerWindows.length})` :
+        "") +
+      ` → outro ${JINGLE_OUTRO_SECS}s @ ${JINGLE_OUTRO_GAIN}dB, ` +
       `tale ${duration.toFixed(0)}s`,
   );
-  await mixJingle(voiceWav, JINGLE_PATH, outPath, duration);
+  await mixJingle(voiceWav, JINGLE_PATH, outPath, duration, breakerWindows);
   try {
     fs.rmSync(voiceWav, {force: true});
   } catch (e) { /* ignore */ }
@@ -577,7 +648,8 @@ async function generateAndPublishNarration({slug, articleId, name, apiKey}) {
   const authorName = await resolveAuthorName(db, fieldData.author);
   const starsMapping = await loadStarsMapping(db);
   const rating = ratingFromFieldData(fieldData, starsMapping);
-  const fullText = buildNarrationText(fieldData, authorName, rating);
+  const script = buildNarrationScript(fieldData, authorName, rating);
+  const {bodyText, ratingLine, outroLine, fullText} = script;
 
   if (fullText.length < 50) {
     logger.warn(`narration: ${slug} har for lidt tekst (${fullText.length} tegn)`);
@@ -612,24 +684,40 @@ async function generateAndPublishNarration({slug, articleId, name, apiKey}) {
   const workDir = fs.mkdtempSync(path.join(os.tmpdir(), `narr-${slugToId(slug)}-`));
   try {
     const voiceId = await resolveVoiceId(apiKey);
-    const chunks = chunkText(fullText, MAX_CHARS_PER_CHUNK);
-    logger.info(`narration: ${slug} — ${fullText.length} tegn → ${chunks.length} chunk(s)`);
+    const bodyChunks = chunkText(bodyText, MAX_CHARS_PER_CHUNK);
+    const closingParts = [ratingLine, outroLine].filter(Boolean);
+    logger.info(
+        `narration: ${slug} — ${fullText.length} tegn → ` +
+        `${bodyChunks.length} body-chunk(s) + ${closingParts.length} outro-chunk(s)`,
+    );
 
-    const chunkPaths = [];
-    for (let i = 0; i < chunks.length; i++) {
+    const voicePaths = [];
+    for (let i = 0; i < bodyChunks.length; i++) {
       const chunkPath = path.join(workDir, `chunk-${String(i).padStart(3, "0")}.mp3`);
-      await synthesizeChunk(apiKey, voiceId, chunks[i], chunkPath);
-      chunkPaths.push(chunkPath);
+      await synthesizeChunk(apiKey, voiceId, bodyChunks[i], chunkPath);
+      voicePaths.push(chunkPath);
     }
+    if (ratingLine) {
+      const ratingPath = path.join(workDir, "rating.mp3");
+      await synthesizeChunk(apiKey, voiceId, ratingLine, ratingPath);
+      voicePaths.push(ratingPath);
+    }
+    const outroPath = path.join(workDir, "outro.mp3");
+    await synthesizeChunk(apiKey, voiceId, outroLine, outroPath);
+    voicePaths.push(outroPath);
 
-    const listPath = path.join(workDir, "concat.txt");
-    fs.writeFileSync(
-        listPath,
-        chunkPaths.map((p) => `file '${p.replace(/'/g, "'\\''")}'`).join("\n"),
+    const silencePath = path.join(workDir, "silence.mp3");
+    if (voicePaths.length > 1) {
+      await makeSilenceMp3(silencePath, CHUNK_BREAKER_SECS);
+    }
+    const {listPath, breakerWindows} = buildConcatWithBreakers(
+        voicePaths,
+        silencePath,
+        workDir,
     );
 
     const outPath = path.join(workDir, `${slugToId(slug)}.m4a`);
-    await produceFinal(listPath, outPath, workDir);
+    await produceFinal(listPath, outPath, workDir, breakerWindows);
 
     const destPath = `${NARRATION_PREFIX}${slug}/${slug}.m4a`;
     const token = await resolveDownloadToken(bucket, destPath);

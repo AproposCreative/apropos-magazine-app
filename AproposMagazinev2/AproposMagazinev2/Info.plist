@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleIdentifier</key>
-	<string>com.frederikkragh.aproposmagazinev2</string>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleName</key>
-	<string>Apropos Magazine</string>
+	<string>Apropos</string>
 	<key>CFBundleDisplayName</key>
-	<string>Apropos Magazine</string>
+	<string>$(APP_DISPLAY_NAME)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>CFBundleShortVersionString</key>
@@ -48,7 +48,7 @@
 			<string>BUNDLE_ID</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>com.frederikkragh.aproposmagazinev2</string>
+				<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 			</array>
 		</dict>
 		<dict>
@@ -75,6 +75,6 @@
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>NSSupportsLiveActivities</key>
-	<true/>
+	<false/>
 </dict>
 </plist>

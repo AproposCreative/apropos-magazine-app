@@ -419,8 +419,23 @@ struct ArticleDetailView: View {
     @State private var lastSavedScrollProgress: Double = -1
     @State private var showPaywall = false
     @ObservedObject private var subscriptionManager = SubscriptionManager.shared
+    @ObservedObject private var offlineManager = OfflineManager.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     
+    private var offlineStatusPillTitles: [String] {
+        OfflineAvailability.articleStatusPillTitles(
+            for: resolvedArticle,
+            isOnline: offlineManager.isOnline
+        )
+    }
+
+    private var canShowListenButton: Bool {
+        OfflineAvailability.canOfferListenButton(
+            for: resolvedArticle,
+            isOnline: offlineManager.isOnline
+        )
+    }
+
     let optionId = "b9a5ef043f1f58db54c41ed6fe3e746e"
 
     private var progress: CGFloat {
@@ -601,9 +616,14 @@ struct ArticleDetailView: View {
                     // Category tags section - wraps onto multiple lines when needed so
                     // long tag names are shown in full instead of being truncated.
                     ArticleTagFlowLayout(spacing: 8, lineSpacing: 8, alignment: .center) {
-                        // Show author if available
+                        // Show author if available — taps open the author page.
                         if let authorName = resolvedArticle.author?.name, !authorName.isEmpty {
-                            ArticleTagChip(text: authorName)
+                            Button {
+                                openAuthorPageIfPossible()
+                            } label: {
+                                ArticleTagChip(text: authorName)
+                            }
+                            .buttonStyle(.plain)
                         }
 
                         // Display real category names from the article
@@ -612,12 +632,17 @@ struct ArticleDetailView: View {
                                 ArticleTagChip(text: category)
                             }
                         }
+
+                        // Offline availability — same pill style as author/categories.
+                        ForEach(offlineStatusPillTitles, id: \.self) { title in
+                            ArticleTagChip(text: title)
+                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.horizontal, 16)
                     .padding(.top, 5)
 
-                    if let episode = latestPodcastEpisode {
+                    if let episode = latestPodcastEpisode, canShowListenButton {
                         HStack {
                             Spacer()
                             Button {
@@ -793,6 +818,7 @@ struct ArticleDetailView: View {
             htmlHeight = 240
             showGlassTopBar = false
             lastSavedScrollProgress = -1
+            headerImageFailed = false
             
             let resolvedCategories = viewModel.categories(for: resolvedArticle)
             displayCategories = resolvedCategories.isEmpty ? ["Generelt"] : resolvedCategories
@@ -849,6 +875,21 @@ extension ArticleDetailView {
         }
     }
 
+    private func openAuthorPageIfPossible() {
+        if let author = resolvedArticle.author ?? viewModel.author(for: resolvedArticle) {
+            navigationCoordinator.navigateToAuthor(author)
+            return
+        }
+        guard let authorID = resolvedArticle.authorID, !authorID.isEmpty else { return }
+        viewModel.fetchAuthor(by: authorID) { result in
+            DispatchQueue.main.async {
+                if case .success(let author) = result {
+                    navigationCoordinator.navigateToAuthor(author)
+                }
+            }
+        }
+    }
+
     private func openPodcast(for episode: PodcastEpisode) {
         podcastPlayerManager.play(episode: episode, articleId: resolvedArticle.id)
     }
@@ -886,10 +927,13 @@ extension ArticleDetailView {
 struct RelatedArticleCard: View {
     let article: Article
     @Environment(\.colorScheme) var colorScheme
+    @Environment(\.navigationCoordinator) private var navigationCoordinator
     @State private var imageFailed = false
     
     var body: some View {
-        NavigationLink(value: article) {
+        Button {
+            navigationCoordinator.replaceTopArticle(with: article)
+        } label: {
             VStack(alignment: .leading, spacing: 8) {
                 relatedImage
                 

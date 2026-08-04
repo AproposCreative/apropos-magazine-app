@@ -52,6 +52,12 @@ final class PodcastPlayerManager: ObservableObject {
     @Published var volume: Float = 1.0
     @Published var sleepTimerOption: SleepTimerOption = .off
     @Published private(set) var sleepTimerEndsAt: Date?
+    /// Shown when the user tries to play audio offline without a local download.
+    @Published private(set) var offlinePlaybackMessage: String?
+
+    func clearOfflinePlaybackMessage() {
+        offlinePlaybackMessage = nil
+    }
 
     // Playback metrics (Phase 1A)
     @Published private(set) var timeControlStatus: AVPlayer.TimeControlStatus = .paused
@@ -80,9 +86,6 @@ final class PodcastPlayerManager: ObservableObject {
     private var pendingResumePosition: TimeInterval?
     private var didApplyResumePosition = false
     private var lastProgressPersistAt: Date?
-    private var lastLiveActivityUpdateAt: Date?
-    private var lastLiveActivityPlayingState: Bool?
-    private var lastLiveActivityElapsedSecond: Int = -1
     private var deferredCacheDownloadURL: URL?
     private var isHandlingProgressTick = false
     private var playbackStateUpdateTask: Task<Void, Never>?
@@ -172,6 +175,17 @@ final class PodcastPlayerManager: ObservableObject {
         print("[Podcast] cache: \(playbackResolution.cacheResult.rawValue)")
         #endif
 
+        if playbackResolution.cacheResult == .miss, !OfflineManager.shared.isOnline {
+            offlinePlaybackMessage = "Ikke downloadet — gem artiklen på Min side, mens du er online, for at lytte offline."
+            wantsPlayback = false
+            isPlaying = false
+            isBuffering = false
+            isFullPlayerPresented = true
+            updatePublishedPlaybackState()
+            return
+        }
+        offlinePlaybackMessage = nil
+
         if playbackResolution.cacheResult == .miss {
             // Defer disk caching until playback ends — downloading the full file
             // while streaming doubles network/memory pressure and has caused jetsam.
@@ -205,7 +219,8 @@ final class PodcastPlayerManager: ObservableObject {
         startPlaybackCompletionObservationIfNeeded()
         refreshNowPlayingMetadataIfNeeded(force: true)
         updateNowPlayingPlaybackState()
-        PodcastLiveActivityService.shared.startActivity(episode: episode, articleId: currentArticleId)
+        // Live Activity intentionally disabled — native Now Playing only.
+        PodcastLiveActivityService.shared.endActivity()
         AnalyticsService.shared.trackPodcastPlay(episode: episode, articleId: articleId)
     }
 
@@ -283,9 +298,6 @@ final class PodcastPlayerManager: ObservableObject {
         nowPlayingInfo = [:]
         cachedArtworkIdentifier = nil
         resetPlaybackMetrics()
-        lastLiveActivityUpdateAt = nil
-        lastLiveActivityPlayingState = nil
-        lastLiveActivityElapsedSecond = -1
         updatePublishedPlaybackState()
         PodcastLiveActivityService.shared.endActivity()
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
@@ -295,6 +307,10 @@ final class PodcastPlayerManager: ObservableObject {
     }
 
     private func scheduleDeferredCacheDownloadIfNeeded() {
+        guard FeatureFlags.podcastCacheAfterPlay else {
+            deferredCacheDownloadURL = nil
+            return
+        }
         guard !wantsPlayback, !isPlaying else { return }
         guard let url = deferredCacheDownloadURL else { return }
         deferredCacheDownloadURL = nil
@@ -463,33 +479,6 @@ final class PodcastPlayerManager: ObservableObject {
             }
         }
 
-        updateLiveActivityIfNeeded()
-    }
-
-    private func updateLiveActivityIfNeeded() {
-        guard currentEpisode != nil else { return }
-
-        let elapsedSecond = Int(currentTime.rounded(.down))
-        let playingStateChanged = lastLiveActivityPlayingState != isPlaying
-        let now = Date()
-        let intervalElapsed = lastLiveActivityUpdateAt.map { now.timeIntervalSince($0) >= 30 } ?? true
-
-        // Live Activity updates are expensive — only on play/pause or every 30s.
-        guard playingStateChanged || (isPlaying && intervalElapsed) else {
-            return
-        }
-
-        lastLiveActivityUpdateAt = now
-        lastLiveActivityPlayingState = isPlaying
-        lastLiveActivityElapsedSecond = elapsedSecond
-
-        PodcastLiveActivityService.shared.updateActivity(
-            isPlaying: isPlaying,
-            elapsed: currentTime,
-            duration: duration,
-            episode: currentEpisode,
-            articleId: currentArticleId
-        )
     }
 
     private func startPlayerObservationIfNeeded() {

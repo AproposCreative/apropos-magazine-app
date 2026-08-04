@@ -120,7 +120,8 @@ class NotificationService: NSObject, ObservableObject {
     
     // MARK: - First Launch Onboarding
     
-    private static let onboardingCompletedKey = "notification_onboarding_completed_v1"
+    /// v2 adds topic selection before the system notification prompt.
+    private static let onboardingCompletedKey = "notification_onboarding_completed_v2"
     
     func shouldPresentOnboarding() async -> Bool {
         guard !UserDefaults.standard.bool(forKey: Self.onboardingCompletedKey) else {
@@ -133,18 +134,37 @@ class NotificationService: NSObject, ObservableObject {
     
     func markOnboardingCompleted() {
         UserDefaults.standard.set(true, forKey: Self.onboardingCompletedKey)
+        // Keep legacy key in sync so older builds don't re-prompt.
+        UserDefaults.standard.set(true, forKey: "notification_onboarding_completed_v1")
     }
     
-    func completeOnboarding(allowNotifications: Bool, allCategoryIds: [String]) async {
+    func completeOnboarding(
+        allowNotifications: Bool,
+        selectedCategoryIds: [String],
+        allCategoryIds: [String]
+    ) async {
         markOnboardingCompleted()
         
         var preferences = NotificationPreferences()
-        preferences.newArticles = allowNotifications
-        preferences.newPodcasts = allowNotifications
+        let normalizedCategoryIds: [String]
+        if allowNotifications {
+            if selectedCategoryIds.isEmpty {
+                preferences.newArticles = true
+                normalizedCategoryIds = []
+            } else {
+                preferences.newArticles = false
+                normalizedCategoryIds = selectedCategoryIds
+            }
+            preferences.newPodcasts = true
+        } else {
+            preferences.newArticles = false
+            preferences.newPodcasts = false
+            normalizedCategoryIds = selectedCategoryIds
+        }
         
         await activateArticlePushNotifications(
             preferences: preferences,
-            selectedCategoryIds: [],
+            selectedCategoryIds: normalizedCategoryIds,
             allCategoryIds: allCategoryIds
         )
     }

@@ -132,14 +132,17 @@ final class PodcastRepository: PodcastProviding, ObservableObject {
     }
 
     func latestPodcastPairs(from articles: [Article], limit: Int = 5) -> [PodcastArticlePair] {
-        articles
-            .sorted { $0.feedSortDate > $1.feedSortDate }
-            .compactMap { article in
-                guard let episode = episode(for: article) else { return nil }
-                return PodcastArticlePair(article: article, episode: episode)
-            }
-            .prefix(limit)
-            .map { $0 }
+        Array(
+            articles
+                .map { ($0, $0.feedSortDate) }
+                .sorted { $0.1 > $1.1 }
+                .lazy
+                .compactMap { article, _ in
+                    guard let episode = self.episode(for: article) else { return nil }
+                    return PodcastArticlePair(article: article, episode: episode)
+                }
+                .prefix(limit)
+        )
     }
 
     func resumablePair(from articles: [Article]) -> PodcastArticlePair? {
@@ -162,14 +165,17 @@ final class PodcastRepository: PodcastProviding, ObservableObject {
     }
 
     func latestPodcastPairsIncludingPending(from articles: [Article], limit: Int = 5) -> [PodcastArticlePair] {
-        articles
-            .sorted { $0.feedSortDate > $1.feedSortDate }
-            .compactMap { article in
-                guard let episode = episodeMetadata(for: article) else { return nil }
-                return PodcastArticlePair(article: article, episode: episode)
-            }
-            .prefix(limit)
-            .map { $0 }
+        Array(
+            articles
+                .map { ($0, $0.feedSortDate) }
+                .sorted { $0.1 > $1.1 }
+                .lazy
+                .compactMap { article, _ in
+                    guard let episode = self.episodeMetadata(for: article) else { return nil }
+                    return PodcastArticlePair(article: article, episode: episode)
+                }
+                .prefix(limit)
+        )
     }
 
     /// Ranks how strongly an episode matches an article. Higher = better; `nil` = no match.

@@ -983,6 +983,120 @@ async function resolveArticleIdBySlug(db, articleSlug) {
   return articleSlug;
 }
 
+/**
+ * Queue AI narration for recent articles missing audio (admin backfill).
+ * POST body: { limit?: number, slugs?: string[] }
+ * Header: X-Apropos-Podcast-Secret
+ */
+exports.backfillNarration = onRequest({secrets: [podcastNotifySecret]}, async (request, response) => {
+  response.set("Access-Control-Allow-Origin", "*");
+  response.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+  response.set("Access-Control-Allow-Headers", "Content-Type, X-Apropos-Podcast-Secret");
+
+  if (request.method === "OPTIONS") {
+    response.status(204).send("");
+    return;
+  }
+
+  if (request.method !== "POST") {
+    response.status(405).send("Method Not Allowed");
+    return;
+  }
+
+  const expectedSecret = (podcastNotifySecret.value() || "").trim();
+  const providedSecret = (request.get("X-Apropos-Podcast-Secret") || "").trim();
+  if (!expectedSecret || providedSecret !== expectedSecret) {
+    response.status(403).json({status: "forbidden", message: "Invalid push notify secret"});
+    return;
+  }
+
+  try {
+    const payload = request.body || {};
+    const limit = Math.min(Math.max(parseInt(payload.limit, 10) || 10, 1), 25);
+    const slugFilter = Array.isArray(payload.slugs) ?
+      payload.slugs.map((slug) => String(slug).trim()).filter(Boolean) :
+      null;
+
+    const db = admin.firestore();
+    const snapshot = await db.collection("articles").get();
+    const candidates = [];
+
+    snapshot.forEach((doc) => {
+      const data = doc.data() || {};
+      if (data.isDraft === true) return;
+      if (!(data.isDraft === false || data.lastPublished != null)) return;
+
+      const fieldData = data.fieldData || {};
+      const articleSlug = String(fieldData.slug || "").trim();
+      if (!articleSlug) return;
+      if (slugFilter && !slugFilter.includes(articleSlug)) return;
+
+      candidates.push({
+        articleId: String(data.id || doc.id || ""),
+        articleSlug,
+        articleName: String(fieldData.name || "").trim(),
+        fieldData,
+        createdOn: data.createdOn || "",
+      });
+    });
+
+    candidates.sort((a, b) => String(b.createdOn).localeCompare(String(a.createdOn)));
+
+    const ordered = slugFilter ?
+      slugFilter
+          .map((slug) => candidates.find((c) => c.articleSlug === slug))
+          .filter(Boolean) :
+      candidates;
+
+    const results = [];
+    let queuedCount = 0;
+
+    for (const article of ordered) {
+      if (!slugFilter && queuedCount >= limit) break;
+
+      const imageData = articleImageData(article.fieldData);
+      const categoryTopics = articleTopicIds(article.fieldData)
+          .map((topicId) => topicIdentifier("category", topicId))
+          .filter(Boolean);
+
+      const narrationResult = await queueNarrationIfNeeded(db, {
+        articleSlug: article.articleSlug,
+        articleId: article.articleId,
+        articleName: article.articleName,
+        fieldData: article.fieldData,
+        item: {},
+        categoryTopics,
+        imageData,
+      });
+
+      results.push({
+        slug: article.articleSlug,
+        name: article.articleName,
+        ...narrationResult,
+      });
+
+      if (narrationResult.queued) {
+        queuedCount += 1;
+      }
+    }
+
+    response.status(200).json({
+      status: "success",
+      message: `Backfill processed ${results.length} article(s); ${queuedCount} queued for narration.`,
+      limit,
+      slug_filter: slugFilter,
+      queued_count: queuedCount,
+      results,
+    });
+  } catch (error) {
+    logger.error("backfillNarration failed:", error);
+    response.status(500).json({
+      status: "error",
+      message: error.message,
+    });
+  }
+});
+
 exports.sendTestArticleNotification = onRequest({secrets: [podcastNotifySecret]}, async (request, response) => {
   response.set("Access-Control-Allow-Origin", "*");
   response.set("Access-Control-Allow-Methods", "POST, OPTIONS");

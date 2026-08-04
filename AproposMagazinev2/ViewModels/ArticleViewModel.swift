@@ -94,6 +94,20 @@ class ArticleViewModel: ObservableObject {
         }
         notificationObserverTokens.append(fetchArticleToken)
 
+        let openAuthorToken = NotificationCenter.default.addObserver(
+            forName: NSNotification.Name("OpenAuthorFromDeepLink"),
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self = self else { return }
+            guard let authorId = notification.userInfo?["authorId"] as? String, !authorId.isEmpty else { return }
+            Task { @MainActor in
+                await AppReadiness.waitUntilUIReady()
+                self.openAuthorPage(authorId: authorId)
+            }
+        }
+        notificationObserverTokens.append(openAuthorToken)
+
     }
 
     func start() {
@@ -107,7 +121,7 @@ class ArticleViewModel: ObservableObject {
             isLoading = false
         }
 
-        // Let SwiftUI paint the first frame before decoding caches or starting network work.
+        // First paint: favorites + articles only. Defer the rest.
         Task { @MainActor in
             await Task.yield()
             loadFavorites()
@@ -115,14 +129,10 @@ class ArticleViewModel: ObservableObject {
             loadCachedMetadata()
         }
 
-        // Delay non-critical fetches to after initial load
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second delay
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            guard !PodcastPlayerManager.shared.isPlaybackSessionActive else { return }
             fetchMetadataInBackground()
-        }
-
-        // Lazy load cached recommendations only (fetch on scroll in HomeView)
-        Task { @MainActor in
             if let cached = RecommendationService.shared.loadCached() {
                 personalizedRecommendations = cached
             }
@@ -135,7 +145,7 @@ class ArticleViewModel: ObservableObject {
                 // Safety check: ensure we have valid users to compare
                 guard let uid1 = user1?.uid, !uid1.isEmpty,
                       let uid2 = user2?.uid, !uid2.isEmpty else {
-                    return false
+                    return user1?.uid == user2?.uid
                 }
                 return uid1 == uid2
             }
@@ -145,6 +155,12 @@ class ArticleViewModel: ObservableObject {
                 if let user = user, !user.uid.isEmpty {
                     self.startFavoritesListenerIfNeeded()
                     Task { await self.syncFavoritesWithFirestore() }
+                } else {
+                    // Tear down cloud listener only — do not wipe guest local favorites.
+                    // Authenticated logout clears via clearSessionDataOnLogout() from Settings.
+                    self.favoritesListener?.remove()
+                    self.favoritesListener = nil
+                    self.didStartFavoritesListener = false
                 }
             }
             .store(in: &cancellables)
@@ -211,8 +227,31 @@ class ArticleViewModel: ObservableObject {
         let startTime = Date()
 
         let result: Result<[Article], Error> = await withCheckedContinuation { continuation in
+            let lock = NSLock()
+            var hasResumed = false
+            let resumeOnce: (Result<[Article], Error>) -> Void = { value in
+                lock.lock()
+                defer { lock.unlock() }
+                guard !hasResumed else { return }
+                hasResumed = true
+                continuation.resume(returning: value)
+            }
+
             fetchRemoteArticles { result in
-                continuation.resume(returning: result)
+                resumeOnce(result)
+            }
+
+            // Prevent an unbounded Firestore hang from leaving isLoading=true forever
+            // (which previously kept the splash screen from ever dismissing).
+            Task {
+                try? await Task.sleep(nanoseconds: 12_000_000_000)
+                resumeOnce(.failure(
+                    NSError(
+                        domain: "ArticleViewModel",
+                        code: NSURLErrorTimedOut,
+                        userInfo: [NSLocalizedDescriptionKey: "Timeout ved hentning af artikler"]
+                    )
+                ))
             }
         }
 
@@ -245,6 +284,23 @@ class ArticleViewModel: ObservableObject {
         articleLoadWaiters.removeAll()
     }
     
+    /// Feed list without HTML bodies. Keeps any body already loaded in `articles`
+    /// so an open reader is not blanked by a silent refresh.
+    private func feedArticles(from articles: [Article]) -> [Article] {
+        let loadedBodies = Dictionary(
+            uniqueKeysWithValues: self.articles.compactMap { article -> (String, String)? in
+                guard let content = article.content, !content.isEmpty else { return nil }
+                return (article.id, content)
+            }
+        )
+        return sortedNewestFirst(articles.filter(\.isPubliclyPublished)).map { article in
+            if let body = loadedBodies[article.id] {
+                return article.replacingBodyContent(body)
+            }
+            return article.strippingBodyContent()
+        }
+    }
+
     private func fetchRemoteArticles(completion: @escaping (Result<[Article], Error>) -> Void) {
         FirestoreArticleService.shared.fetchArticles { result in
             switch result {
@@ -262,7 +318,7 @@ class ArticleViewModel: ObservableObject {
     private func handleRemoteArticlesResult(_ result: Result<[Article], Error>, clearOnEmptyFailure: Bool) {
         switch result {
         case .success(let articles):
-            let sortedArticles = sortedNewestFirst(articles.filter(\.isPubliclyPublished))
+            let sortedArticles = feedArticles(from: articles)
             self.articles = sortedArticles
             CacheManager.shared.cacheArticles(sortedArticles)
             CacheManager.shared.preloadImages(for: Array(sortedArticles.prefix(5)))
@@ -300,12 +356,11 @@ class ArticleViewModel: ObservableObject {
                 
                 switch result {
                 case .success(let articles):
-                    let sortedArticles = self.sortedNewestFirst(articles.filter(\.isPubliclyPublished))
+                    let sortedArticles = self.feedArticles(from: articles)
                     
                     Task { @MainActor in
-                        // Compare full content, not just count/first id, so field-level
-                        // changes (e.g. updated section, topics or press accreditation)
-                        // replace the stale cache instead of being silently discarded.
+                        // Compare feed metadata (bodies are stripped), so field-level
+                        // changes replace the stale cache instead of being discarded.
                         if sortedArticles != self.articles {
                             self.articles = sortedArticles
                             CacheManager.shared.cacheArticles(sortedArticles)
@@ -327,7 +382,7 @@ class ArticleViewModel: ObservableObject {
             guard let self = self else { return }
             switch result {
             case .success(let articles):
-                let sortedArticles = self.sortedNewestFirst(articles.filter(\.isPubliclyPublished))
+                let sortedArticles = self.feedArticles(from: articles)
                 Task { @MainActor in
                     if sortedArticles != self.articles {
                         self.articles = sortedArticles
@@ -681,6 +736,28 @@ class ArticleViewModel: ObservableObject {
             return normalizedName == normalizedRef
         })
     }
+
+    func articles(byAuthorId id: String) -> [Article] {
+        let normalizedId = id
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !normalizedId.isEmpty else { return [] }
+
+        let matches = articles.filter { article in
+            if let authorID = article.authorID?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased(),
+               authorID == normalizedId {
+                return true
+            }
+            if let resolved = author(for: article),
+               resolved.id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == normalizedId {
+                return true
+            }
+            return false
+        }
+        return sortedNewestFirst(matches)
+    }
     
 
     
@@ -690,8 +767,19 @@ class ArticleViewModel: ObservableObject {
             logger.error("loadFullArticle kaldt med tomt ID")
             return
         }
+
+        // Prefer offline snapshot when the device is offline.
+        if !OfflineManager.shared.isOnline, let offline = Self.offlineArticle(for: id) {
+            fullArticle = offline
+            updateArticleInAllArrays(offline)
+            return
+        }
         
         guard !articles.isEmpty else {
+            if let offline = Self.offlineArticle(for: id) {
+                fullArticle = offline
+                updateArticleInAllArrays(offline)
+            }
             return
         }
         
@@ -775,6 +863,9 @@ class ArticleViewModel: ObservableObject {
                     DispatchQueue.main.async {
                         self.fullArticle = updatedArticle
                         self.updateArticleInAllArrays(updatedArticle)
+                        if self.isFavorite(updatedArticle) {
+                            OfflineManager.shared.saveArticleForOffline(updatedArticle)
+                        }
                         self.finishLoadingArticle(id)
                     }
                     return
@@ -791,17 +882,39 @@ class ArticleViewModel: ObservableObject {
                     DispatchQueue.main.async {
                         self.fullArticle = updatedArticle
                         self.updateArticleInAllArrays(updatedArticle)
+                        if self.isFavorite(updatedArticle) {
+                            OfflineManager.shared.saveArticleForOffline(updatedArticle)
+                        }
                         self.finishLoadingArticle(id)
                     }
                 }
 
-            case .failure(let error):
+                case .failure(let error):
                 logger.error("Kunne ikke hente artikel \(id, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 DispatchQueue.main.async {
+                    // Offline fallback: use saved favorite / offline snapshot when network fails.
+                    if let offline = Self.offlineArticle(for: id) {
+                        self.fullArticle = offline
+                        self.updateArticleInAllArrays(offline)
+                    }
                     self.finishLoadingArticle(id)
                 }
             }
         }
+    }
+
+    private static func offlineArticle(for id: String) -> Article? {
+        if let offline = OfflineManager.shared.getOfflineArticles().first(where: { $0.id == id }),
+           let content = offline.content, !content.isEmpty {
+            return offline
+        }
+        if let data = UserDefaults.standard.data(forKey: "favoriteArticlesJSON"),
+           let favorites = try? JSONDecoder().decode([Article].self, from: data),
+           let favorite = favorites.first(where: { $0.id == id }),
+           let content = favorite.content, !content.isEmpty {
+            return favorite
+        }
+        return nil
     }
     
     private func finishLoadingArticle(_ id: String) {
@@ -866,8 +979,26 @@ class ArticleViewModel: ObservableObject {
             favorites.removeAll { $0.id == article.id }
             OfflineManager.shared.removeArticleFromOffline(article.id)
         } else {
-            favorites.append(article)
-            OfflineManager.shared.saveArticleForOffline(article)
+            // Prefer in-memory body if the list snapshot was stripped for feed cache.
+            let articleWithBody: Article = {
+                if let content = article.content, !content.isEmpty {
+                    return article
+                }
+                if let loaded = articles.first(where: { $0.id == article.id }),
+                   let content = loaded.content, !content.isEmpty {
+                    return loaded
+                }
+                if let full = fullArticle, full.id == article.id,
+                   let content = full.content, !content.isEmpty {
+                    return full
+                }
+                return article
+            }()
+            favorites.append(articleWithBody)
+            OfflineManager.shared.saveArticleForOffline(articleWithBody)
+            if articleWithBody.content?.isEmpty != false {
+                ensureFavoriteHasBodyContent(articleId: article.id)
+            }
         }
         
         // Always save to UserDefaults for local persistence (works for logged out users)
@@ -898,6 +1029,26 @@ class ArticleViewModel: ObservableObject {
             }
         }
     }
+
+    /// After feed HTML strip, favoriting from a list card may lack body text.
+    /// Fetch once and refresh the offline + favorites snapshots.
+    private func ensureFavoriteHasBodyContent(articleId: String) {
+        fetchArticle(by: articleId) { [weak self] result in
+            guard let self else { return }
+            guard case .success(let fetched) = result,
+                  let content = fetched.content, !content.isEmpty else { return }
+
+            DispatchQueue.main.async {
+                guard self.isFavorite(fetched) else { return }
+                self.updateArticleInAllArrays(fetched)
+                if let index = self.favorites.firstIndex(where: { $0.id == fetched.id }) {
+                    self.favorites[index] = fetched
+                    self.saveFavorites()
+                }
+                OfflineManager.shared.saveArticleForOffline(fetched)
+            }
+        }
+    }
     
     private func loadFavorites() {
         // Safety check: ensure we're not already loading favorites
@@ -921,14 +1072,33 @@ class ArticleViewModel: ObservableObject {
         // Firebase sync is delayed until after launch to keep the first frame responsive.
     }
 
-    private func startFavoritesListenerIfNeeded() {
-        guard !didStartFavoritesListener else { return }
-        didStartFavoritesListener = true
+    /// Clears device favorites + offline library when the user signs out so
+    /// Min side doesn't leak the previous account's content.
+    func clearSessionDataOnLogout() {
+        favoritesListener?.remove()
+        favoritesListener = nil
+        didStartFavoritesListener = false
 
-        favoritesListener = FirestoreService.shared.listenFavorites { [weak self] articles, metadata in
+        favorites = []
+        saveFavorites()
+        OfflineManager.shared.clearOfflineStorage()
+        OfflineArticleImageCache.shared.pruneOrphanedCaches(keeping: [])
+        favoriteError = nil
+        isLoadingFavorites = false
+    }
+
+    private func startFavoritesListenerIfNeeded() {
+        guard Auth.auth().currentUser != nil else { return }
+        guard !didStartFavoritesListener else { return }
+
+        let listener = FirestoreService.shared.listenFavorites { [weak self] articles, metadata in
             guard let self = self else { return }
             self.applyRemoteFavorites(articles, metadata: metadata)
         }
+        guard listener != nil else { return }
+
+        favoritesListener = listener
+        didStartFavoritesListener = true
     }
 
     private func applyRemoteFavorites(_ remote: [Article], metadata: SnapshotMetadata?) {
@@ -937,12 +1107,11 @@ class ArticleViewModel: ObservableObject {
                 // Transient empty Firestore cache — keep locally persisted favorites.
                 return
             }
+            // Server-confirmed empty: clear local so logout/login stays consistent.
             favorites = []
         } else {
-            let localOnly = favorites.filter { localArticle in
-                !remote.contains { $0.id == localArticle.id }
-            }
-            favorites = remote + localOnly
+            // Cloud is source of truth after login — replace, don't forever-merge guest leftovers.
+            favorites = remote
         }
 
         saveFavorites()
@@ -950,6 +1119,9 @@ class ArticleViewModel: ObservableObject {
             keeping: Set(favorites.map(\.id))
         )
         OfflineArticleImageCache.shared.scheduleCacheImages(for: favorites)
+        for article in favorites {
+            OfflineManager.shared.saveArticleForOffline(article)
+        }
         OfflineManager.shared.savePodcastsForOffline(favorites)
     }
     
@@ -960,7 +1132,6 @@ class ArticleViewModel: ObservableObject {
         }
         
         guard UserManager.shared.currentUser != nil else {
-            // For logged-out users, just ensure local favorites are loaded
             DispatchQueue.main.async { [weak self] in
                 self?.isLoadingFavorites = false
                 self?.favoriteError = nil
@@ -968,30 +1139,22 @@ class ArticleViewModel: ObservableObject {
             return
         }
         
-        // FirestoreService.shared is always available, so no need to check
-        
         isLoadingFavorites = true
         favoriteError = nil
         
         do {
             let firebaseFavorites = try await FirestoreService.shared.fetchFavorites()
-            // print("📱 Loaded \(firebaseFavorites.count) favorites from Firebase")
             
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
-                // Merge Firebase favorites with local favorites
-                let localFavorites = self.favorites.filter { localArticle in
-                    !firebaseFavorites.contains { firebaseArticle in
-                        firebaseArticle.id == localArticle.id
-                    }
-                }
-                self.favorites = firebaseFavorites + localFavorites
+                // Replace local with cloud so login restores the account's favorites.
+                self.favorites = firebaseFavorites
                 self.saveFavorites()
                 for article in self.favorites {
                     OfflineManager.shared.saveArticleForOffline(article)
                 }
+                OfflineManager.shared.savePodcastsForOffline(self.favorites)
                 self.isLoadingFavorites = false
-                // print("✅ Synced favorites: \(self.favorites.count) total")
             }
         } catch {
             DispatchQueue.main.async { [weak self] in
@@ -1598,6 +1761,30 @@ class ArticleViewModel: ObservableObject {
         }
     }
     
+    private func openAuthorPage(authorId: String) {
+        let normalizedId = authorId
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        if let cached = authors.first(where: {
+            $0.id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == normalizedId
+        }) {
+            NavigationCoordinator.shared.navigateToAuthor(cached, in: .home)
+            return
+        }
+
+        fetchAuthor(by: authorId) { result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success(let author):
+                    NavigationCoordinator.shared.navigateToAuthor(author, in: .home)
+                case .failure(let error):
+                    self.logger.error("Kunne ikke åbne forfatter \(authorId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                }
+            }
+        }
+    }
+
     /// Navigate to article using NavigationCoordinator
     private func navigateToArticle(_ article: Article) {
         Task { @MainActor in

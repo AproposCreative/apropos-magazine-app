@@ -22,7 +22,7 @@
 
 import { spawn } from 'node:child_process';
 import { execSync } from 'node:child_process';
-import { mkdirSync, writeFileSync, rmSync, statSync, existsSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, rmSync, statSync, existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -88,6 +88,9 @@ const JINGLE_OUTRO_SECS = parseFloat(argValue('jingle-outro', process.env.NARRAT
 const JINGLE_OUTRO_GAIN = argValue('jingle-outro-gain', process.env.NARRATION_JINGLE_OUTRO_GAIN || JINGLE_INTRO_GAIN);
 // Hvor hurtigt musikken svulmer fra bed-niveau op til outro-niveau, når stemmen slutter (sek).
 const JINGLE_OUTRO_RISE = parseFloat(argValue('jingle-outro-rise', '1.2'));
+// Pause mellem TTS-chunks hvor musikken åbner lidt (radio-breaker).
+const CHUNK_BREAKER_SECS = parseFloat(argValue('chunk-breaker', process.env.NARRATION_CHUNK_BREAKER || '3'));
+const JINGLE_BREAKER_GAIN = argValue('jingle-breaker-gain', process.env.NARRATION_JINGLE_BREAKER_GAIN || '-12');
 
 // "Stemme-polish": blød EQ der dæmper hård diskant/sibilance og tilfører lidt varme.
 // Slå fra med --no-polish.
@@ -370,28 +373,109 @@ function dbToLinear(db) {
   return Math.pow(10, parseFloat(db) / 20);
 }
 
+function escapeConcatPath(p) {
+  return p.replace(/'/g, "'\\''");
+}
+
+function loadConcatPaths(listPath) {
+  return readFileSync(listPath, 'utf8')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const match = line.match(/^file '(.+)'$/);
+      return match ? match[1].replace(/'\\''/g, "'") : null;
+    })
+    .filter(Boolean);
+}
+
+function breakerWindowsFromConcatPaths(paths) {
+  const windows = [];
+  let t = 0;
+  for (const p of paths) {
+    const dur = probeDuration(p);
+    if (/silence\.mp3$/i.test(p)) {
+      windows.push({
+        start: JINGLE_INTRO_SECS + t,
+        end: JINGLE_INTRO_SECS + t + dur,
+      });
+    }
+    t += dur;
+  }
+  return windows;
+}
+
+function makeSilenceMp3(outPath, seconds) {
+  return new Promise((resolvePromise, reject) => {
+    const ff = spawn(
+      'ffmpeg',
+      [
+        '-hide_banner', '-loglevel', 'error', '-y',
+        '-f', 'lavfi', '-i', `anullsrc=r=${TARGET_SAMPLE_RATE}:cl=stereo`,
+        '-t', String(seconds),
+        '-c:a', 'libmp3lame', '-b:a', '192k',
+        outPath,
+      ],
+      { stdio: 'inherit' },
+    );
+    ff.on('error', reject);
+    ff.on('close', (code) => (code === 0 ? resolvePromise() : reject(new Error(`ffmpeg silence exit ${code}`))));
+  });
+}
+
+function buildConcatWithBreakers(voicePaths, silencePath, listPath) {
+  const lines = [];
+  const breakerWindows = [];
+  let t = 0;
+  for (let i = 0; i < voicePaths.length; i++) {
+    const dur = probeDuration(voicePaths[i]);
+    lines.push(`file '${escapeConcatPath(voicePaths[i])}'`);
+    t += dur;
+    if (i < voicePaths.length - 1) {
+      breakerWindows.push({
+        start: JINGLE_INTRO_SECS + t,
+        end: JINGLE_INTRO_SECS + t + CHUNK_BREAKER_SECS,
+      });
+      lines.push(`file '${escapeConcatPath(silencePath)}'`);
+      t += CHUNK_BREAKER_SECS;
+    }
+  }
+  writeFileSync(listPath, lines.join('\n'));
+  return { breakerWindows, voiceTimelineSecs: t };
+}
+
+function bedVolumeWithBreakers(bedLin, breakerLin, windows) {
+  let expr = bedLin.toFixed(4);
+  for (let i = windows.length - 1; i >= 0; i--) {
+    const start = windows[i].start.toFixed(2);
+    const end = windows[i].end.toFixed(2);
+    expr = `if(between(t,${start},${end}),${breakerLin.toFixed(4)},${expr})`;
+  }
+  return expr;
+}
+
 // Musik-intro (højere) der dukker ned til bed-niveau, hvorefter stemmen begynder.
 // Stemmen forsinkes med JINGLE_INTRO_SECS; jinglen loopes under hele oplæsningen.
-// Når stemmen slutter, svulmer jinglen op igen og spiller JINGLE_OUTRO_SECS som afslutning.
-function mixJingle(voicePath, jinglePath, outPath, voiceDuration) {
+// Mellem TTS-chunks åbner musikken kort (breaker). Når stemmen slutter, svulmer outro.
+function mixJingle(voicePath, jinglePath, outPath, voiceDuration, breakerWindows = []) {
   return new Promise((resolvePromise, reject) => {
     const introLin = dbToLinear(JINGLE_INTRO_GAIN);
     const bedLin = dbToLinear(JINGLE_GAIN);
+    const breakerLin = dbToLinear(JINGLE_BREAKER_GAIN);
     const outroLin = dbToLinear(JINGLE_OUTRO_GAIN);
     const duckStart = JINGLE_INTRO_SECS;
     const duckEnd = JINGLE_INTRO_SECS + JINGLE_DUCK;
-    const voiceEnd = JINGLE_INTRO_SECS + voiceDuration;   // hvor stemmen slutter
-    const riseStart = voiceEnd;                            // begynd at svulme op
-    const riseEnd = voiceEnd + JINGLE_OUTRO_RISE;          // jingle oppe på outro-niveau
-    const total = voiceEnd + JINGLE_OUTRO_SECS;            // inkl. outro-hale
+    const voiceEnd = JINGLE_INTRO_SECS + voiceDuration;
+    const riseStart = voiceEnd;
+    const riseEnd = voiceEnd + JINGLE_OUTRO_RISE;
+    const total = voiceEnd + JINGLE_OUTRO_SECS;
     const fadeOutStart = Math.max(0, total - JINGLE_FADE_OUT);
+    const bedExpr = bedVolumeWithBreakers(bedLin, breakerLin, breakerWindows);
 
-    // Lydstyrke-kurve for musikken:
-    // intro (højt) → duck ned til bed → bed under oplæsning → svulm op → outro-niveau.
     const duckExpr =
       `if(lt(t,${duckStart}),${introLin.toFixed(4)},` +
       `if(lt(t,${duckEnd}),${introLin.toFixed(4)}+(${bedLin.toFixed(4)}-${introLin.toFixed(4)})*(t-${duckStart})/${JINGLE_DUCK},` +
-      `if(lt(t,${riseStart.toFixed(2)}),${bedLin.toFixed(4)},` +
+      `if(lt(t,${riseStart.toFixed(2)}),${bedExpr},` +
       `if(lt(t,${riseEnd.toFixed(2)}),${bedLin.toFixed(4)}+(${outroLin.toFixed(4)}-${bedLin.toFixed(4)})*(t-${riseStart.toFixed(2)})/${JINGLE_OUTRO_RISE},` +
       `${outroLin.toFixed(4)}))))`;
 
@@ -401,8 +485,6 @@ function mixJingle(voicePath, jinglePath, outPath, voiceDuration) {
       `volume=eval=frame:volume='${duckExpr}',` +
       `afade=t=out:st=${fadeOutStart.toFixed(2)}:d=${JINGLE_FADE_OUT}[bed]`;
 
-    // Forsink stemmen så den starter efter musik-introen, og pad med stilhed til den
-    // fulde længde, så outro-jinglen kan spille videre efter oplæsningen er slut.
     const delayMs = Math.round(JINGLE_INTRO_SECS * 1000);
     const voice = `[0:a]adelay=${delayMs}:all=1,apad=whole_dur=${total.toFixed(2)}[v]`;
 
@@ -424,7 +506,7 @@ function mixJingle(voicePath, jinglePath, outPath, voiceDuration) {
 }
 
 // Producér slutfilen: enten ren stemme, eller stemme + baggrundsjingle.
-async function produceFinal(listPath, outPath) {
+async function produceFinal(listPath, outPath, breakerWindows = []) {
   if (!JINGLE_PATH) {
     await encodeFromList(listPath, outPath);
     return;
@@ -435,8 +517,11 @@ async function produceFinal(listPath, outPath) {
   const voiceWav = join(outDir, `${SLUG}.voice.wav`);
   await encodeFromList(listPath, voiceWav, { wav: true });
   const duration = probeDuration(voiceWav);
-  console.log(`mixer jingle (intro ${JINGLE_INTRO_SECS}s @ ${JINGLE_INTRO_GAIN}dB → bed ${JINGLE_GAIN}dB → outro ${JINGLE_OUTRO_SECS}s @ ${JINGLE_OUTRO_GAIN}dB) under ${duration.toFixed(0)}s stemme...`);
-  await mixJingle(voiceWav, JINGLE_PATH, outPath, duration);
+  const breakerNote = breakerWindows.length
+    ? ` (breaker ${CHUNK_BREAKER_SECS}s @ ${JINGLE_BREAKER_GAIN}dB ×${breakerWindows.length})`
+    : '';
+  console.log(`mixer jingle (intro ${JINGLE_INTRO_SECS}s @ ${JINGLE_INTRO_GAIN}dB → bed ${JINGLE_GAIN}dB${breakerNote} → outro ${JINGLE_OUTRO_SECS}s @ ${JINGLE_OUTRO_GAIN}dB) under ${duration.toFixed(0)}s stemme...`);
+  await mixJingle(voiceWav, JINGLE_PATH, outPath, duration, breakerWindows);
   try { rmSync(voiceWav, { force: true }); } catch { /* ignore */ }
 }
 
@@ -462,8 +547,10 @@ async function main() {
       console.error(`\n--reencode kræver cachede chunks, men ${listPath} findes ikke. Kør uden --reencode først.`);
       process.exit(1);
     }
+    const concatPaths = loadConcatPaths(listPath);
+    const breakerWindows = breakerWindowsFromConcatPaths(concatPaths);
     console.log(`\nGen-koder fra cache (speed=${SPEED}, treble=${TREBLE_GAIN}dB${JINGLE_PATH ? `, jingle=${JINGLE_GAIN}dB` : ''}) — ingen ElevenLabs-kald...`);
-    await produceFinal(listPath, outPath);
+    await produceFinal(listPath, outPath, breakerWindows);
     const size = statSync(outPath).size;
     console.log('output m4a:', formatBytes(size));
     console.log('fil:', outPath);
@@ -481,7 +568,7 @@ async function main() {
   const title = String(fd.name || '').trim();
   const subtitle = String(fd.subtitle || '').trim();
   const intro = htmlToReadableText(fd.intro || '');
-  const bodyText = htmlToReadableText(fd.content || '');
+  const articleBody = htmlToReadableText(fd.content || '');
   const authorName = await resolveAuthorName(fd.author);
   const rating = Math.round(Number(fd.stjerne) || 0);
 
@@ -489,23 +576,28 @@ async function main() {
   console.log('forfatter:', authorName || '(ukendt)');
   console.log('stjerner:', rating > 0 ? rating : '(ingen)');
 
-  // Talt intro + outro (brandet)
   const introLine = authorName
     ? `Du lytter til artiklen "${title}", skrevet af ${authorName}, indtalt med kunstig intelligens på vegne af Apropos Magazine.`
     : `Du lytter til artiklen "${title}", indtalt med kunstig intelligens på vegne af Apropos Magazine.`;
-  // Stjerne-bedømmelse nævnes efter intro-linjen (kun for anmeldelser med rating).
   const danishNumbers = ['nul', 'en', 'to', 'tre', 'fire', 'fem', 'seks'];
-  const ratingLine =
+  const ratingOpening =
     rating >= 1 && rating <= 6
       ? `Anmeldelsen får ${danishNumbers[rating]} ud af seks stjerner.`
       : '';
+  const ratingLine =
+    rating >= 1 && rating <= 6
+      ? `Det blev til ${danishNumbers[rating]} ud af seks stjerner.`
+      : '';
   const outroLine = 'Tak fordi du lyttede med på Apropos Magazine.';
 
-  const parts = [introLine, ratingLine, subtitle, intro, bodyText, outroLine].filter(Boolean);
-  const fullText = parts.join('\n\n');
+  const bodyText = [introLine, ratingOpening, subtitle, intro, articleBody].filter(Boolean).join('\n\n');
+  const fullText = [bodyText, ratingLine, outroLine].filter(Boolean).join('\n\n');
 
-  const chunks = chunkText(fullText, MAX_CHARS_PER_CHUNK);
-  console.log(`\nTekst: ${fullText.length} tegn → ${chunks.length} chunk(s) (maks ${MAX_CHARS_PER_CHUNK}/chunk)`);
+  const bodyChunks = chunkText(bodyText, MAX_CHARS_PER_CHUNK);
+  const closingParts = [ratingLine, outroLine].filter(Boolean);
+  console.log(
+    `\nTekst: ${fullText.length} tegn → ${bodyChunks.length} body-chunk(s) + ${closingParts.length} outro-chunk(s) (maks ${MAX_CHARS_PER_CHUNK}/chunk)`,
+  );
 
   if (TEXT_ONLY) {
     console.log('\n--- OPLÆSNINGSTEKST (text-only) ---\n');
@@ -522,23 +614,42 @@ async function main() {
   const voiceId = await resolveVoiceId(apiKey);
   console.log('voice_id:', voiceId);
 
-  const chunkPaths = [];
+  const voicePaths = [];
   let totalBytes = 0;
-  for (let i = 0; i < chunks.length; i++) {
+  for (let i = 0; i < bodyChunks.length; i++) {
     const chunkPath = join(chunkDir, `chunk-${String(i).padStart(3, '0')}.mp3`);
-    process.stdout.write(`  TTS chunk ${i + 1}/${chunks.length} (${chunks[i].length} tegn)... `);
-    const bytes = await synthesizeChunk(apiKey, voiceId, chunks[i], chunkPath);
+    process.stdout.write(`  TTS body ${i + 1}/${bodyChunks.length} (${bodyChunks[i].length} tegn)... `);
+    const bytes = await synthesizeChunk(apiKey, voiceId, bodyChunks[i], chunkPath);
     totalBytes += bytes;
-    chunkPaths.push(chunkPath);
+    voicePaths.push(chunkPath);
+    console.log(formatBytes(bytes));
+  }
+  if (ratingLine) {
+    const ratingPath = join(chunkDir, 'rating.mp3');
+    process.stdout.write(`  TTS rating (${ratingLine.length} tegn)... `);
+    const bytes = await synthesizeChunk(apiKey, voiceId, ratingLine, ratingPath);
+    totalBytes += bytes;
+    voicePaths.push(ratingPath);
+    console.log(formatBytes(bytes));
+  }
+  {
+    const outroPath = join(chunkDir, 'outro.mp3');
+    process.stdout.write(`  TTS outro (${outroLine.length} tegn)... `);
+    const bytes = await synthesizeChunk(apiKey, voiceId, outroLine, outroPath);
+    totalBytes += bytes;
+    voicePaths.push(outroPath);
     console.log(formatBytes(bytes));
   }
 
-  // Skriv concat-liste og behold chunks som cache til billig --reencode.
-  const list = chunkPaths.map((p) => `file '${p.replace(/'/g, "'\\''")}'`).join('\n');
-  writeFileSync(listPath, list);
+  const silencePath = join(chunkDir, 'silence.mp3');
+  if (voicePaths.length > 1) {
+    console.log(`  breaker silence ${CHUNK_BREAKER_SECS}s...`);
+    await makeSilenceMp3(silencePath, CHUNK_BREAKER_SECS);
+  }
+  const { breakerWindows } = buildConcatWithBreakers(voicePaths, silencePath, listPath);
 
   console.log('\nSamler + koder i ét pass med ffmpeg...');
-  await produceFinal(listPath, outPath);
+  await produceFinal(listPath, outPath, breakerWindows);
 
   const finalSize = statSync(outPath).size;
   console.log('\n=== Færdig ===');

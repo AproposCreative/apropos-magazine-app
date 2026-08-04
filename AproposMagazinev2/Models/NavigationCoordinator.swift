@@ -19,6 +19,7 @@ enum AppRoute: Hashable, Codable {
     case categories
     case favorites
     case article(Article)
+    case author(Author)
     case categoryDetail(String) // category name
     case categoryList(title: String, articles: [Article]) // "Se alle"-liste fra Home
 }
@@ -204,6 +205,26 @@ class NavigationCoordinator: ObservableObject {
             favoritesPath.append(article)
         }
     }
+
+    /// Replace the top article (or top route) so related-article browsing
+    /// doesn't stack Home → A → B and require two back taps.
+    func replaceTopArticle(with article: Article, in tab: Tab? = nil) {
+        let target = tab ?? selectedTab
+        switch target {
+        case .home:
+            if !homePath.isEmpty { homePath.removeLast() }
+            homePath.append(article)
+        case .search:
+            if !searchPath.isEmpty { searchPath.removeLast() }
+            searchPath.append(article)
+        case .categories:
+            if !categoriesPath.isEmpty { categoriesPath.removeLast() }
+            categoriesPath.append(article)
+        case .favorites:
+            if !favoritesPath.isEmpty { favoritesPath.removeLast() }
+            favoritesPath.append(article)
+        }
+    }
     
     /// Navigate to category detail
     func navigateToSeries(_ series: ContentSeries, in tab: Tab) {
@@ -216,6 +237,22 @@ class NavigationCoordinator: ObservableObject {
             categoriesPath.append(series)
         case .favorites:
             favoritesPath.append(series)
+        }
+    }
+
+    /// Navigate to an author detail page within a specific tab's stack
+    func navigateToAuthor(_ author: Author, in tab: Tab? = nil) {
+        let target = tab ?? selectedTab
+        let route = AppRoute.author(author)
+        switch target {
+        case .home:
+            homePath.append(route)
+        case .search:
+            searchPath.append(route)
+        case .categories:
+            categoriesPath.append(route)
+        case .favorites:
+            favoritesPath.append(route)
         }
     }
 
@@ -281,10 +318,18 @@ class NavigationCoordinator: ObservableObject {
             AppDiagnostics.breadcrumb("deeplink_category:\(name.prefix(24))")
             navigateToCategory(name, in: .categories)
         case .author(let id):
-            // Can be expanded when an author detail view is implemented.
             AppDiagnostics.breadcrumb("deeplink_author:\(id.prefix(16))")
-            logger.debug("Author deep link: \(id, privacy: .public)")
+            navigateToAuthorFromDeepLink(authorId: id)
         }
+    }
+
+    private func navigateToAuthorFromDeepLink(authorId: String) {
+        selectedTab = .home
+        NotificationCenter.default.post(
+            name: NSNotification.Name("OpenAuthorFromDeepLink"),
+            object: nil,
+            userInfo: ["authorId": authorId]
+        )
     }
     
     // MARK: - Notification Navigation

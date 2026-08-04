@@ -109,11 +109,19 @@ class OfflineManager: ObservableObject {
     }
 
     func savePodcastForOffline(_ article: Article) {
-        guard let episode = PodcastRepository.shared.episode(for: article),
-              let audioURL = episode.audioURL else {
+        if let episode = PodcastRepository.shared.episode(for: article),
+           let audioURL = episode.audioURL {
+            PodcastAudioCache.shared.pinAndDownload(articleId: article.id, remoteURL: audioURL)
             return
         }
-        PodcastAudioCache.shared.pinAndDownload(articleId: article.id, remoteURL: audioURL)
+
+        // Episode may not be in the manifest yet — retry shortly after a refresh.
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard let episode = PodcastRepository.shared.episode(for: article),
+                  let audioURL = episode.audioURL else { return }
+            PodcastAudioCache.shared.pinAndDownload(articleId: article.id, remoteURL: audioURL)
+        }
     }
 
     func savePodcastsForOffline(_ articles: [Article]) {
@@ -132,6 +140,19 @@ class OfflineManager: ObservableObject {
             return []
         }
         return articles
+    }
+
+    func isSavedForOffline(articleId: String) -> Bool {
+        getOfflineArticles().contains { $0.id == articleId }
+    }
+
+    /// True when a full body snapshot exists for offline reading.
+    func hasReadableOfflineBody(articleId: String) -> Bool {
+        guard let article = getOfflineArticles().first(where: { $0.id == articleId }),
+              let content = article.content, !content.isEmpty else {
+            return false
+        }
+        return true
     }
     
     func isArticleAvailableOffline(_ articleId: String) -> Bool {

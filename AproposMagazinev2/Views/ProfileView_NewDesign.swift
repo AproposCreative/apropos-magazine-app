@@ -251,7 +251,7 @@ struct SettingsView: View {
                 }
                 
                 // Notifications
-                Section("Notifikationer") {
+                Section {
                     Toggle(isOn: Binding(
                         get: { articleNotificationsEnabled },
                         set: { isEnabled in
@@ -301,7 +301,7 @@ struct SettingsView: View {
                                 }
                             }
                         } else {
-                            Text("Kategorier indlæses...")
+                            Text("Emner indlæses...")
                                 .foregroundColor(.secondary)
                         }
 
@@ -315,7 +315,7 @@ struct SettingsView: View {
                             Text("Nye podcasts")
                         }
 
-                        Text("Vælg enten alle nye artikler eller specifikke kategorier.")
+                        Text("Vælg alle nye artikler, eller kun specifikke emner.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     } else {
@@ -346,6 +346,8 @@ struct SettingsView: View {
                     } label: {
                         Label("Test push notifikationer", systemImage: "bell.badge")
                     }
+                } header: {
+                    Text("Notifikationer & emner")
                 }
                 
                 if FeatureFlags.subscriptionsEnabled {
@@ -396,6 +398,7 @@ struct SettingsView: View {
                 if userManager.currentUser != nil {
                     Section {
                         Button(action: {
+                            viewModel.clearSessionDataOnLogout()
                             GoogleSignInService.shared.signOut()
                             do {
                                 try AuthService.shared.signOut()
@@ -952,13 +955,12 @@ struct LoginSheetView: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 24) {
-                Spacer()
-
                 Image("DefaultProfileAvatar")
                     .resizable()
                     .aspectRatio(contentMode: .fill)
                     .frame(width: 88, height: 88)
                     .clipShape(Circle())
+                    .padding(.top, 8)
 
                 VStack(spacing: 12) {
                     Text("Log ind")
@@ -968,10 +970,13 @@ struct LoginSheetView: View {
                         .font(.body)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
-                        .padding(.horizontal, 8)
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity)
                 }
+                .padding(.horizontal, 24)
 
-                Spacer()
+                Spacer(minLength: 12)
 
                 GoogleSignInButton()
                     .padding(.horizontal, 24)
@@ -998,6 +1003,7 @@ struct LoginSheetView: View {
             }
         }
         .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 }
 

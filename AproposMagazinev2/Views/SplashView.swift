@@ -1,23 +1,27 @@
 import SwiftUI
+import AVFoundation
 import AVKit
 import UIKit
 
 struct BootloaderView: View {
-    private static let hasCompletedInitialBootKey = "apropos_has_completed_initial_boot"
+    /// Allow the full splash clip (~5s) to play; never block on network.
+    private static let maxSplashNanoseconds: UInt64 = 5_500_000_000
 
     @EnvironmentObject private var viewModel: ArticleViewModel
     @State private var showBootloader = true
     @State private var videoFinished = false
 
+    /// Skip video only when we can paint Home instantly from cache,
+    /// or when accessibility / notification deep-link requires it.
     private var shouldSkipBootVideo: Bool {
-        UserDefaults.standard.bool(forKey: Self.hasCompletedInitialBootKey)
-            || UserDefaults.standard.bool(forKey: NotificationNavigation.skipBootloaderKey)
+        UserDefaults.standard.bool(forKey: NotificationNavigation.skipBootloaderKey)
             || UIAccessibility.isReduceMotionEnabled
+            || !viewModel.articles.isEmpty
     }
 
     var body: some View {
         ZStack {
-            if showBootloader && !UIAccessibility.isReduceMotionEnabled {
+            if showBootloader && !shouldSkipBootVideo {
                 BootloaderVideoPlayerView {
                     videoFinished = true
                     tryFinishBootloader()
@@ -27,6 +31,7 @@ struct BootloaderView: View {
                 ContentView()
                     .transition(.opacity)
             } else {
+                // Reduce-motion / cache-hit path before ContentView mounts.
                 Color.black
                     .ignoresSafeArea()
             }
@@ -40,16 +45,16 @@ struct BootloaderView: View {
                 tryFinishBootloader()
             }
         }
-        .onChange(of: viewModel.isLoading) { _, _ in
-            tryFinishBootloader()
-        }
-        .onChange(of: viewModel.articles.count) { _, _ in
-            tryFinishBootloader()
+        .onChange(of: viewModel.articles.count) { _, count in
+            // Cache hydrated after start() — skip video and enter Home immediately.
+            if count > 0, showBootloader, !videoFinished, shouldSkipBootVideo {
+                videoFinished = true
+                tryFinishBootloader()
+            }
         }
         .task {
-            // First launch only: cap the splash video so a stalled fetch cannot block entry.
             guard !shouldSkipBootVideo else { return }
-            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            try? await Task.sleep(nanoseconds: Self.maxSplashNanoseconds)
             videoFinished = true
             tryFinishBootloader()
         }
@@ -57,78 +62,105 @@ struct BootloaderView: View {
 
     private func tryFinishBootloader() {
         guard showBootloader else { return }
-        guard videoFinished else { return }
-        guard !viewModel.isLoading else { return }
-        if shouldSkipBootVideo, viewModel.articles.isEmpty {
-            // Repeat launch: wait for the synchronously hydrated cache before showing Home.
-            return
-        }
+        guard videoFinished || shouldSkipBootVideo else { return }
 
-        withAnimation(.easeInOut(duration: 0.3)) {
+        withAnimation(.easeInOut(duration: 0.25)) {
             showBootloader = false
         }
 
-        UserDefaults.standard.set(true, forKey: Self.hasCompletedInitialBootKey)
         UserDefaults.standard.removeObject(forKey: NotificationNavigation.skipBootloaderKey)
     }
 }
 
 private struct BootloaderVideoPlayerView: View {
     let onComplete: () -> Void
-    @State private var player: AVPlayer?
-    @State private var endObserver: NSObjectProtocol?
-    @State private var didComplete = false
+    @StateObject private var model = BootloaderVideoModel()
 
     var body: some View {
         ZStack {
             Color.black
                 .ignoresSafeArea()
 
-            if player == nil {
+            if model.player == nil {
                 Image("AM_logo_white 1")
                     .resizable()
                     .scaledToFit()
                     .frame(width: 200)
             }
 
-            if let player {
+            if let player = model.player {
                 PlayerLayerView(player: player)
                     .ignoresSafeArea()
+                    .opacity(model.isReadyToDisplay ? 1 : 0)
             }
         }
-        .onAppear(perform: prepareAndPlay)
-        .onDisappear(perform: cleanup)
+        .onAppear {
+            model.start(onComplete: onComplete)
+        }
+        .onDisappear {
+            model.cleanup()
+        }
     }
+}
 
-    private func prepareAndPlay() {
+@MainActor
+private final class BootloaderVideoModel: ObservableObject {
+    @Published var player: AVPlayer?
+    @Published var isReadyToDisplay = false
+
+    private var endObserver: NSObjectProtocol?
+    private var statusObservation: NSKeyValueObservation?
+    private var didComplete = false
+    private var onComplete: (() -> Void)?
+
+    func start(onComplete: @escaping () -> Void) {
+        self.onComplete = onComplete
         guard player == nil else { return }
 
-        guard let videoURL = Self.bundleVideoURL() ?? Self.assetVideoURL() else {
-            completeOnce()
-            return
+        Task { @MainActor in
+            guard let videoURL = await Self.resolveVideoURL() else {
+                completeOnce()
+                return
+            }
+
+            let item = AVPlayerItem(url: videoURL)
+            let newPlayer = AVPlayer(playerItem: item)
+            newPlayer.isMuted = true
+            newPlayer.actionAtItemEnd = .pause
+            player = newPlayer
+
+            statusObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
+                Task { @MainActor in
+                    guard let self else { return }
+                    switch item.status {
+                    case .readyToPlay:
+                        self.isReadyToDisplay = true
+                        self.player?.play()
+                    case .failed:
+                        self.completeOnce()
+                    default:
+                        break
+                    }
+                }
+            }
+
+            endObserver = NotificationCenter.default.addObserver(
+                forName: .AVPlayerItemDidPlayToEndTime,
+                object: item,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in
+                    self?.completeOnce()
+                }
+            }
         }
-
-        let item = AVPlayerItem(url: videoURL)
-        let newPlayer = AVPlayer(playerItem: item)
-        newPlayer.isMuted = true
-        newPlayer.actionAtItemEnd = .pause
-        player = newPlayer
-
-        endObserver = NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemDidPlayToEndTime,
-            object: item,
-            queue: .main
-        ) { _ in
-            completeOnce()
-        }
-
-        newPlayer.play()
     }
 
-    private func cleanup() {
+    func cleanup() {
         player?.pause()
         player = nil
-
+        statusObservation?.invalidate()
+        statusObservation = nil
         if let endObserver {
             NotificationCenter.default.removeObserver(endObserver)
             self.endObserver = nil
@@ -138,29 +170,30 @@ private struct BootloaderVideoPlayerView: View {
     private func completeOnce() {
         guard !didComplete else { return }
         didComplete = true
-        onComplete()
+        onComplete?()
     }
 
-    private static func bundleVideoURL() -> URL? {
-        Bundle.main.url(forResource: "Splash02", withExtension: "mp4")
+    private static func resolveVideoURL() async -> URL? {
+        if let bundleURL = Bundle.main.url(forResource: "Splash02", withExtension: "mp4") {
+            return bundleURL
+        }
+        return await writeDataAssetToTempIfNeeded()
     }
 
-    private static func assetVideoURL() -> URL? {
-        guard let dataAsset = NSDataAsset(name: "Splash02") else {
-            return nil
-        }
+    private static func writeDataAssetToTempIfNeeded() async -> URL? {
+        guard let dataAsset = NSDataAsset(name: "Splash02") else { return nil }
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("Splash02-boot.mp4")
+        let data = dataAsset.data
 
-        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("Splash02.mp4")
-
-        if FileManager.default.fileExists(atPath: tempURL.path) {
-            return tempURL
-        }
-
-        do {
-            try dataAsset.data.write(to: tempURL, options: .atomic)
-            return tempURL
-        } catch {
-            return nil
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    try data.write(to: tempURL, options: .atomic)
+                    continuation.resume(returning: tempURL)
+                } catch {
+                    continuation.resume(returning: nil)
+                }
+            }
         }
     }
 }
@@ -172,6 +205,7 @@ private struct PlayerLayerView: UIViewRepresentable {
         let view = PlayerUIView()
         view.playerLayer.player = player
         view.playerLayer.videoGravity = .resizeAspectFill
+        view.backgroundColor = .black
         return view
     }
 

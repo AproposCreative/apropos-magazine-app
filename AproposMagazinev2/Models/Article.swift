@@ -209,16 +209,9 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
         }
     }
 
-    private static func parseEditorialDate(_ rawDate: String?) -> Date? {
-        guard let rawDate else { return nil }
-        let value = rawDate.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty else { return nil }
-
-        if let date = ISO8601DateFormatter().date(from: value) {
-            return date
-        }
-
-        let danishFormats = [
+    private static let editorialISO8601Formatter = ISO8601DateFormatter()
+    private static let editorialDanishFormatters: [DateFormatter] = {
+        let formats = [
             "yyyy-MM-dd",
             "yyyy-MM-dd HH:mm:ss",
             "dd.MM.yyyy",
@@ -230,30 +223,56 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
             "d. MMM yyyy",
             "dd. MMM yyyy"
         ]
-
-        for format in danishFormats {
+        return formats.map { format in
             let formatter = DateFormatter()
             formatter.locale = Locale(identifier: "da_DK")
             formatter.calendar = Calendar(identifier: .gregorian)
             formatter.dateFormat = format
-            if let date = formatter.date(from: value) {
-                return date
-            }
+            return formatter
         }
-
-        let englishFormats = [
+    }()
+    private static let editorialEnglishFormatters: [DateFormatter] = {
+        let formats = [
             "MMMM d, yyyy",
             "MMM d, yyyy",
             "MMMM d yyyy",
             "MMM d yyyy"
         ]
-
-        for format in englishFormats {
+        return formats.map { format in
             let formatter = DateFormatter()
             formatter.locale = Locale(identifier: "en_US_POSIX")
             formatter.calendar = Calendar(identifier: .gregorian)
             formatter.dateFormat = format
+            return formatter
+        }
+    }()
+    private static let editorialDateCache = NSCache<NSString, NSDate>()
+
+    private static func parseEditorialDate(_ rawDate: String?) -> Date? {
+        guard let rawDate else { return nil }
+        let value = rawDate.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return nil }
+
+        let cacheKey = value as NSString
+        if let cached = editorialDateCache.object(forKey: cacheKey) {
+            return cached as Date
+        }
+
+        if let date = editorialISO8601Formatter.date(from: value) {
+            editorialDateCache.setObject(date as NSDate, forKey: cacheKey)
+            return date
+        }
+
+        for formatter in editorialDanishFormatters {
             if let date = formatter.date(from: value) {
+                editorialDateCache.setObject(date as NSDate, forKey: cacheKey)
+                return date
+            }
+        }
+
+        for formatter in editorialEnglishFormatters {
+            if let date = formatter.date(from: value) {
+                editorialDateCache.setObject(date as NSDate, forKey: cacheKey)
                 return date
             }
         }
@@ -639,6 +658,44 @@ struct Article: Identifiable, Codable, Equatable, Hashable {
             return false
         }
         return true
+    }
+
+    /// Feed/list copy without HTML body — keeps thumbnails/metadata for browsing.
+    /// Full `content` is loaded on demand (and persisted only for favorites/offline).
+    func strippingBodyContent() -> Article {
+        guard let content, !content.isEmpty else { return self }
+        return replacingBodyContent("")
+    }
+
+    func replacingBodyContent(_ content: String) -> Article {
+        var copy = Article(
+            id: id,
+            name: name ?? "",
+            slug: slug ?? id,
+            content: content,
+            trailer: trailer,
+            intro: intro ?? "",
+            stjerne: stjerne,
+            topicID: topicID ?? "",
+            topicsIDs: topicsIDs,
+            sectionID: sectionID,
+            authorID: authorID,
+            mobileImageURL: mobileImageURL,
+            thumbURL: thumbURL,
+            coverURL: coverURL,
+            location: location,
+            subtitle: subtitle,
+            fotoCredit: fotoCredit,
+            isDraft: isDraft,
+            date: date,
+            createdOn: createdOn,
+            lastPublished: lastPublished,
+            featured: featured,
+            isPremium: isPremium,
+            pressAccreditation: pressAccreditation
+        )
+        copy.author = author
+        return copy
     }
     
     // Note: Structs do not have deinit. For debug: no deinit print possible here.

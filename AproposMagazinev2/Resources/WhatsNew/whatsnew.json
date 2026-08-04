@@ -1,5 +1,39 @@
 [
   {
+    "version": "1.7",
+    "title": "Nyheder i Apropos Magazine",
+    "subtitle": "Offline der giver mening, forfatter-sider og en roligere start.",
+    "items": [
+      {
+        "icon": "arrow.down.circle.fill",
+        "title": "Tydelig offline-status",
+        "description": "I artiklen kan du se, om den er Gemt eller Ikke downloadet. Lyt-knappen vises kun offline, når lyden faktisk er hentet."
+      },
+      {
+        "icon": "internaldrive",
+        "title": "Smartere cache",
+        "description": "Appen downloader ikke længere hele magasinet på forhånd — favoritter og gemt lyd er det, der virker i flytilstand."
+      },
+      {
+        "icon": "bell.badge.fill",
+        "title": "Onboarding til notifikationer",
+        "description": "Vælg emner og notifikationer ved start. Du kan altid ændre det under Min side → Indstillinger."
+      },
+      {
+        "icon": "person.crop.rectangle",
+        "title": "Forfatter-sider",
+        "description": "Åbn forfatteren fra artiklen eller lydkort og se bio plus flere artikler fra samme skribent."
+      },
+      {
+        "icon": "sparkles",
+        "title": "Hurtigere start",
+        "description": "Splash og opstart er strammet, så appen ikke hænger efter geninstallering."
+      }
+    ],
+    "ctaTitle": "Se alle ændringer",
+    "ctaURL": "https://aproposmagazine.com/changelog"
+  },
+  {
     "version": "1.6",
     "title": "Nyheder i Apropos Magazine",
     "subtitle": "Bedre navigation, automatisk opdatering og AI-oplæste artikler.",

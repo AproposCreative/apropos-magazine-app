@@ -62,7 +62,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		B683821A2E056B2F005C4E85 /* Apropos Magazine.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Apropos Magazine.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		B683821A2E056B2F005C4E85 /* Apropos.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Apropos.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DD03F6E02EC2119C000191C3 /* AproposMagazineNotificationService.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AproposMagazineNotificationService.entitlements; sourceTree = "<group>"; };
 		DD8EAAB32E7838B100F37B5C /* AproposMagazinev2/AproposMagazineNotificationService/PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = AproposMagazinev2/AproposMagazineNotificationService/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		DDD1A5AE2EBCFD440025EC07 /* AproposMagazineNotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AproposMagazineNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -218,7 +218,7 @@
 		B683821B2E056B2F005C4E85 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				B683821A2E056B2F005C4E85 /* Apropos Magazine.app */,
+				B683821A2E056B2F005C4E85 /* Apropos.app */,
 				DDD1A5AE2EBCFD440025EC07 /* AproposMagazineNotificationService.appex */,
 				EEWIDGET032EBCFD440025EC07 /* AproposMagazineWidget.appex */,
 				FFTEST012EBCFD440025EC07 /* AproposMagazineTests.xctest */,
@@ -271,7 +271,7 @@
 				DD447F602E4DEAFE0072E9B5 /* GoogleSignInSwift */,
 			);
 			productName = AproposMagazinev2;
-			productReference = B683821A2E056B2F005C4E85 /* Apropos Magazine.app */;
+			productReference = B683821A2E056B2F005C4E85 /* Apropos.app */;
 			productType = "com.apple.product-type.application";
 		};
 		DDD1A5AD2EBCFD440025EC07 /* AproposMagazineNotificationService */ = {
@@ -639,17 +639,18 @@
 		B683823C2E056B35005C4E85 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				APP_DISPLAY_NAME = Apropos;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = AproposMagazinev2/AproposMagazinev2.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 6;
 				DEVELOPMENT_TEAM = Q2LR5XQ8GK;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				INFOPLIST_FILE = AproposMagazinev2/AproposMagazinev2/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Apropos Magazine";
+				INFOPLIST_KEY_CFBundleDisplayName = Apropos;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.magazines-and-newspapers";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -662,9 +663,9 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.6;
+				MARKETING_VERSION = 1.7;
 				PRODUCT_BUNDLE_IDENTIFIER = com.frederikkragh.aproposmagazinev2;
-				PRODUCT_NAME = "Apropos Magazine";
+				PRODUCT_NAME = Apropos;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -675,17 +676,18 @@
 		B683823D2E056B35005C4E85 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				APP_DISPLAY_NAME = Apropos;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = AproposMagazinev2/AproposMagazinev2Release.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 6;
 				DEVELOPMENT_TEAM = Q2LR5XQ8GK;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				INFOPLIST_FILE = AproposMagazinev2/AproposMagazinev2/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Apropos Magazine";
+				INFOPLIST_KEY_CFBundleDisplayName = Apropos;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.magazines-and-newspapers";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -698,9 +700,9 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.6;
+				MARKETING_VERSION = 1.7;
 				PRODUCT_BUNDLE_IDENTIFIER = com.frederikkragh.aproposmagazinev2;
-				PRODUCT_NAME = "Apropos Magazine";
+				PRODUCT_NAME = Apropos;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -714,7 +716,7 @@
 				CODE_SIGN_ENTITLEMENTS = AproposMagazineNotificationService.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 6;
 				DEVELOPMENT_TEAM = Q2LR5XQ8GK;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AproposMagazinev2/AproposMagazineNotificationService/Info.plist;
@@ -726,7 +728,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.6;
+				MARKETING_VERSION = 1.7;
 				PRODUCT_BUNDLE_IDENTIFIER = com.frederikkragh.aproposmagazinev2.AproposMagazineNotificationService;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -745,7 +747,7 @@
 				CODE_SIGN_ENTITLEMENTS = AproposMagazineNotificationService.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 6;
 				DEVELOPMENT_TEAM = Q2LR5XQ8GK;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AproposMagazinev2/AproposMagazineNotificationService/Info.plist;
@@ -757,7 +759,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.6;
+				MARKETING_VERSION = 1.7;
 				PRODUCT_BUNDLE_IDENTIFIER = com.frederikkragh.aproposmagazinev2.AproposMagazineNotificationService;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -776,7 +778,7 @@
 				CODE_SIGN_ENTITLEMENTS = AproposMagazineWidget.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 6;
 				DEVELOPMENT_TEAM = Q2LR5XQ8GK;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AproposMagazinev2/AproposMagazineWidget/Info.plist;
@@ -788,7 +790,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.6;
+				MARKETING_VERSION = 1.7;
 				PRODUCT_BUNDLE_IDENTIFIER = com.frederikkragh.aproposmagazinev2.AproposMagazineWidget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -804,7 +806,7 @@
 				CODE_SIGN_ENTITLEMENTS = AproposMagazineWidget.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 6;
 				DEVELOPMENT_TEAM = Q2LR5XQ8GK;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AproposMagazinev2/AproposMagazineWidget/Info.plist;
@@ -816,7 +818,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.6;
+				MARKETING_VERSION = 1.7;
 				PRODUCT_BUNDLE_IDENTIFIER = com.frederikkragh.aproposmagazinev2.AproposMagazineWidget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -845,7 +847,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Apropos Magazine.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Apropos Magazine";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Apropos.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Apropos";
 			};
 			name = Debug;
 		};
@@ -868,7 +870,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Apropos Magazine.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Apropos Magazine";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Apropos.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Apropos";
 			};
 			name = Release;
 		};

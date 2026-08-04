@@ -14,6 +14,7 @@ struct AuthorCardView: View {
     @State private var author: Author?
     @State private var isFetching = false
     @EnvironmentObject private var viewModel: ArticleViewModel
+    @Environment(\.navigationCoordinator) private var navigationCoordinator
 
     private func resolveCachedAuthor() {
         guard author == nil else { return }
@@ -27,27 +28,12 @@ struct AuthorCardView: View {
     var body: some View {
         Group {
             if let author {
-                HStack(alignment: .center, spacing: 16) {
-                    authorImage(for: author)
-                    
-                    VStack(alignment: .leading, spacing: 6) {
-                        if !author.name.isEmpty {
-                            Text(author.name)
-                                .font(.system(size: 20, weight: .medium))
-                                .foregroundColor(.primary)
-                        }
-                        
-                        if !author.position.isEmpty {
-                            Text(author.position)
-                                .font(.system(size: 17, weight: .regular))
-                                .foregroundColor(.secondary)
-                                .lineLimit(2)
-                        }
-                    }
-                    
-                    Spacer()
+                Button {
+                    navigationCoordinator.navigateToAuthor(author)
+                } label: {
+                    authorRow(for: author)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .buttonStyle(.plain)
             } else if isLoading {
                 HStack(alignment: .center, spacing: 16) {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -71,7 +57,6 @@ struct AuthorCardView: View {
         }
         .padding(.vertical, 12)
         .onAppear {
-            // Safety check: ensure authorID is not empty
             if !authorID.isEmpty {
                 resolveCachedAuthor()
                 if author == nil {
@@ -82,6 +67,35 @@ struct AuthorCardView: View {
         .onChange(of: viewModel.authors) { _, _ in
             resolveCachedAuthor()
         }
+    }
+
+    private func authorRow(for author: Author) -> some View {
+        HStack(alignment: .center, spacing: 16) {
+            authorImage(for: author)
+            
+            VStack(alignment: .leading, spacing: 6) {
+                if !author.name.isEmpty {
+                    Text(author.name)
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundColor(.primary)
+                }
+                
+                if !author.position.isEmpty {
+                    Text(author.position)
+                        .font(.system(size: 17, weight: .regular))
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                }
+            }
+            
+            Spacer()
+
+            Image(systemName: "chevron.right")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.tertiary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
     }
 
     @ViewBuilder
@@ -106,7 +120,6 @@ struct AuthorCardView: View {
     }
 
     private func fetchAuthor(by id: String) {
-        // Safety check: ensure ID is not empty
         guard !id.isEmpty else {
             isLoading = false
             return

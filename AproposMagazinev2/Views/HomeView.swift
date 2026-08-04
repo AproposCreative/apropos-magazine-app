@@ -12,7 +12,7 @@ import Shimmer
 struct HomeView: View {
     @EnvironmentObject var viewModel: ArticleViewModel
     @ObservedObject private var podcastRepository = PodcastRepository.shared
-    @ObservedObject private var podcastPlayerManager = PodcastPlayerManager.shared
+    private let podcastPlayerManager = PodcastPlayerManager.shared
     @Environment(\.navigationCoordinator) private var navigationCoordinator
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var articleHeroNamespace: Namespace.ID? = nil
@@ -20,13 +20,12 @@ struct HomeView: View {
     @State private var didLoad = false
     @State private var showGlassTopBar = false
     @State private var topSafeAreaInset: CGFloat = 0
-    @State private var heroScrollOffset: CGFloat = 0
+    @State private var activeEpisodeId: String?
     @State private var didRequestRecommendations = false
     @Environment(\.colorScheme) var colorScheme
     
     init(articleHeroNamespace: Namespace.ID? = nil) {
         self.articleHeroNamespace = articleHeroNamespace
-        UIScrollView.appearance().bounces = false
     }
     
     private var progress: CGFloat {
@@ -61,7 +60,7 @@ struct HomeView: View {
         guard let pair = PodcastRepository.shared.resumablePair(from: viewModel.articles) else {
             return nil
         }
-        if podcastPlayerManager.currentEpisode?.id == pair.episode.id {
+        if activeEpisodeId == pair.episode.id {
             return nil
         }
         return pair
@@ -149,7 +148,6 @@ struct HomeView: View {
                     showGlassTopBar = false
                 }
             }
-            .onPreferenceChange(HeroScrollOffsetKey.self) { heroScrollOffset = $0 }
             .coordinateSpace(name: "homeScroll")
             .scrollContentBackground(.hidden)
             .contentMargins(.top, 0, for: .scrollContent)
@@ -160,6 +158,7 @@ struct HomeView: View {
                 async let podcasts: Void = podcastRepository.refreshManifest(force: true)
                 _ = await (articles, podcasts)
             }
+            .onReceive(podcastPlayerManager.$currentEpisode.map(\.?.id).removeDuplicates()) { activeEpisodeId = $0 }
         }
         .background {
             GeometryReader { geometry in
@@ -332,22 +331,12 @@ struct HomeView: View {
                     articles: viewModel.heroArticles,
                     selectedHero: $selectedHero,
                     heroHeight: heroHeight,
-                    scrollOffset: heroScrollOffset,
                     heroTransitionNamespace: articleHeroNamespace,
                     onFavorite: { article in
                         viewModel.toggleFavorite(for: article)
                     }
                 )
                 .padding(.top, -topSafeAreaInset)
-                .background {
-                    GeometryReader { geo in
-                        Color.clear
-                            .preference(
-                                key: HeroScrollOffsetKey.self,
-                                value: geo.frame(in: .named("homeScroll")).minY
-                            )
-                    }
-                }
             }
 
             if let pair = resumablePodcastPair {
@@ -468,7 +457,7 @@ struct HomeView: View {
                 .padding(.top, 20)
             }
             Color.clear
-                .frame(height: PodcastMiniPlayerLayout.feedBottomPadding(isPlayerVisible: podcastPlayerManager.hasActiveEpisode))
+                .frame(height: PodcastMiniPlayerLayout.feedBottomPadding(isPlayerVisible: activeEpisodeId != nil))
         }
     }
 
@@ -498,7 +487,6 @@ struct HeroSwipeBar: View {
     let articles: [Article]
     @Binding var selectedHero: Int
     let heroHeight: CGFloat
-    let scrollOffset: CGFloat
     let heroTransitionNamespace: Namespace.ID?
     let onFavorite: (Article) -> Void
     @EnvironmentObject var viewModel: ArticleViewModel
@@ -516,7 +504,6 @@ struct HeroSwipeBar: View {
                             HeroCardView(
                                 article: article,
                                 height: heroHeight,
-                                scrollOffset: scrollOffset,
                                 heroTransitionNamespace: heroTransitionNamespace,
                                 selectedHero: $selectedHero,
                                 index: index,
@@ -598,7 +585,6 @@ struct HeroSwipeBar: View {
 struct HeroCardView: View {
     let article: Article
     let height: CGFloat
-    let scrollOffset: CGFloat
     let heroTransitionNamespace: Namespace.ID?
     @State private var imageFailed = false
     @State private var heroImageIndex = 0
@@ -731,7 +717,12 @@ struct HeroCardView: View {
                     .aspectRatio(contentMode: .fill)
                     .frame(width: UIScreen.main.bounds.width, height: height)
                     .clipped()
-                    .heroParallax(scrollOffset: scrollOffset, height: height)
+                    .visualEffect { [reduceMotion] content, proxy in
+                        let stretch = max(0, -proxy.frame(in: .named("homeScroll")).minY)
+                        return content
+                            .scaleEffect(reduceMotion ? 1 : 1 + min(stretch / max(height, 1), 1) * 0.08, anchor: .center)
+                            .offset(y: reduceMotion ? 0 : stretch * 0.22)
+                    }
                     .heroTransitionSource(id: article.id, namespace: heroTransitionNamespace)
                     .opacity(1)
             }
