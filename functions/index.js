@@ -4,7 +4,10 @@ const {onSchedule} = require("firebase-functions/v2/scheduler");
 const {onDocumentCreated} = require("firebase-functions/v2/firestore");
 const {defineSecret} = require("firebase-functions/params");
 const logger = require("firebase-functions/logger");
-const admin = require("firebase-admin");
+const {initializeApp} = require("firebase-admin/app");
+const {FieldValue, getFirestore} = require("firebase-admin/firestore");
+const {getMessaging} = require("firebase-admin/messaging");
+const {getStorage} = require("firebase-admin/storage");
 const {generateAndPublishNarration} = require("./narration");
 const {
   evaluateArticleNotificationPolicy,
@@ -17,7 +20,7 @@ const openaiApiKey = defineSecret("OPENAI_API_KEY");
 const elevenLabsApiKey = defineSecret("ELEVENLABS_API_KEY");
 
 setGlobalOptions({maxInstances: 10});
-admin.initializeApp();
+initializeApp();
 
 const ARTICLES_COLLECTION_ID = "67dbf17ba540975b5b21c2a6";
 const TOPICS_COLLECTION_ID = "67dbf17ba540975b5b21c2af";
@@ -44,7 +47,7 @@ const NARRATION_QUEUE_COLLECTION = "narration_queue";
 // (a human/NotebookLM podcast or an AI narration). Best-effort; errors -> false.
 async function articleHasAudio(slug) {
   if (!slug) return false;
-  const bucket = admin.storage().bucket(NARRATION_BUCKET);
+  const bucket = getStorage().bucket(NARRATION_BUCKET);
   for (const prefix of NARRATION_AUDIO_PREFIXES) {
     try {
       const [files] = await bucket.getFiles({prefix: `${prefix}${slug}/`});
@@ -182,7 +185,7 @@ async function sendArticleNotificationOnce(db, {
     tx.set(ref, {
       articleId,
       articleName: articleName || "",
-      notifiedAt: admin.firestore.FieldValue.serverTimestamp(),
+      notifiedAt: FieldValue.serverTimestamp(),
     });
     return true;
   });
@@ -204,7 +207,7 @@ async function sendArticleNotificationOnce(db, {
   let fcmResponses;
   try {
     fcmResponses = await Promise.all(
-        topicList.map((topic) => admin.messaging().send(messageForTopic(topic))),
+        topicList.map((topic) => getMessaging().send(messageForTopic(topic))),
     );
   } catch (error) {
     // A single bad topic name would otherwise reject the whole batch silently.
@@ -227,7 +230,7 @@ async function suppressArticleNotifications(db, articleId, articleName, reason) 
   await ref.set({
     articleId,
     articleName: articleName || "",
-    notifiedAt: admin.firestore.FieldValue.serverTimestamp(),
+    notifiedAt: FieldValue.serverTimestamp(),
     suppressed: true,
     suppressReason: reason || "suppressed",
   }, {merge: true});
@@ -278,7 +281,7 @@ async function queueNarrationIfNeeded(db, {
     articleId,
     name: articleName,
     status: "pending",
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    createdAt: FieldValue.serverTimestamp(),
     thumbnailUrl: imageData.thumbnailUrl || "",
     coverUrl: imageData.coverUrl || "",
     topics: categoryTopics,
@@ -292,7 +295,7 @@ async function queueNarrationIfNeeded(db, {
 // can refresh its cached feed and widget in the background. Best-effort.
 async function sendSilentRefreshPush(articleId, articleSlug) {
   try {
-    await admin.messaging().send({
+    await getMessaging().send({
       topic: "new_articles",
       data: {
         type: "content_refresh",
@@ -372,7 +375,7 @@ async function fetchAllWebflowArticles(apiKey) {
 }
 
 async function writeArticlesToFirestore(articles) {
-  const db = admin.firestore();
+  const db = getFirestore();
   const batchSize = 500;
 
   for (let index = 0; index < articles.length; index += batchSize) {
@@ -391,7 +394,7 @@ async function writeArticlesToFirestore(articles) {
         isDraft: item.isDraft ?? null,
         createdOn: item.createdOn ?? null,
         lastPublished: item.lastPublished ?? null,
-        syncedAt: admin.firestore.FieldValue.serverTimestamp(),
+        syncedAt: FieldValue.serverTimestamp(),
       }, {merge: true});
     });
 
@@ -454,7 +457,7 @@ async function fetchAllWebflowCollectionItems(apiKey, collectionId) {
 // Stores raw {id, fieldData} items so the iOS models can reconstruct them
 // exactly as if they came from the Webflow API.
 async function writeItemsToFirestore(items, firestoreCollection) {
-  const db = admin.firestore();
+  const db = getFirestore();
   const batchSize = 500;
 
   for (let index = 0; index < items.length; index += batchSize) {
@@ -471,7 +474,7 @@ async function writeItemsToFirestore(items, firestoreCollection) {
         fieldData: item.fieldData || {},
         isDraft: item.isDraft ?? null,
         lastPublished: item.lastPublished ?? null,
-        syncedAt: admin.firestore.FieldValue.serverTimestamp(),
+        syncedAt: FieldValue.serverTimestamp(),
       }, {merge: true});
     });
 
@@ -527,12 +530,12 @@ async function syncStarsMappingToFirestore(apiKey) {
     }
   });
 
-  await admin.firestore()
+  await getFirestore()
       .collection("metadata")
       .doc("starsMapping")
       .set({
         mapping,
-        syncedAt: admin.firestore.FieldValue.serverTimestamp(),
+        syncedAt: FieldValue.serverTimestamp(),
       }, {merge: true});
 
   logger.info(`Synced ${Object.keys(mapping).length} stars options`);
@@ -719,7 +722,7 @@ exports.webflowWebhook = onRequest({secrets: [webflowApiKey]}, async (request, r
       return;
     }
 
-    const db = admin.firestore();
+    const db = getFirestore();
     const notifyPolicy = await evaluateArticleNotificationPolicy(
         db, articleId, fieldData, item,
     );
@@ -858,7 +861,7 @@ exports.generateNarrationOnQueue = onDocumentCreated(
     async (event) => {
       const snap = event.data;
       if (!snap) return;
-      const db = admin.firestore();
+      const db = getFirestore();
       const data = snap.data() || {};
       const slug = data.slug || event.params.slug;
       const articleId = data.articleId || "";
@@ -881,7 +884,7 @@ exports.generateNarrationOnQueue = onDocumentCreated(
         await snap.ref.set({
           status: result.status === "published" ? "done" : result.status,
           result: result.status,
-          processedAt: admin.firestore.FieldValue.serverTimestamp(),
+          processedAt: FieldValue.serverTimestamp(),
           ...(result.title ? {title: result.title} : {}),
         }, {merge: true});
         logger.info(`narration trigger: ${slug} → ${result.status}`);
@@ -890,7 +893,7 @@ exports.generateNarrationOnQueue = onDocumentCreated(
         await snap.ref.set({
           status: "error",
           error: String((error && error.message) || error).slice(0, 500),
-          processedAt: admin.firestore.FieldValue.serverTimestamp(),
+          processedAt: FieldValue.serverTimestamp(),
         }, {merge: true});
         result = {status: "error"};
       }
@@ -1017,7 +1020,7 @@ exports.backfillNarration = onRequest({secrets: [podcastNotifySecret]}, async (r
       payload.slugs.map((slug) => String(slug).trim()).filter(Boolean) :
       null;
 
-    const db = admin.firestore();
+    const db = getFirestore();
     const snapshot = await db.collection("articles").get();
     const candidates = [];
 
@@ -1170,7 +1173,7 @@ exports.sendTestArticleNotification = onRequest({secrets: [podcastNotifySecret]}
       },
     };
 
-    const fcmResponse = await admin.messaging().send(message);
+    const fcmResponse = await getMessaging().send(message);
     response.status(200).json({
       status: "success",
       message: "Test article notification sent to new_articles",
@@ -1223,7 +1226,7 @@ exports.sendPodcastNotification = onRequest({secrets: [podcastNotifySecret]}, as
       return;
     }
 
-    const db = admin.firestore();
+    const db = getFirestore();
     // AI-oplæsninger spores separat, så en evt. menneske-podcast for samme
     // artikel ikke blokerer (eller bliver blokeret af) AI-pushen.
     const dedupeCollection = isAINarration ? "notified_narrations" : "notified_podcasts";
@@ -1248,7 +1251,7 @@ exports.sendPodcastNotification = onRequest({secrets: [podcastNotifySecret]}, as
       episodeTitle,
       hosts,
       kind: isAINarration ? "ai" : "podcast",
-      notifiedAt: admin.firestore.FieldValue.serverTimestamp(),
+      notifiedAt: FieldValue.serverTimestamp(),
     });
 
     const hostLine = formatHostLine(hosts);
@@ -1277,7 +1280,7 @@ exports.sendPodcastNotification = onRequest({secrets: [podcastNotifySecret]}, as
 
     // Podcast pushes go only to new_podcasts. Sending to new_articles as well duplicated
     // notifications because the app subscribes to both topics.
-    const fcmResponse = await admin.messaging().send(messageForTopic("new_podcasts"));
+    const fcmResponse = await getMessaging().send(messageForTopic("new_podcasts"));
 
     response.status(200).json({
       status: "success",
@@ -1296,7 +1299,7 @@ exports.sendPodcastNotification = onRequest({secrets: [podcastNotifySecret]}, as
 const FIRESTORE_SERIES_COLLECTION = "series";
 
 async function fetchFirestoreArticlesForSeries() {
-  const db = admin.firestore();
+  const db = getFirestore();
   const snapshot = await db.collection(FIRESTORE_ARTICLES_COLLECTION).get();
   return snapshot.docs.map((doc) => {
     const data = doc.data() || {};
@@ -1424,7 +1427,7 @@ ${JSON.stringify(compactArticles)}`;
 }
 
 async function writeSeriesToFirestore(seriesList) {
-  const db = admin.firestore();
+  const db = getFirestore();
   const batch = db.batch();
 
   seriesList.forEach((series) => {
@@ -1434,7 +1437,7 @@ async function writeSeriesToFirestore(seriesList) {
       name: series.name,
       description: series.description,
       articleIds: series.articleIds,
-      generatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      generatedAt: FieldValue.serverTimestamp(),
     }, {merge: true});
   });
 
