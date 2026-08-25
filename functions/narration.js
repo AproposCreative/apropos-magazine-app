@@ -15,7 +15,8 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const {randomUUID} = require("node:crypto");
-const admin = require("firebase-admin");
+const {FieldValue, getFirestore} = require("firebase-admin/firestore");
+const {getStorage} = require("firebase-admin/storage");
 const logger = require("firebase-functions/logger");
 const ffmpegPath = require("ffmpeg-static");
 const ffprobePath = require("ffprobe-static").path;
@@ -618,7 +619,7 @@ async function recordAdminAlert(db, type, details) {
     await db.collection("admin_alerts").add({
       type,
       ...details,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdAt: FieldValue.serverTimestamp(),
     });
   } catch (e) {
     logger.warn("recordAdminAlert failed:", e.message);
@@ -630,8 +631,8 @@ async function recordAdminAlert(db, type, details) {
  * Returnerer et statusobjekt; kaster kun ved uventede fejl.
  */
 async function generateAndPublishNarration({slug, articleId, name, apiKey}) {
-  const db = admin.firestore();
-  const bucket = admin.storage().bucket(BUCKET);
+  const db = getFirestore();
+  const bucket = getStorage().bucket(BUCKET);
 
   if (await articleHasAudio(bucket, slug)) {
     logger.info(`narration: ${slug} har allerede lyd — springer over`);
