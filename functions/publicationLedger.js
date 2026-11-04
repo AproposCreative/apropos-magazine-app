@@ -134,11 +134,14 @@ async function dispatchPublication({article, source, notificationEligible = true
   const current = await readCurrent();
   if (current.sourceArticleId !== source.sourceArticleId || current.sourceContentRevision !== source.sourceContentRevision) throw new Error("Publication source changed");
   await assertCurrent();
-  const narration = await queueNarration({article, source, noNotify: !notificationEligible});
-  if (!notificationEligible) return narration;
-  if (narration.queued && !narration.notificationSuppressed) return narration;
+  if (!notificationEligible) return queueNarration({article, source, noNotify: true});
+  // Announce the publication through its existing durable outbox before any
+  // narration handoff can wait or fail. The audio job keeps its own retry path;
+  // a later notification handoff resolves to this same article intent.
+  const notification = await queueArticle({article, source});
   await assertCurrent();
-  return queueArticle({article, source});
+  await queueNarration({article, source, noNotify: false});
+  return notification;
 }
 async function runPublicationEvent({store, id, synchronize, deliver}) {
   const claim = await store.claim(id);if (!claim) return {status: "skipped"};

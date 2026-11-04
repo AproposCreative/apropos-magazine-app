@@ -6,6 +6,7 @@ const {OBSERVATIONS, POLICY_COLLECTION, POLICY_ID, payloadFingerprint, activePol
 const {synchronizeLiveCatalog, firestoreCatalogStore, contentRevision} = require("./webflowCatalog");
 const {createNarrationJobStore, jobID} = require("./narrationJobs");
 const {createArticlePushStore, idFor} = require("./pushOutbox");
+const {richNotificationEnvelope} = require("./notificationEnvelope");
 const {verifyWebflowWebhook, extractItem} = require("./webflowWebhook");
 const articleId = "a".repeat(24), collectionId = "b".repeat(24), epoch = Date.parse("2026-10-20T10:00:00Z");
 const liveItem = (extra = {}) => ({id: articleId, createdOn: "2026-10-01T10:00:00Z", lastPublished: "2026-10-20T10:05:00Z",
@@ -43,19 +44,88 @@ function fixture({maximumAttempts = 5} = {}) {
     job: (id) => documents.get(`${EVENTS}/${id}`), observation: () => documents.get(`${OBSERVATIONS}/${articleId}`),
     policy: () => documents.get(`${POLICY_COLLECTION}/${POLICY_ID}`), mirror: () => documents.get(`articles/${articleId}`)};
 }
-function actualDeliver(f, {quiet = false, crashAfterEnqueue = false} = {}) {
+function actualDeliver(f, {quiet = false, crashAfterEnqueue = false, beforeNarration = async () => {}} = {}) {
   const narration = createNarrationJobStore({db: f.db, collectionId, timestamp: () => "fixture"});
   const outbox = createArticlePushStore({db: f.db, collectionId, now: f.now});
   return async ({article, source, notificationEligible, event, assertCurrent}) => dispatchPublication({article, source, notificationEligible, assertCurrent,
     readCurrent: async () => f.source(),
     queueNarration: async ({noNotify}) => {
+      await beforeNarration();
       const receipt = await narration.enqueue({source, slug: article.fieldData.slug, metadata: {noNotify: quiet || noNotify, publicationEventId: event?.id}});
       if (crashAfterEnqueue) throw new Error("lost handoff response");return receipt;
     },
     queueArticle: () => outbox.enqueue({source, slug: article.fieldData.slug, publicationEventId: event?.id,
-      envelope: {notification: {title: "Ny artikel", body: "Læs nu"}, data: {article_id: article.id, article_slug: article.fieldData.slug}}}),
+      envelope: richNotificationEnvelope({type: "new_article", click_action: "OPEN_ARTICLE", article_id: article.id,
+        article_slug: article.fieldData.slug, article_name: article.fieldData.name, thumbnail_url: "https://example.test/cover.jpg"},
+      "Ny artikel på Apropos Magazine", `${article.fieldData.name} er nu tilgængelig`)}),
   });
 }
+test("an eligible article can dispatch while its narration handoff is still held", async () => {
+  const {runArticlePush} = require("./pushOutbox");
+  const f = fixture(), {eventId} = await f.record();
+  let entered, release;
+  const started = new Promise((resolve) => {entered = resolve;});
+  const held = new Promise((resolve) => {release = resolve;});
+  const work = runPublicationEvent({store: f.store, id: eventId, synchronize: f.synchronize,
+    deliver: actualDeliver(f, {beforeNarration: async () => {entered();await held;}})});
+  const sent = [];
+  try {
+    await started;
+    assert.ok(f.documents.get(`article_push_outbox/${idFor(articleId)}`), "article intent precedes narration completion");
+    assert.equal(f.job(eventId).status, "processing");
+    await runArticlePush({store: createArticlePushStore({db: f.db, collectionId, now: f.now}), id: idFor(articleId),
+      send: async (message) => {sent.push(message);return "projects/fixture/messages/article-before-audio";}});
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].data.article_id, articleId);
+    assert.equal(sent[0].data.type, "new_article");
+    assert.equal(sent[0].apns.payload.aps["mutable-content"], 1);
+    assert.equal(Object.hasOwn(sent[0].apns.payload.aps, "badge"), false);
+  } finally {release();await work;}
+  assert.equal(f.job(eventId).target, idFor(articleId));
+});
+test("failed narration handoff keeps one deliverable article intent and retries the original job", async () => {
+  const f = fixture(), {eventId} = await f.record();
+  const failed = await runPublicationEvent({store: f.store, id: eventId, synchronize: f.synchronize,
+    deliver: actualDeliver(f, {beforeNarration: async () => {throw new Error("narration queue unavailable");}})});
+  assert.equal(failed.status, "deferred");
+  const intent = structuredClone(f.documents.get(`article_push_outbox/${idFor(articleId)}`));
+  assert.ok(intent);
+  assert.equal([...f.documents.keys()].filter((key) => key.startsWith("narration_jobs/")).length, 0);
+  f.advance(60000);await f.store.recover();
+  const retried = await runPublicationEvent({store: f.store, id: eventId, synchronize: f.synchronize, deliver: actualDeliver(f)});
+  assert.equal(retried.status, "queued");assert.equal(f.job(eventId).target, idFor(articleId));
+  assert.deepEqual(f.documents.get(`article_push_outbox/${idFor(articleId)}`), intent);
+  assert.equal([...f.documents.keys()].filter((key) => key.startsWith("article_push_outbox/")).length, 1);
+  assert.equal([...f.documents.keys()].filter((key) => key.startsWith("narration_jobs/")).length, 1);
+});
+test("an article handoff failure is retried without first starting narration", async () => {
+  const source = {sourceArticleId: articleId, sourceContentRevision: "cms-sha256-v1:" + "a".repeat(64)};
+  let narration = 0;
+  await assert.rejects(dispatchPublication({article: liveItem(), source, readCurrent: async () => source,
+    assertCurrent: async () => {}, queueArticle: async () => {throw new Error("outbox unavailable");},
+    queueNarration: async () => {narration++;return {queued: true};}}), /outbox unavailable/);
+  assert.equal(narration, 0);
+});
+test("source change after the article handoff blocks narration and suppresses the stale alert", async () => {
+  const {runArticlePush} = require("./pushOutbox");
+  const f = fixture(), {eventId} = await f.record();
+  const outbox = createArticlePushStore({db: f.db, collectionId, now: f.now});
+  let narration = 0, sends = 0;
+  const result = await runPublicationEvent({store: f.store, id: eventId, synchronize: f.synchronize,
+    deliver: ({article, source, assertCurrent}) => dispatchPublication({article, source, assertCurrent, readCurrent: async () => f.source(),
+      queueNarration: async () => {narration++;return {queued: true, jobId: jobID(articleId, source.sourceContentRevision)};},
+      queueArticle: async () => {
+        const receipt = await outbox.enqueue({source, slug: "story", publicationEventId: eventId,
+          envelope: richNotificationEnvelope({article_id: articleId, article_slug: "story", type: "new_article"}, "Ny artikel", "Læs nu")});
+        f.mirror().fieldData.content = "En rettet artikel og musik";
+        f.mirror().contentRevision = contentRevision(f.mirror());
+        return receipt;
+      }})});
+  assert.equal(result.status, "deferred");assert.equal(narration, 0);
+  await runArticlePush({store: outbox, id: idFor(articleId), send: async () => {sends++;return "must-not-send";}});
+  assert.equal(sends, 0);
+  assert.equal(f.documents.get(`article_push_outbox/${idFor(articleId)}`).status, "suppressed");
+});
 test("signed event without lastPublished is durable before any CMS write", async () => {
   const f = fixture(), payload = {triggerType: "collection_item_published", payload: signedItem()}, timestamp = String(epoch + 600000);
   const signature = createHmac("sha256", "fixture-secret").update(`${timestamp}:${JSON.stringify(payload)}`).digest("hex");
@@ -67,7 +137,7 @@ test("scheduler before webhook preserves first-publication eligibility through t
   const f = fixture();await f.synchronize();assert.equal(f.observation().eligible, true);
   assert.equal([...f.documents.keys()].some((k) => k.startsWith("narration_jobs/")), false);
   const {eventId} = await f.record();const result = await runPublicationEvent({store: f.store, id: eventId, synchronize: f.synchronize, deliver: actualDeliver(f)});
-  assert.equal(result.status, "queued");assert.equal(f.job(eventId).target, jobID(articleId, f.source().sourceContentRevision));
+  assert.equal(result.status, "queued");assert.equal(f.job(eventId).target, idFor(articleId));
 });
 test("webhook before scheduler and duplicate signed delivery keep one event and one target", async () => {
   const f = fixture();const first = await f.record();const second = await f.record();assert.equal(first.eventId, second.eventId);
@@ -224,7 +294,7 @@ test("real ledger, narration and outbox pipeline sends the corrected first alert
   f.advance(1000);const corrected = liveItem({fieldData: {...liveItem().fieldData, name: "Rettet journalistisk titel", content: "Den nye artikel og musik"}});
   f.rows([corrected]);const updated = await f.record(signedItem(corrected));
   await runPublicationEvent({store: f.store, id: updated.eventId, synchronize: f.synchronize, deliver: actualDeliver(f)});
-  const narrationID = f.job(updated.eventId).target;
+  const narrationID = jobID(articleId, f.source().sourceContentRevision);
   assert.equal(f.documents.get(`narration_jobs/${narrationID}`).publicationEventId, updated.eventId);
   const outbox = createArticlePushStore({db: f.db, collectionId, now: f.now});
   await runNarrationJob({store: narration, jobId: narrationID, generate: async () => ({status: "published", audioKind: "ai", ...f.source()}),
@@ -234,5 +304,7 @@ test("real ledger, narration and outbox pipeline sends the corrected first alert
   const intent = f.documents.get(`article_push_outbox/${outboxId}`);
   assert.notEqual(intent.sourceRevision, oldRevision);assert.equal(intent.publicationEventId, updated.eventId);assert.equal(intent.refreshCount, 1);
   const sent = [];await runArticlePush({store: outbox, id: outboxId, send: async (message) => {sent.push(message);return "projects/fixture/messages/corrected-alert";}});
-  assert.equal(sent.length, 1);assert.equal(sent[0].notification.title, "Rettet journalistisk titel");assert.equal(sent[0].data.article_id, articleId);
+  assert.equal(sent.length, 1);assert.equal(sent[0].notification.title, "Ny artikel på Apropos Magazine");
+  assert.equal(sent[0].notification.body, "Rettet journalistisk titel er nu tilgængelig");
+  assert.equal(sent[0].data.article_name, "Rettet journalistisk titel");assert.equal(sent[0].data.article_id, articleId);
 });
