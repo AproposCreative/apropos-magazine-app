@@ -5,13 +5,24 @@ final class PodcastPinnedDownloadsTests: XCTestCase {
     private enum ProgressFailure: Error { case stalled }
 
     private func waitForSavedProgress(_ receipts: [XCTestExpectation],
+                                      diagnostic: () -> String,
                                       file: StaticString = #filePath, line: UInt = #line) async throws {
         for (index, receipt) in receipts.enumerated() {
             let result = await XCTWaiter.fulfillment(of: [receipt], timeout: 10)
+            if result != .completed {
+                attachPinnedSnapshot(diagnostic(), name: "Pinned stall at receipt \(index + 1)")
+            }
             XCTAssertEqual(result, .completed, "Saved receipt \(index + 1)/\(receipts.count) must make progress",
                            file: file, line: line)
             guard result == .completed else { throw ProgressFailure.stalled }
         }
+    }
+
+    private func attachPinnedSnapshot(_ snapshot: String, name: String) {
+        let attachment = XCTAttachment(string: snapshot)
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     private func asset(_ index: Int) -> PodcastAudioAsset {
@@ -22,7 +33,7 @@ final class PodcastPinnedDownloadsTests: XCTestCase {
     func testAllCurrentPinsBeyondQueueCapacityDownloadOnceAsPhysicalSlotsDrain() async throws {
         let saved = (0..<80).map { expectation(description: "Verified receipt \($0 + 1)/80") }
         let events = PinnedCacheEvents(saved)
-        let h = try PinnedCacheHarness(limit: 2, onEvent: { if $0 == .saved { events.record($0) } })
+        let h = try PinnedCacheHarness(limit: 2, onEvent: { events.recordSaved($0) })
         let assets = (0..<80).map(asset)
         for (index, asset) in assets.enumerated() {
             h.cache.pinAndDownload(pinKey: "favorites-v1:reader-\(index)", leaseID: UUID(), asset: asset)
@@ -32,7 +43,9 @@ final class PodcastPinnedDownloadsTests: XCTestCase {
         XCTAssertLessThanOrEqual(h.cache.downloadActivity.waiting, 64)
         await h.transport.releaseAll()
         // Every receipt must progress; this is not a bulk disk-throughput benchmark.
-        try await waitForSavedProgress(saved)
+        try await waitForSavedProgress(saved, diagnostic: {
+            h.snapshot(events: events, pins: assets.enumerated().map { (key: "favorites-v1:reader-\($0.offset)", asset: $0.element) })
+        })
         let calls = await h.transport.started
         XCTAssertEqual(calls.count, assets.count)
         XCTAssertEqual(Set(calls), Set(assets.map(\.remoteURL)))
@@ -43,6 +56,9 @@ final class PodcastPinnedDownloadsTests: XCTestCase {
         XCTAssertEqual(h.cache.downloadActivity.active, 0)
         XCTAssertEqual(h.cache.downloadActivity.waiting, 0)
         XCTAssertEqual(events.values, Array(repeating: .saved, count: assets.count))
+        attachPinnedSnapshot(h.snapshot(events: events, pins: assets.enumerated().map {
+            (key: "favorites-v1:reader-\($0.offset)", asset: $0.element)
+        }), name: "Pinned 80 completed")
     }
 
     func testFailedPinStopsAtOneAttemptUntilEachExplicitRecoveryEvent() async throws {
@@ -84,7 +100,7 @@ final class PodcastPinnedDownloadsTests: XCTestCase {
     func testCurrentWaitingPinsAreRemovedWithoutOldLeaseReleasingReplacement() async throws {
         let completed = (0..<79).map { expectation(description: "Current wanted receipt \($0 + 1)/79") }
         let events = PinnedCacheEvents(completed)
-        let h = try PinnedCacheHarness(limit: 1, onEvent: { if $0 == .saved { events.record($0) } })
+        let h = try PinnedCacheHarness(limit: 1, onEvent: { events.recordSaved($0) })
         let first = asset(0)
         h.cache.pinAndDownload(pinKey: "favorites-v1:first", leaseID: UUID(), asset: first)
         await h.transport.waitForStarts(1)
@@ -107,12 +123,19 @@ final class PodcastPinnedDownloadsTests: XCTestCase {
         h.cache.releasePinKeepingBytes(pinKey: key, leaseID: newLease, onlyIfAsset: last)
         XCTAssertEqual(h.cache.downloadState(for: last), .notDownloaded)
         await h.transport.releaseAll()
-        try await waitForSavedProgress(completed)
+        try await waitForSavedProgress(completed, diagnostic: {
+            h.snapshot(events: events, pins: [(key: "favorites-v1:first", asset: first)] + assets.enumerated().map {
+                (key: "favorites-v1:member-\($0.offset)", asset: $0.element)
+            })
+        })
         let calls = await h.transport.started
         XCTAssertEqual(calls.count, 79)
         XCTAssertFalse(calls.contains(last.remoteURL))
         XCTAssertFalse(h.cache.isDownloaded(for: last))
         XCTAssertEqual(events.values, Array(repeating: .saved, count: 79))
+        attachPinnedSnapshot(h.snapshot(events: events, pins: [(key: "favorites-v1:first", asset: first)] + assets.enumerated().map {
+            (key: "favorites-v1:member-\($0.offset)", asset: $0.element)
+        }), name: "Pinned 79 completed")
     }
 
     func testStorageLimitIsNotReadyAndDoesNotSacrificeAnotherSavedReceipt() async throws {
@@ -249,6 +272,34 @@ private final class PinnedCacheHarness {
             maximumConcurrentDownloads: limit, download: { try await transport.download($0) })
     }
 
+    /// Read-only, non-atomic observations. No disk I/O or actor wait is added to
+    /// the failure path; test signaling may itself be holding the serial I/O queue.
+    func snapshot(events: PinnedCacheEvents, pins: [(key: String, asset: PodcastAudioAsset)]) -> String {
+        let before = events.diagnosticValues
+        let transportBefore = transport.trace.diagnosticValues
+        let downloads = cache.downloadActivity
+        let validations = cache.validationActivity
+        let states = pins.map { pin -> [String: Any] in
+            ["episode": pin.asset.episodeID, "assetKey": pin.asset.key, "pinKey": pin.key,
+             "isPinned": cache.isPinned(articleId: pin.key),
+             "state": String(describing: cache.downloadState(for: pin.asset))]
+        }
+        let object: [String: Any] = [
+            "schema": "pinned-cache-test-observation-v1",
+            "consistency": "non-atomic read-only memory snapshots",
+            "eventsBefore": before, "eventsAfter": events.diagnosticValues,
+            "transportBefore": transportBefore, "transportAfter": transport.trace.diagnosticValues,
+            "downloads": ["active": downloads.active, "waiting": downloads.waiting],
+            "validations": ["active": validations.active, "waiting": validations.waiting],
+            "assetStates": states
+        ]
+        do {
+            return String(decoding: try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]), as: UTF8.self)
+        } catch {
+            return "Pinned observation encoding failed: \(error)"
+        }
+    }
+
     deinit {
         cache.removeAllCachedFiles()
         defaults.removePersistentDomain(forName: suite)
@@ -258,6 +309,7 @@ private final class PinnedCacheHarness {
 
 private actor PinnedCacheTransport {
     let root: URL
+    nonisolated let trace = PinnedCacheTransportTrace()
     private(set) var started: [URL] = []
     private var released = false
     private var continuations: [Int: CheckedContinuation<PodcastAudioCache.DownloadArtifact, Error>] = [:]
@@ -268,11 +320,20 @@ private actor PinnedCacheTransport {
     func download(_ url: URL) async throws -> PodcastAudioCache.DownloadArtifact {
         let index = started.count
         started.append(url)
+        trace.record(.started, index: index, path: url.lastPathComponent)
         let ready = startsWaiters.filter { $0.0 <= started.count }
         startsWaiters.removeAll { $0.0 <= started.count }
         ready.forEach { $0.1.resume() }
-        if released { return try artifact(for: index) }
-        return try await withCheckedThrowingContinuation { continuations[index] = $0 }
+        do {
+            let result: PodcastAudioCache.DownloadArtifact
+            if released { result = try artifact(for: index) }
+            else { result = try await withCheckedThrowingContinuation { continuations[index] = $0 } }
+            trace.record(.returned, index: index, path: url.lastPathComponent)
+            return result
+        } catch {
+            trace.record(.threw, index: index, path: url.lastPathComponent, error: error as NSError)
+            throw error
+        }
     }
 
     func waitForStarts(_ count: Int) async {
@@ -296,11 +357,41 @@ private actor PinnedCacheTransport {
     }
 
     private func artifact(for index: Int) throws -> PodcastAudioCache.DownloadArtifact {
+        trace.record(.artifactStarted, index: index, path: started[index].lastPathComponent)
         let file = root.appendingPathComponent(UUID().uuidString + ".download")
         try Data([1, 2, 3, 4]).write(to: file)
         let response = HTTPURLResponse(url: started[index], statusCode: 200, httpVersion: nil,
             headerFields: ["Content-Type": "audio/mp4", "Content-Length": "4"])!
+        trace.record(.artifactReady, index: index, path: started[index].lastPathComponent)
         return .init(temporaryURL: file, response: response)
+    }
+}
+
+private final class PinnedCacheTransportTrace: @unchecked Sendable {
+    enum Phase: String { case started, artifactStarted, artifactReady, returned, threw }
+    private let lock = NSLock()
+    private var sequence = 0
+    private var counts: [String: Int] = [:]
+    private var phase = "none"
+    private var index = -1
+    private var path = ""
+    private var uptime: TimeInterval = 0
+    private var errorDomain = ""
+    private var errorCode = 0
+
+    func record(_ phase: Phase, index: Int, path: String, error: NSError? = nil) {
+        lock.lock(); defer { lock.unlock() }
+        sequence += 1; counts[phase.rawValue, default: 0] += 1
+        self.phase = phase.rawValue; self.index = index; self.path = path
+        uptime = ProcessInfo.processInfo.systemUptime
+        if let error { errorDomain = error.domain; errorCode = error.code }
+    }
+
+    var diagnosticValues: [String: Any] {
+        lock.lock(); defer { lock.unlock() }
+        return ["sequence": sequence, "counts": counts, "lastPhase": phase,
+                "lastIndex": index, "lastPath": path, "lastUptime": uptime,
+                "lastErrorDomain": errorDomain, "lastErrorCode": errorCode]
     }
 }
 
@@ -308,16 +399,57 @@ private final class PinnedCacheEvents: @unchecked Sendable {
     private let lock = NSLock()
     private let expectations: [XCTestExpectation]
     private var recorded: [PodcastAudioCache.DownloadEvent] = []
+    private var terminals: [String] = []
+    private var fulfillEntered = 0
+    private var fulfillReturned = 0
+    private var traceSequence = 0
+    private var latestFulfillEnteredUptime: TimeInterval = 0
+    private var latestFulfillReturnedUptime: TimeInterval = 0
+    private var latestFulfillEnteredOrdinal = 0
+    private var latestFulfillReturnedOrdinal = 0
     init(_ expectations: [XCTestExpectation]) { self.expectations = expectations }
     func record(_ event: PodcastAudioCache.DownloadEvent) {
+        append(event, selecting: true)
+    }
+    func recordSaved(_ event: PodcastAudioCache.DownloadEvent) {
+        append(event, selecting: event == .saved)
+    }
+    private func append(_ event: PodcastAudioCache.DownloadEvent, selecting: Bool) {
         lock.lock()
+        traceSequence += 1
+        terminals.append(String(describing: event))
+        guard selecting else { lock.unlock(); return }
         let index = recorded.count
         recorded.append(event)
         let expectation = index < expectations.count ? expectations[index] : nil
+        if expectation != nil {
+            fulfillEntered += 1
+            latestFulfillEnteredUptime = ProcessInfo.processInfo.systemUptime
+            latestFulfillEnteredOrdinal = index + 1
+        }
         lock.unlock()
         expectation?.fulfill()
+        if expectation != nil {
+            lock.lock()
+            fulfillReturned += 1
+            traceSequence += 1
+            latestFulfillReturnedUptime = ProcessInfo.processInfo.systemUptime
+            latestFulfillReturnedOrdinal = index + 1
+            lock.unlock()
+        }
     }
     var values: [PodcastAudioCache.DownloadEvent] { lock.lock();defer { lock.unlock() };return recorded }
+    var diagnosticValues: [String: Any] {
+        lock.lock(); defer { lock.unlock() }
+        return ["sequence": traceSequence, "selectedEvents": recorded.map { String(describing: $0) },
+                "allTerminalEvents": terminals, "fulfillEntered": fulfillEntered,
+                "fulfillReturned": fulfillReturned,
+                "latestFulfillEnteredUptime": latestFulfillEnteredUptime,
+                "latestFulfillReturnedUptime": latestFulfillReturnedUptime,
+                "latestFulfillEnteredOrdinal": latestFulfillEnteredOrdinal,
+                "latestFulfillReturnedOrdinal": latestFulfillReturnedOrdinal,
+                "uptime": ProcessInfo.processInfo.systemUptime]
+    }
 }
 
 private final class PinnedCacheReentry: @unchecked Sendable {
