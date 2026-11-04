@@ -2,15 +2,27 @@ import XCTest
 @testable import Apropos
 
 final class PodcastPinnedDownloadsTests: XCTestCase {
+    private enum ProgressFailure: Error { case stalled }
+
+    private func waitForSavedProgress(_ receipts: [XCTestExpectation],
+                                      file: StaticString = #filePath, line: UInt = #line) async throws {
+        for (index, receipt) in receipts.enumerated() {
+            let result = await XCTWaiter.fulfillment(of: [receipt], timeout: 10)
+            XCTAssertEqual(result, .completed, "Saved receipt \(index + 1)/\(receipts.count) must make progress",
+                           file: file, line: line)
+            guard result == .completed else { throw ProgressFailure.stalled }
+        }
+    }
+
     private func asset(_ index: Int) -> PodcastAudioAsset {
         PodcastAudioAsset(episodeID: "pinned-episode-\(index)", canonicalArticleID: "pinned-article-\(index)",
             kind: .human, sourceRevision: "r1", remoteURL: URL(string: "https://audio.example.com/pinned-\(index).m4a")!)!
     }
 
     func testAllCurrentPinsBeyondQueueCapacityDownloadOnceAsPhysicalSlotsDrain() async throws {
-        let saved = expectation(description: "Every current pin produces its own verified receipt")
-        saved.expectedFulfillmentCount = 80
-        let h = try PinnedCacheHarness(limit: 2, onEvent: { if $0 == .saved { saved.fulfill() } })
+        let saved = (0..<80).map { expectation(description: "Verified receipt \($0 + 1)/80") }
+        let events = PinnedCacheEvents(saved)
+        let h = try PinnedCacheHarness(limit: 2, onEvent: { if $0 == .saved { events.record($0) } })
         let assets = (0..<80).map(asset)
         for (index, asset) in assets.enumerated() {
             h.cache.pinAndDownload(pinKey: "favorites-v1:reader-\(index)", leaseID: UUID(), asset: asset)
@@ -19,7 +31,8 @@ final class PodcastPinnedDownloadsTests: XCTestCase {
         XCTAssertEqual(h.cache.downloadActivity.active, 2)
         XCTAssertLessThanOrEqual(h.cache.downloadActivity.waiting, 64)
         await h.transport.releaseAll()
-        await fulfillment(of: [saved], timeout: 10)
+        // Every receipt must progress; this is not a bulk disk-throughput benchmark.
+        try await waitForSavedProgress(saved)
         let calls = await h.transport.started
         XCTAssertEqual(calls.count, assets.count)
         XCTAssertEqual(Set(calls), Set(assets.map(\.remoteURL)))
@@ -29,6 +42,7 @@ final class PodcastPinnedDownloadsTests: XCTestCase {
         }
         XCTAssertEqual(h.cache.downloadActivity.active, 0)
         XCTAssertEqual(h.cache.downloadActivity.waiting, 0)
+        XCTAssertEqual(events.values, Array(repeating: .saved, count: assets.count))
     }
 
     func testFailedPinStopsAtOneAttemptUntilEachExplicitRecoveryEvent() async throws {
@@ -68,9 +82,9 @@ final class PodcastPinnedDownloadsTests: XCTestCase {
     }
 
     func testCurrentWaitingPinsAreRemovedWithoutOldLeaseReleasingReplacement() async throws {
-        let completed = expectation(description: "Current wanted pins drain")
-        completed.expectedFulfillmentCount = 79
-        let h = try PinnedCacheHarness(limit: 1, onEvent: { if $0 == .saved { completed.fulfill() } })
+        let completed = (0..<79).map { expectation(description: "Current wanted receipt \($0 + 1)/79") }
+        let events = PinnedCacheEvents(completed)
+        let h = try PinnedCacheHarness(limit: 1, onEvent: { if $0 == .saved { events.record($0) } })
         let first = asset(0)
         h.cache.pinAndDownload(pinKey: "favorites-v1:first", leaseID: UUID(), asset: first)
         await h.transport.waitForStarts(1)
@@ -93,11 +107,12 @@ final class PodcastPinnedDownloadsTests: XCTestCase {
         h.cache.releasePinKeepingBytes(pinKey: key, leaseID: newLease, onlyIfAsset: last)
         XCTAssertEqual(h.cache.downloadState(for: last), .notDownloaded)
         await h.transport.releaseAll()
-        await fulfillment(of: [completed], timeout: 10)
+        try await waitForSavedProgress(completed)
         let calls = await h.transport.started
         XCTAssertEqual(calls.count, 79)
         XCTAssertFalse(calls.contains(last.remoteURL))
         XCTAssertFalse(h.cache.isDownloaded(for: last))
+        XCTAssertEqual(events.values, Array(repeating: .saved, count: 79))
     }
 
     func testStorageLimitIsNotReadyAndDoesNotSacrificeAnotherSavedReceipt() async throws {

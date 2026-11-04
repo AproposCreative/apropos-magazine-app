@@ -7,7 +7,7 @@ final class ReaderMutationDispatcherTests: XCTestCase {
     private typealias Runner = ReaderMutationDispatcher
     private typealias Request = ReaderMutationContract.Request
     private typealias Record = ReaderMutationJournalRecord
-    private enum InjectedFailure: Error { case transport, persistence }
+    private enum InjectedFailure: Error { case transport, persistence, physicalWait }
 
     private final class ReplaceGate: @unchecked Sendable {
         let entered: XCTestExpectation
@@ -62,6 +62,7 @@ final class ReaderMutationDispatcherTests: XCTestCase {
         var requests: [Request] = []
         var guards: [Runner.Guard] = []
         var callbacks: [CheckedContinuation<Data, Error>] = []
+        private var runners: [Runner] = []
         lazy var runner = makeRunner()
         init() {
             let probe = probe
@@ -85,7 +86,7 @@ final class ReaderMutationDispatcherTests: XCTestCase {
             XCTAssertTrue(membership.completeRead(read, record: value, isFromCache: false, hasPendingWrites: false))
         }
         func makeRunner(store other: ReaderMutationDispatchStore? = nil) -> Runner {
-            Runner(canonical: canonical, membership: membership, store: other ?? store, send: { [unowned self] request, permitted in
+            let runner = Runner(canonical: canonical, membership: membership, store: other ?? store, send: { [unowned self] request, permitted in
                 self.guards.append(permitted)
                 let entered = self.senderEntered; self.senderEntered = nil; entered?.fulfill()
                 if let gate = self.beforeSend { await gate.hold() }
@@ -98,6 +99,14 @@ final class ReaderMutationDispatcherTests: XCTestCase {
                 self.schedules += 1; self.deadlines.append(action); self.scheduleHook?()
                 return { [unowned self] in self.cancelDeadlineHook?() }
             })
+            runners.append(runner)
+            return runner
+        }
+        func cleanUpIfIdle() {
+            let busy = runners.contains(where: \.isBusy)
+            XCTAssertFalse(busy, "Fixture cleanup must not race a physical journal operation")
+            guard !busy else { return }
+            try? FileManager.default.removeItem(at: root)
         }
     }
     private func request(owner: String = "reader-A", epoch: Int64 = 7,
@@ -162,19 +171,23 @@ final class ReaderMutationDispatcherTests: XCTestCase {
         guard case .failure(let error) = pending.result else { return XCTFail("Expected failure", file: file, line: line) }
         if let expected { XCTAssertEqual(error as? Runner.Failure, expected, file: file, line: line) }
     }
-    private func settled(_ runner: Runner) async {
+    private func settled(_ runner: Runner) async throws {
         let done = expectation(description: "All physical journal/transport callbacks returned")
-        Task { @MainActor in
-            let limit = Date().addingTimeInterval(5)
-            while runner.isBusy, Date() < limit { await Task.yield() }
-            done.fulfill()
+        let observer = Task { @MainActor in
+            while !Task.isCancelled {
+                if !runner.isBusy { done.fulfill(); return }
+                do { try await Task.sleep(nanoseconds: 10_000_000) } catch { return }
+            }
         }
-        await fulfillment(of: [done], timeout: 6)
+        defer { observer.cancel() }
+        let result = await XCTWaiter.fulfillment(of: [done], timeout: 6)
+        XCTAssertEqual(result, .completed, "Physical journal work must actually finish before continuing")
+        guard result == .completed else { throw InjectedFailure.physicalWait }
         XCTAssertFalse(runner.isBusy)
     }
 
     func testInertConstructionSuccessAndRestartAlreadyAcknowledgedNeverResends() async throws {
-        let f = Fixture(); defer { try? FileManager.default.removeItem(at: f.root) }
+        let f = Fixture(); defer { f.cleanUpIfIdle() }
         _ = f.runner; XCTAssertEqual(f.schedules, 0); XCTAssertTrue(f.requests.isEmpty)
         XCTAssertFalse(FileManager.default.fileExists(atPath: f.root.path))
         let original = try request(), data = try receipt(original)
@@ -196,14 +209,14 @@ final class ReaderMutationDispatcherTests: XCTestCase {
 
     func testLateReceiptPersistsOriginalAWhileBOrNewAGenerationGetsNoUISuccess() async throws {
         for roundTrip in [false, true] {
-            let f = Fixture(); defer { try? FileManager.default.removeItem(at: f.root) }
+            let f = Fixture(); defer { f.cleanUpIfIdle() }
             let original = try request(), foreign = try request(owner: "reader-B"), data = try receipt(original)
             try await seed(f, original); try await seed(f, foreign); try f.accept()
             let pending = await sending(f, original)
             f.select("reader-B"); if roundTrip { f.select("reader-A"); try f.accept() }
             await failed(pending, .stale)
             XCTAssertTrue(f.runner.isBusy); XCTAssertFalse(f.guards[0]())
-            f.callbacks[0].resume(returning: data); await settled(f.runner)
+            f.callbacks[0].resume(returning: data); try await settled(f.runner)
             let loaded = try await read(f.journal), other = try await read(f.journal, owner: "reader-B")
             XCTAssertEqual(loaded?.entries[0].receiptData, data); XCTAssertNil(other?.entries[0].receiptData)
             XCTAssertFalse(f.guards[0]()); XCTAssertEqual(f.requests.count, 1)
@@ -211,33 +224,33 @@ final class ReaderMutationDispatcherTests: XCTestCase {
     }
 
     func testTimeoutRetainsSharedReservationUntilLateReceiptIsDurablyAcknowledged() async throws {
-        let f = Fixture(); defer { try? FileManager.default.removeItem(at: f.root) }
+        let f = Fixture(); defer { f.cleanUpIfIdle() }
         let original = try request(); try await seed(f, original); try f.accept()
         let pending = await sending(f, original), competitor = f.makeRunner()
         f.deadlines[0](); await failed(pending, .timedOut)
         XCTAssertTrue(f.runner.isBusy); XCTAssertFalse(f.guards[0]())
         await failed(launch(f, original, runner: competitor), .busy)
-        f.callbacks[0].resume(returning: try receipt(original)); await settled(f.runner)
+        f.callbacks[0].resume(returning: try receipt(original)); try await settled(f.runner)
         let loaded = try await read(f.journal)
         XCTAssertNotNil(loaded?.entries[0].receiptData); XCTAssertEqual(f.requests.count, 1)
         XCTAssertFalse(f.guards[0]())
     }
 
     func testCancellationFlagImmediatelyRevokesGuardAndKeepsPhysicalReservation() async throws {
-        let f = Fixture(); defer { try? FileManager.default.removeItem(at: f.root) }
+        let f = Fixture(); defer { f.cleanUpIfIdle() }
         let original = try request(); try await seed(f, original); try f.accept()
         let pending = await sending(f, original)
         pending.task?.cancel()
         XCTAssertFalse(f.guards[0](), "Cancellation is marked before its queued MainActor handler")
         await failed(pending, .cancelled)
         await failed(launch(f, original, runner: f.makeRunner()), .busy)
-        f.callbacks[0].resume(returning: try receipt(original)); await settled(f.runner)
+        f.callbacks[0].resume(returning: try receipt(original)); try await settled(f.runner)
         let loaded = try await read(f.journal)
         XCTAssertNotNil(loaded?.entries[0].receiptData); XCTAssertFalse(f.runner.hasPendingHistory)
     }
 
     func testMembershipFreezeBeforePhysicalTransportStopsSendAtFinalAdapterGuard() async throws {
-        let f = Fixture(); defer { try? FileManager.default.removeItem(at: f.root) }
+        let f = Fixture(); defer { f.cleanUpIfIdle() }
         let original = try request(); try await seed(f, original); try f.accept()
         let gate = BeforeSendGate(), entered = expectation(description: "Adapter preparation entered")
         f.beforeSend = gate; f.senderEntered = entered
@@ -245,13 +258,13 @@ final class ReaderMutationDispatcherTests: XCTestCase {
         await fulfillment(of: [entered], timeout: 5)
         try f.accept(frozen: true); await failed(pending, .stale)
         XCTAssertTrue(f.runner.isBusy); XCTAssertTrue(f.requests.isEmpty)
-        gate.release(); await settled(f.runner)
+        gate.release(); try await settled(f.runner)
         XCTAssertTrue(f.requests.isEmpty)
         let loaded = try await read(f.journal); XCTAssertNil(loaded?.entries[0].receiptData)
     }
 
     func testAdmissionRejectsWrongOwnerEpochAndStaleCanonicalContextWithoutTransport() async throws {
-        let f = Fixture(); defer { try? FileManager.default.removeItem(at: f.root) }
+        let f = Fixture(); defer { f.cleanUpIfIdle() }
         let original = try request(); try await seed(f, original)
         await failed(launch(f, original), .unavailable)
         try f.accept()
@@ -264,11 +277,11 @@ final class ReaderMutationDispatcherTests: XCTestCase {
     }
 
     func testWrongReceiptNeverAcknowledgesAndExplicitRetryUsesUnchangedRequest() async throws {
-        let f = Fixture(); defer { try? FileManager.default.removeItem(at: f.root) }
+        let f = Fixture(); defer { f.cleanUpIfIdle() }
         let original = try request(); try await seed(f, original); try f.accept()
         let pending = await sending(f, original)
         f.callbacks[0].resume(returning: try receipt(request(target: "other-article")))
-        await failed(pending); await settled(f.runner)
+        await failed(pending); try await settled(f.runner)
         XCTAssertFalse(f.runner.hasPendingHistory)
         let loaded = try await read(f.journal); XCTAssertNil(loaded?.entries[0].receiptData)
         let retry = await sending(f, original)
@@ -277,11 +290,11 @@ final class ReaderMutationDispatcherTests: XCTestCase {
     }
 
     func testUnknownTransportFailureLeavesOriginalIntentForExplicitIdenticalRetry() async throws {
-        let f = Fixture(); defer { try? FileManager.default.removeItem(at: f.root) }
+        let f = Fixture(); defer { f.cleanUpIfIdle() }
         let original = try request(); try await seed(f, original); try f.accept()
         let first = await sending(f, original)
         f.callbacks[0].resume(throwing: InjectedFailure.transport); await failed(first)
-        await settled(f.runner); XCTAssertEqual(f.requests.count, 1)
+        try await settled(f.runner); XCTAssertEqual(f.requests.count, 1)
         let loaded = try await read(f.journal); XCTAssertNil(loaded?.entries[0].receiptData)
         let retry = await sending(f, original)
         XCTAssertEqual(try f.requests.map { try ReaderMutationContract.encode($0) },
@@ -290,11 +303,11 @@ final class ReaderMutationDispatcherTests: XCTestCase {
     }
 
     func testAcknowledgementFailureKeepsSharedLeaseAndHistoryOnlyRetryWorksUnderAnotherAccount() async throws {
-        let f = Fixture(); defer { try? FileManager.default.removeItem(at: f.root) }
+        let f = Fixture(); defer { f.cleanUpIfIdle() }
         let original = try request(), data = try receipt(original)
         try await seed(f, original); try f.accept(); f.probe.fail(true)
         let first = await sending(f, original)
-        f.callbacks[0].resume(returning: data); await failed(first); await settled(f.runner)
+        f.callbacks[0].resume(returning: data); await failed(first); try await settled(f.runner)
         XCTAssertTrue(f.runner.hasPendingHistory)
         await failed(launch(f, original), .pendingHistory)
         await failed(launch(f, original, runner: f.makeRunner()), .busy)
@@ -310,7 +323,7 @@ final class ReaderMutationDispatcherTests: XCTestCase {
     }
 
     func testTimeoutDuringPhysicalAcknowledgementCannotReleaseFileOrSharedLease() async throws {
-        let f = Fixture(); defer { try? FileManager.default.removeItem(at: f.root) }
+        let f = Fixture(); defer { f.cleanUpIfIdle() }
         let original = try request(); try await seed(f, original); try f.accept()
         let gate = ReplaceGate(expectation(description: "Physical ACK file replacement held"))
         defer { gate.release() }; f.probe.hold(gate)
@@ -320,28 +333,28 @@ final class ReaderMutationDispatcherTests: XCTestCase {
         f.deadlines[0](); await failed(pending, .timedOut)
         XCTAssertTrue(f.runner.isBusy)
         await failed(launch(f, original, runner: f.makeRunner()), .busy)
-        gate.release(); await settled(f.runner)
+        gate.release(); try await settled(f.runner)
         let loaded = try await read(f.journal)
         XCTAssertNotNil(loaded?.entries[0].receiptData); XCTAssertFalse(f.runner.hasPendingHistory)
     }
 
     func testChangedOrMissingDurableRequestIsNeverSentFromCallerMemory() async throws {
-        let f = Fixture(); defer { try? FileManager.default.removeItem(at: f.root) }
+        let f = Fixture(); defer { f.cleanUpIfIdle() }
         let original = try request(); try await seed(f, original); try f.accept()
         let changed = try request(id: original.mutationID, target: "different")
-        await failed(launch(f, changed)); await settled(f.runner)
-        await failed(launch(f, try request())); await settled(f.runner)
+        await failed(launch(f, changed)); try await settled(f.runner)
+        await failed(launch(f, try request())); try await settled(f.runner)
         XCTAssertTrue(f.requests.isEmpty); XCTAssertFalse(f.runner.hasPendingHistory)
     }
 
     func testMembershipFreezeAfterPhysicalSendPreservesReceiptWithoutPublishingSuccess() async throws {
-        let f = Fixture(); defer { try? FileManager.default.removeItem(at: f.root) }
+        let f = Fixture(); defer { f.cleanUpIfIdle() }
         let original = try request(), data = try receipt(original)
         try await seed(f, original); try f.accept()
         let pending = await sending(f, original)
         try f.accept(frozen: true); await failed(pending, .stale)
         XCTAssertFalse(f.guards[0]())
-        f.callbacks[0].resume(returning: data); await settled(f.runner)
+        f.callbacks[0].resume(returning: data); try await settled(f.runner)
         let loaded = try await read(f.journal); XCTAssertEqual(loaded?.entries[0].receiptData, data)
         await failed(launch(f, original), .unavailable)
         XCTAssertEqual(f.requests.count, 1)
@@ -349,35 +362,35 @@ final class ReaderMutationDispatcherTests: XCTestCase {
 
     func testSynchronousDeadlineAndScheduleAccountReentryNeverStartTransport() async throws {
         for timeout in [false, true] {
-            let f = Fixture(); defer { try? FileManager.default.removeItem(at: f.root) }
+            let f = Fixture(); defer { f.cleanUpIfIdle() }
             let original = try request(); try await seed(f, original); try f.accept()
             f.scheduleHook = { [unowned f] in
                 if timeout { f.deadlines.last?() } else { f.select("reader-B") }
             }
             let pending = launch(f, original)
-            await failed(pending, timeout ? .timedOut : .stale); await settled(f.runner)
+            await failed(pending, timeout ? .timedOut : .stale); try await settled(f.runner)
             XCTAssertTrue(f.requests.isEmpty); XCTAssertFalse(f.runner.hasPendingHistory)
             XCTAssertNotNil(f.store.reserve(request: original), "A never-started worker releases its reservation")
         }
     }
 
     func testDeadlineCleanupReentryRevokesUISuccessButKeepsDurableReceipt() async throws {
-        let f = Fixture(); defer { try? FileManager.default.removeItem(at: f.root) }
+        let f = Fixture(); defer { f.cleanUpIfIdle() }
         let original = try request(), data = try receipt(original)
         try await seed(f, original); try f.accept()
         let pending = await sending(f, original)
         f.cancelDeadlineHook = { [unowned f] in f.cancelDeadlineHook = nil; f.select("reader-B") }
-        f.callbacks[0].resume(returning: data); await failed(pending, .stale); await settled(f.runner)
+        f.callbacks[0].resume(returning: data); await failed(pending, .stale); try await settled(f.runner)
         let loaded = try await read(f.journal); XCTAssertEqual(loaded?.entries[0].receiptData, data)
         XCTAssertFalse(f.runner.hasPendingHistory)
     }
 
     func testCancelledHistoryRetryStillFinishesOriginalPhysicalAcknowledgementWithoutResend() async throws {
-        let f = Fixture(); defer { try? FileManager.default.removeItem(at: f.root) }
+        let f = Fixture(); defer { f.cleanUpIfIdle() }
         let original = try request(), data = try receipt(original)
         try await seed(f, original); try f.accept(); f.probe.fail(true)
         let first = await sending(f, original)
-        f.callbacks[0].resume(returning: data); await failed(first); await settled(f.runner)
+        f.callbacks[0].resume(returning: data); await failed(first); try await settled(f.runner)
         f.probe.fail(false); f.select("reader-B")
         let gate = ReplaceGate(expectation(description: "History-only ACK physically held"))
         defer { gate.release() }; f.probe.hold(gate)
@@ -385,7 +398,7 @@ final class ReaderMutationDispatcherTests: XCTestCase {
         await fulfillment(of: [gate.entered], timeout: 5)
         retry.task?.cancel(); await failed(retry, .cancelled)
         XCTAssertTrue(f.runner.isBusy); XCTAssertTrue(f.runner.hasPendingHistory)
-        gate.release(); await settled(f.runner)
+        gate.release(); try await settled(f.runner)
         let loaded = try await read(f.journal)
         XCTAssertEqual(loaded?.entries[0].receiptData, data)
         XCTAssertEqual(f.requests.count, 1); XCTAssertFalse(f.runner.hasPendingHistory)
