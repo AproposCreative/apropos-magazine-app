@@ -1,16 +1,8 @@
 #!/usr/bin/env bash
-# Update OpenAI API key locally after creating one at platform.openai.com/api-keys
+# Retired during local recovery: this script previously mixed production
+# operations with client credential writes or an all-subscriber push test.
 set -euo pipefail
-NEW="${1:-}"
-if [[ -z "$NEW" || "$NEW" != sk-* ]]; then
-  echo "Usage: $0 sk-..."
-  exit 1
-fi
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PLIST="$ROOT/AproposMagazinev2/Resources/Secrets.plist"
-ENV="$ROOT/.env"
-plutil -replace OPENAI_API_KEY -string "$NEW" "$PLIST"
-[[ -f "$ENV" ]] && sed -i '' "s|^OPENAI_API_KEY=.*|OPENAI_API_KEY=$NEW|" "$ENV"
-security delete-generic-password -s openai -a api_key 2>/dev/null || true
-security add-generic-password -s openai -a api_key -w "$NEW" -U
-echo "OpenAI key updated in Secrets.plist, .env, and Keychain."
+printf '%s\n' 'This legacy command is retired. No credentials or services were changed.' >&2
+printf '%s\n' 'Use Docs/LaunchReadinessChecklist.md for the reviewed provisioning and release plan.' >&2
+printf '%s\n' 'Server API keys must never be written into the iOS app. Production actions require separate approval.' >&2
+exit 2

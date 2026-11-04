@@ -86,6 +86,12 @@ struct WidgetArticle: Codable, Identifiable, Hashable {
 }
 
 enum WidgetImageStore {
+    struct PreparedImage {
+        let articleID: String
+        let sourceURL: String
+        let jpegData: Data
+    }
+
     private static let folderName = "WidgetImages"
     private static let cacheVersionKey = "widget_image_cache_version"
     // v3: images are now rendered at scale 1 (true pixel size) so they stay under
@@ -184,6 +190,77 @@ enum WidgetImageStore {
         }
     }
 
+    /// Downloads and normalizes bytes without publishing files. The feed owner
+    /// can discard these results if another feed or a cache clear supersedes it.
+    static func prepareImages(for articles: [WidgetArticle]) async -> [PreparedImage] {
+        guard !Task.isCancelled, !isWidgetExtension else { return [] }
+        return await withTaskGroup(of: PreparedImage?.self) { group in
+            for article in articles {
+                group.addTask { await prepareImage(for: article) }
+            }
+            var prepared: [PreparedImage] = []
+            for await image in group {
+                if let image { prepared.append(image) }
+            }
+            return prepared
+        }
+    }
+
+    /// Called synchronously only after the current feed generation is accepted.
+    /// No suspension is allowed between acceptance and the final image writes.
+    @MainActor
+    static func commitPreparedImages(_ prepared: [PreparedImage]) -> Set<String> {
+        guard !prepared.isEmpty, !Task.isCancelled else { return [] }
+        migrateCacheIfNeeded()
+        guard let directory = imagesDirectory() else { return [] }
+        var changed = Set<String>()
+        for image in prepared {
+            let name = safeFileName(for: image.articleID)
+            let fileURL = directory.appendingPathComponent("\(name).jpg")
+            do {
+                let imageChanged = (try? Data(contentsOf: fileURL)) != image.jpegData
+                if imageChanged {
+                    try image.jpegData.write(to: fileURL, options: [.atomic])
+                }
+                try? Data(image.sourceURL.utf8).write(
+                    to: directory.appendingPathComponent("\(name).source"), options: [.atomic]
+                )
+                if imageChanged { changed.insert(image.articleID) }
+            } catch {
+                // Leave a failed write retryable on the next feed synchronization.
+            }
+        }
+        return changed
+    }
+
+    private static func prepareImage(for article: WidgetArticle) async -> PreparedImage? {
+        guard !Task.isCancelled, !article.thumbURL.isEmpty,
+              let remote = URL(string: article.thumbURL),
+              let scheme = remote.scheme?.lowercased(), ["https", "http"].contains(scheme) else { return nil }
+
+        // Read-only lookup: an obsolete preparation must not create directories
+        // or migrate/delete a cache that a newer generation has already changed.
+        guard let container = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: WidgetDataStore.appGroupID
+        ) else { return nil }
+        if UserDefaults(suiteName: WidgetDataStore.appGroupID)?.integer(forKey: cacheVersionKey) == currentCacheVersion {
+            let directory = container.appendingPathComponent(folderName, isDirectory: true)
+            let name = safeFileName(for: article.id)
+            let sourceURL = directory.appendingPathComponent("\(name).source")
+            let imageURL = directory.appendingPathComponent("\(name).jpg")
+            if (try? String(contentsOf: sourceURL, encoding: .utf8)) == article.thumbURL,
+               let data = try? Data(contentsOf: imageURL), UIImage(data: data) != nil {
+                return nil
+            }
+        }
+
+        guard let (data, response) = try? await URLSession.shared.data(from: remote),
+              let response = response as? HTTPURLResponse, (200..<300).contains(response.statusCode),
+              !Task.isCancelled,
+              let jpeg = normalizedWidgetImageData(data: data), !Task.isCancelled else { return nil }
+        return PreparedImage(articleID: article.id, sourceURL: article.thumbURL, jpegData: jpeg)
+    }
+
     private static func migrateCacheIfNeeded() {
         guard let defaults = UserDefaults(suiteName: WidgetDataStore.appGroupID) else { return }
         guard defaults.integer(forKey: cacheVersionKey) < currentCacheVersion else { return }
@@ -235,7 +312,17 @@ enum WidgetImageStore {
 
     @discardableResult
     private static func saveNormalizedWidgetImage(data: Data, to fileURL: URL) -> Bool {
-        guard let image = UIImage(data: data) else { return false }
+        guard let jpeg = normalizedWidgetImageData(data: data) else { return false }
+        do {
+            try jpeg.write(to: fileURL, options: [.atomic])
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private static func normalizedWidgetImageData(data: Data) -> Data? {
+        guard let image = UIImage(data: data) else { return nil }
 
         let maxDimension: CGFloat = 800
         let maxSide = max(image.size.width, image.size.height)
@@ -261,13 +348,7 @@ enum WidgetImageStore {
             image.draw(in: CGRect(origin: .zero, size: targetSize))
         }
 
-        guard let jpeg = normalized.jpegData(compressionQuality: 0.85) else { return false }
-        do {
-            try jpeg.write(to: fileURL, options: [.atomic])
-            return true
-        } catch {
-            return false
-        }
+        return normalized.jpegData(compressionQuality: 0.85)
     }
 }
 
@@ -275,6 +356,23 @@ enum WidgetDataStore {
     static let appGroupID = "group.com.aproposmagazine.app"
     static let latestArticlesKey = "widget_latest_articles"
     static let lastSyncKey = "widget_last_sync"
+    static let interfaceLanguageKey = "widget_interface_language"
+
+    static var interfaceLanguageCode: String {
+        interfaceLanguageCode(from: UserDefaults(suiteName: appGroupID))
+    }
+
+    static func interfaceLanguageCode(from defaults: UserDefaults?) -> String {
+        defaults?.string(forKey: interfaceLanguageKey) == "en" ? "en" : "da"
+    }
+
+    private static func matchesLanguage(_ article: WidgetArticle, code: String) -> Bool {
+        if code != "en" { return !article.id.hasPrefix("en_") }
+        let sourceID = article.id.dropFirst(3)
+        return article.id.hasPrefix("en_") && sourceID.utf8.count == 24 && sourceID.utf8.allSatisfy {
+            (48...57).contains($0) || (97...102).contains($0)
+        }
+    }
 
     static var isAppGroupAvailable: Bool {
         UserDefaults(suiteName: appGroupID) != nil
@@ -294,17 +392,23 @@ enum WidgetDataStore {
     }
 
     static func loadLatestArticles() -> [WidgetArticle] {
-        guard let defaults = UserDefaults(suiteName: appGroupID) else {
-            return []
-        }
+        guard let defaults = UserDefaults(suiteName: appGroupID) else { return [] }
+        return loadLatestArticles(from: defaults)
+    }
 
+    /// Injected storage keeps language tests independent of the live App Group.
+    static func loadLatestArticles(from defaults: UserDefaults) -> [WidgetArticle] {
+        let code = interfaceLanguageCode(from: defaults)
         if let data = defaults.data(forKey: latestArticlesKey),
            let articles = try? JSONDecoder().decode([WidgetArticle].self, from: data),
            !articles.isEmpty {
-            return articles
+            let selected = articles.filter { matchesLanguage($0, code: code) }
+            if code == "en" || !selected.isEmpty { return selected }
         }
-
-        return loadFallbackArticles(from: defaults)
+        // A missing English publication is an empty English widget, never an
+        // old Danish fallback. The underlying caches are not removed or changed.
+        guard code != "en" else { return [] }
+        return loadFallbackArticles(from: defaults).filter { matchesLanguage($0, code: code) }
     }
 
     static func articlesForWidget(includePreviewWhenEmpty: Bool = false) -> [WidgetArticle] {

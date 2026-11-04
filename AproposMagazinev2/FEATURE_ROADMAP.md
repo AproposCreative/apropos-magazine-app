@@ -1,3 +1,9 @@
+# Aktuel releasevurdering
+
+Se [færdiggørelsesplan og lanceringsblokeringer](../Docs/LaunchReadinessChecklist.md), opdateret 15. oktober 2026. Den historiske “shipped/TestFlight-klar”-status nedenfor er ikke verificeret og må ikke bruges som releasegodkendelse. Premium forbliver slået fra.
+
+---
+
 # Feature Roadmap — Apropos Magazine (iOS)
 
 **Opdateret:** juli 2026  
@@ -47,7 +53,7 @@
 | `generateNarrationOnQueue` | ElevenLabs TTS + manifest + push |
 | `syncArticlesScheduled` | Firestore-sync hvert 30. min |
 | `generateSeries` / scheduled | AI-genererede artikelserier |
-| `generateRecommendationReasons` | Personlige anbefalingstekster |
+| `generateRecommendationReasons` | Lokal kandidat: privat, secretfri legacy-afvisning. Appen bruger lokale faktiske begrundelser; livestatus er ikke verificeret. |
 | `sendPodcastNotification` | Manuel podcast-push |
 
 ---
@@ -89,7 +95,7 @@
 - Overvåg `generateNarrationOnQueue`-logs
 
 ### 3. Discovery (medium impact)
-- Vis `generateRecommendationReasons` i "Anbefalet til dig"
+- Gennemgå lokale begrundelser og emnevariation i "Anbefalet til dig". Det gamle AI-endpoint genaktiveres ikke; se [afgrænsning og accept](../Docs/LegacyRecommendationRetirement.md).
 - Forbedret søg (filtre, historik)
 
 ### 4. Læseoplevelse — quick wins (medium impact, lav indsats)

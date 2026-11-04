@@ -22,7 +22,7 @@ struct ProfileView_NewDesign: View {
     // Stats
     private var readArticlesCount: Int {
         // Count articles that have been read (you can implement this logic)
-        return viewModel.articles.count // For now, using total articles
+        return viewModel.visibleArticles.count // For now, using total articles
     }
     
     private var favoriteArticlesCount: Int {
@@ -30,7 +30,7 @@ struct ProfileView_NewDesign: View {
     }
     
     private var totalArticlesCount: Int {
-        return viewModel.articles.count
+        return viewModel.visibleArticles.count
     }
     
     var body: some View {
@@ -132,7 +132,7 @@ struct ProfileView_NewDesign: View {
                     GridItem(.flexible(), spacing: 1), 
                     GridItem(.flexible(), spacing: 1)
                 ], spacing: 1) {
-                    ForEach(Array(viewModel.articles.prefix(9)), id: \.id) { article in
+                    ForEach(Array(viewModel.visibleArticles.prefix(9)), id: \.id) { article in
                         NavigationLink(destination: ArticleDetailView(article: article).environmentObject(viewModel)) {
                             ArticleThumbnailView(article: article)
                         }
@@ -191,19 +191,27 @@ struct SettingsView: View {
     @Environment(\.colorScheme) var colorScheme
     @EnvironmentObject var viewModel: ArticleViewModel
     @ObservedObject private var userManager = UserManager.shared
-    @ObservedObject private var notificationService = NotificationService.shared
+    @ObservedObject private var notificationService: NotificationService
     @ObservedObject private var offlineManager = OfflineManager.shared
     @ObservedObject private var themeManager = ThemeManager.shared
+    @ObservedObject private var contentPreferences = PreferencesManager.shared
     
     // State for settings
     @State private var notificationPreferences = NotificationPreferences()
     @State private var selectedNotificationCategoryIds: Set<String> = []
+    @State private var profileFormAdoption = UserProfileFormAdoption()
     @State private var showDarkModeOptions = false
     @State private var showHelpSupport = false
     @State private var showContactUs = false
+    @State private var showLogoutError = false
     @State private var showLoginSheet = false
+    @State private var replayIntroduction = false
     @State private var showPaywall = false
     @ObservedObject private var subscriptionManager = SubscriptionManager.shared
+
+    init(notificationService: NotificationService = .shared) {
+        _notificationService = ObservedObject(wrappedValue: notificationService)
+    }
     
     private var articleNotificationsEnabled: Bool {
         notificationService.articleNotificationsEnabled(
@@ -215,41 +223,18 @@ struct SettingsView: View {
     var body: some View {
         NavigationView {
             List {
-                // Account Section
-                Section {
-                    Button {
-                        if userManager.currentUser == nil {
-                            showLoginSheet = true
-                        }
-                    } label: {
-                        HStack {
-                            accountAvatar
-                            
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(accountTitle)
-                                    .font(.headline)
-                                    .foregroundColor(.primary)
-                                if let subtitle = accountSubtitle {
-                                    Text(subtitle)
-                                        .font(.subheadline)
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-                            
-                            Spacer()
-                            
-                            if userManager.currentUser == nil {
-                                Image(systemName: "chevron.right")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                        .padding(.vertical, 8)
+                SettingsAccountSection(snapshot: userManager.profileSnapshot) {
+                    showLoginSheet = true
+                } onRetry: {
+                    if userManager.profileSnapshot.writeReady, let profile = userManager.currentUser {
+                        userManager.saveUserProfile(profile)
+                    } else {
+                        userManager.retryProfileLoad()
                     }
-                    .buttonStyle(PlainButtonStyle())
-                    .disabled(userManager.currentUser != nil)
                 }
-                
+
+                ContentLanguageSection(preferences: contentPreferences)
+
                 // Notifications
                 Section {
                     Toggle(isOn: Binding(
@@ -297,7 +282,7 @@ struct SettingsView: View {
                                         saveNotificationChoices()
                                     }
                                 )) {
-                                    Text(topic.name)
+                                    LocalizedArticleTaxonomy(topic.name)
                                 }
                             }
                         } else {
@@ -336,19 +321,19 @@ struct SettingsView: View {
 
                     Button {
                         Task {
-                            await applyNotificationChoices()
-                            if SecureConfig.shared.pushNotifySecret != nil {
-                                await notificationService.sendRemoteArticlePushTest()
-                            } else {
-                                await notificationService.sendTestLocalNotificationAfterAuthorization(delay: 2)
-                            }
+                            await notificationService.sendTestLocalNotificationAfterAuthorization(delay: 2)
                         }
                     } label: {
-                        Label("Test push notifikationer", systemImage: "bell.badge")
+                        Label("Test lokal notifikation", systemImage: "bell.badge")
                     }
+                    Text("Viser en test på denne enhed. Tester ikke levering via Apple push.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 } header: {
                     Text("Notifikationer & emner")
                 }
+                .disabled(userManager.profileSnapshot.context == .unresolved ||
+                          (userManager.profileSnapshot.context.userID != nil && !userManager.profileSnapshot.writeReady))
                 
                 if FeatureFlags.subscriptionsEnabled {
                     Section("Abonnement") {
@@ -367,6 +352,12 @@ struct SettingsView: View {
                 
                 // App Settings
                 Section("App") {
+                    Button { replayIntroduction = true } label: {
+                        SettingsRow(icon: "sparkles", title: "Vis introduktion")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("settings.showIntroduction")
+
                     Button(action: {
                         showDarkModeOptions = true
                     }) {
@@ -377,6 +368,8 @@ struct SettingsView: View {
                     SettingsRow(icon: "wifi", title: "Offline læsning", subtitle: offlineManager.isOnline ? "Online" : "Offline")
                 }
                 
+                TelemetryPrivacySection(controller: TelemetryRuntime.shared.controller)
+
                 // Support
                 Section("Support") {
                     Button(action: {
@@ -398,11 +391,10 @@ struct SettingsView: View {
                 if userManager.currentUser != nil {
                     Section {
                         Button(action: {
-                            viewModel.clearSessionDataOnLogout()
-                            GoogleSignInService.shared.signOut()
-                            do {
-                                try AuthService.shared.signOut()
-                            } catch {
+                            if GoogleSignInService.shared.signOut() {
+                                viewModel.clearSessionDataOnLogout()
+                            } else {
+                                showLogoutError = true
                             }
                         }) {
                             HStack {
@@ -414,6 +406,7 @@ struct SettingsView: View {
                         }
                     }
                 }
+                SettingsVersionFooter()
             }
             .navigationTitle("Indstillinger")
             .navigationBarTitleDisplayMode(.inline)
@@ -425,18 +418,25 @@ struct SettingsView: View {
                 }
             }
         }
+        .modifier(ReaderIntroductionPresenter(automatic: false, replayRequested: $replayIntroduction))
+        .onReceive(userManager.profileChanges) { snapshot in
+            adoptProfileForNotificationForm(snapshot)
+        }
         .onAppear {
-            loadNotificationChoices()
+            adoptProfileForNotificationForm(userManager.profileSnapshot)
             notificationService.refreshAuthorizationStatus()
-            Task {
-                await applyNotificationChoices()
-            }
+            queueNotificationChoices()
         }
         .sheet(isPresented: $showDarkModeOptions) {
             DarkModeOptionsView()
         }
         .sheet(isPresented: $showHelpSupport) {
             HelpSupportView()
+        }
+        .alert("Kunne ikke logge ud", isPresented: $showLogoutError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(LocalizedStringKey(GoogleSignInService.shared.errorMessage ?? "Udlogningen kunne ikke bekræftes. Prøv igen."))
         }
         .sheet(isPresented: $showContactUs) {
             ContactUsView()
@@ -449,49 +449,13 @@ struct SettingsView: View {
         }
     }
 
-    @ViewBuilder
-    private var accountAvatar: some View {
-        if let photoURL = userManager.currentUser?.photoURL,
-           !photoURL.isEmpty,
-           let url = URL(string: photoURL) {
-            AsyncImage(url: url) { image in
-                image
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-            } placeholder: {
-                Image(systemName: "person.circle.fill")
-                    .font(.system(size: 50))
-                    .foregroundColor(.blue)
-            }
-            .frame(width: 50, height: 50)
-            .clipShape(Circle())
-        } else if userManager.currentUser != nil {
-            Image(systemName: "person.circle.fill")
-                .font(.system(size: 50))
-                .foregroundColor(.blue)
-                .frame(width: 50, height: 50)
-                .clipShape(Circle())
-        } else {
-            Image("DefaultProfileAvatar")
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .frame(width: 50, height: 50)
-                .clipShape(Circle())
-        }
-    }
-
-    private var accountTitle: String {
-        userManager.currentUser?.displayName ?? "Log ind eller opret en bruger"
-    }
-
-    private var accountSubtitle: String? {
-        if let email = userManager.currentUser?.email, !email.isEmpty {
-            return email
-        }
-        if userManager.currentUser == nil {
-            return "Synk dine gemte artikler på tværs af enheder"
-        }
-        return nil
+    private func adoptProfileForNotificationForm(_ snapshot: UserProfileState.Snapshot) {
+        guard snapshot.generation == userManager.profileSnapshot.generation,
+              snapshot.revision == userManager.profileSnapshot.revision,
+              profileFormAdoption.shouldAdopt(snapshot, acceptedLoadVersion: userManager.state.acceptedLoadVersion) else { return }
+        // Adopt a new owner or a newly accepted profile read. A local save must
+        // keep this form's draft while its category persistence is still queued.
+        loadNotificationChoices()
     }
 
     private func loadNotificationChoices() {
@@ -504,35 +468,19 @@ struct SettingsView: View {
         selectedNotificationCategoryIds = Set(categoryIds)
     }
 
-    private func applyNotificationChoices() async {
-        if var user = userManager.currentUser {
-            user.notificationPreferences = notificationPreferences
-            userManager.saveUserProfile(user)
-        }
-
-        let allCategoryIds = viewModel.topics.map(\.id)
-        notificationService.persistAllCategoryIds(allCategoryIds)
-        await notificationService.activateArticlePushNotifications(
-            preferences: notificationPreferences,
-            selectedCategoryIds: Array(selectedNotificationCategoryIds),
-            allCategoryIds: allCategoryIds
-        )
-        notificationService.refreshPushDiagnostics(
-            preferences: notificationPreferences,
-            selectedCategoryIds: Array(selectedNotificationCategoryIds)
-        )
+    private func queueNotificationChoices() {
+        let context = userManager.state.contextTicket()
+        guard let apply = userManager.captureNotificationChoices(
+            preferences: notificationPreferences, categoryIDs: Array(selectedNotificationCategoryIds),
+            allCategoryIDs: viewModel.topics.map(\.id), context: context, service: notificationService
+        ) else { return }
+        Task { await apply() }
     }
 
     private func saveNotificationChoices() {
-        notificationService.persistArticleNotificationSettings(
-            preferences: notificationPreferences,
-            selectedCategoryIds: Array(selectedNotificationCategoryIds)
-        )
-
-        Task {
-            await applyNotificationChoices()
-        }
+        queueNotificationChoices()
     }
+
 }
 
 // MARK: - Settings Row Components
@@ -554,10 +502,10 @@ struct SettingsRow: View {
                 .frame(width: 24)
             
             VStack(alignment: .leading, spacing: 2) {
-                Text(title)
+                Text(LocalizedStringKey(title))
                     .font(.body)
                 if let subtitle = subtitle {
-                    Text(subtitle)
+                    Text(LocalizedStringKey(subtitle))
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -584,7 +532,7 @@ struct ToggleRow: View {
                 .foregroundColor(.blue)
                 .frame(width: 24)
             
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .font(.body)
             
             Spacer()
@@ -684,7 +632,7 @@ struct ReadingStatCard: View {
                 .frame(width: 30)
             
             VStack(alignment: .leading) {
-                Text(title)
+                Text(LocalizedStringKey(title))
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                 Text(value)
@@ -717,7 +665,7 @@ struct DarkModeOptionsView: View {
                                 .foregroundColor(.blue)
                                 .frame(width: 24)
                             
-                            Text(theme.displayName)
+                            Text(LocalizedStringKey(theme.displayName))
                                 .foregroundColor(.primary)
                             
                             Spacer()
@@ -783,7 +731,7 @@ struct CacheOptionsView: View {
                             } else {
                                 Image(systemName: "trash.fill")
                             }
-                            Text(isClearing ? "Rydder..." : "Ryd cache")
+                            Text(LocalizedStringKey(isClearing ? "Rydder..." : "Ryd cache"))
                         }
                         .frame(maxWidth: .infinity)
                         .padding()
@@ -822,6 +770,7 @@ struct CacheOptionsView: View {
 
 struct HelpSupportView: View {
     @Environment(\.dismiss) private var dismiss
+    @State private var showContact = false
     
     var body: some View {
         NavigationView {
@@ -832,15 +781,15 @@ struct HelpSupportView: View {
                     HelpRow(title: "Hvordan ændrer jeg notifikationer?", subtitle: "Gå til Indstillinger > Notifikationer")
                 }
                 
-                Section("Contact Support") {
+                Section("Kontakt") {
                     Button(action: {
-                        if let url = URL(string: "mailto:support@aproposmagazine.com") {
-                            UIApplication.shared.open(url)
-                        }
+                        showContact = true
                     }) {
-                        HelpRow(title: "E-mail support", subtitle: "support@aproposmagazine.com")
+                        HelpRow(title: "Kontakt os", subtitle: SupportContactPolicy.recipient)
                     }
                     .buttonStyle(PlainButtonStyle())
+                    .foregroundStyle(.primary)
+                    .tint(.primary)
                 }
             }
             .navigationTitle("Hjælp og support")
@@ -850,9 +799,11 @@ struct HelpSupportView: View {
                     Button("Færdig") {
                         dismiss()
                     }
+                    .tint(.primary)
                 }
             }
         }
+        .sheet(isPresented: $showContact) { ContactUsView() }
     }
 }
 
@@ -862,148 +813,13 @@ struct HelpRow: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .font(.headline)
-            Text(subtitle)
+            Text(LocalizedStringKey(subtitle))
                 .font(.subheadline)
                 .foregroundColor(.secondary)
         }
         .padding(.vertical, 4)
-    }
-}
-
-struct ContactUsView: View {
-    @Environment(\.dismiss) private var dismiss
-    @State private var message = ""
-    @State private var isSending = false
-    
-    var body: some View {
-        NavigationView {
-            VStack(spacing: 20) {
-                VStack(spacing: 8) {
-                    Text("📧")
-                        .font(.system(size: 60))
-                    Text("Kontakt os")
-                        .font(.title2)
-                        .fontWeight(.semibold)
-                }
-                
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Send us a message:")
-                        .font(.headline)
-                    
-                    TextEditor(text: $message)
-                        .frame(height: 120)
-                        .padding(8)
-                        .background(Color(.systemGray6))
-                        .cornerRadius(8)
-                }
-                
-                Button(action: {
-                    sendMessage()
-                }) {
-                    HStack {
-                        if isSending {
-                            ProgressView()
-                                .scaleEffect(0.8)
-                        } else {
-                            Image(systemName: "paperplane.fill")
-                        }
-                        Text(isSending ? "Sending..." : "Send Message")
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(message.isEmpty ? Color.gray : Color.blue)
-                    .foregroundColor(.white)
-                    .cornerRadius(12)
-                }
-                .disabled(message.isEmpty || isSending)
-                
-                Spacer()
-            }
-            .padding()
-            .navigationTitle("Kontakt os")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Færdig") {
-                        dismiss()
-                    }
-                }
-            }
-        }
-    }
-    
-    private func sendMessage() {
-        isSending = true
-        // Simulate sending
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            isSending = false
-            message = ""
-            dismiss()
-        }
-    }
-}
-
-// MARK: - Login Sheet
-
-struct LoginSheetView: View {
-    @Binding var isPresented: Bool
-    @ObservedObject private var userManager = UserManager.shared
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationView {
-            VStack(spacing: 24) {
-                Image("DefaultProfileAvatar")
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: 88, height: 88)
-                    .clipShape(Circle())
-                    .padding(.top, 8)
-
-                VStack(spacing: 12) {
-                    Text("Log ind")
-                        .font(.title2.bold())
-
-                    Text("Log ind for at gemme artikler og synkronisere på tværs af dine enheder.")
-                        .font(.body)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(nil)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity)
-                }
-                .padding(.horizontal, 24)
-
-                Spacer(minLength: 12)
-
-                GoogleSignInButton()
-                    .padding(.horizontal, 24)
-
-                Button("Annuller") {
-                    dismiss()
-                }
-                .foregroundStyle(.secondary)
-                .padding(.bottom, 24)
-            }
-            .padding(.top, 24)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Luk") {
-                        dismiss()
-                    }
-                }
-            }
-            .onChange(of: userManager.currentUser?.uid) { _, newValue in
-                if newValue != nil {
-                    isPresented = false
-                }
-            }
-        }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
     }
 }
 

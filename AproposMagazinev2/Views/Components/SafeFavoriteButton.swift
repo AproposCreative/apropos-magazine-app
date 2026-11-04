@@ -3,7 +3,6 @@ import SwiftUI
 struct SafeFavoriteButton: View {
     let article: Article
     @EnvironmentObject var viewModel: ArticleViewModel
-    @Environment(\.colorScheme) var colorScheme
     let onFavorite: ((Article) -> Void)?
     
     init(article: Article, onFavorite: ((Article) -> Void)? = nil) {
@@ -11,34 +10,18 @@ struct SafeFavoriteButton: View {
         self.onFavorite = onFavorite
     }
     
-    // Safe computed property to check if article is favorite
-    private var isArticleFavorite: Bool {
-        return viewModel.isFavorite(article)
-    }
-    
-    // Safe action to toggle favorite
-    private func safeToggleFavorite() {
-        // Add haptic feedback
+    private func safeToggleFavorite(generation: UUID) {
+        guard FavoritesRuntime.model.snapshot.generation == generation else { return }
         HapticManager.shared.lightImpact()
         viewModel.toggleFavorite(for: article)
         onFavorite?(article)
     }
     
     var body: some View {
-        Button(action: safeToggleFavorite) {
-            ZStack {
-                // Fixed size container to prevent layout shifts
-                Circle()
-                    .fill(Color.gray.opacity(0.1))
-                    .frame(width: 32, height: 32)
-                
-                // Icon with consistent sizing
-                Image(systemName: isArticleFavorite ? "checkmark" : "plus")
-                    .font(.system(size: 16, weight: .medium)) // Consistent font size
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                    .frame(width: 16, height: 16) // Fixed icon frame size
-            }
-        }
+        ArticleFavoriteControl(model: FavoritesRuntime.model, articleID: article.id,
+                               toggle: safeToggleFavorite, retry: viewModel.retryFavorites,
+                               requiresAccount: viewModel.accountSaveGate.isGuest && !viewModel.isFavorite(article),
+                               onAccountRequired: { viewModel.toggleFavorite(for: article) })
     }
 }
 

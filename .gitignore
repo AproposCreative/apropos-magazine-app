@@ -91,3 +91,12 @@ temp_interactive_push.bat
 # Podcast script local overrides
 scripts/podcast-download-sources.env
 branch_structure.json
+
+# Commit only the shared SwiftPM lockfile; keep other workspace state private.
+!AproposMagazinev2.xcodeproj/project.xcworkspace/
+AproposMagazinev2.xcodeproj/project.xcworkspace/*
+!AproposMagazinev2.xcodeproj/project.xcworkspace/xcshareddata/
+AproposMagazinev2.xcodeproj/project.xcworkspace/xcshareddata/*
+!AproposMagazinev2.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
+AproposMagazinev2.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/*
+!AproposMagazinev2.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved

@@ -1,5 +1,4 @@
 import Foundation
-import OSLog
 import SwiftUI
 import UserNotifications
 
@@ -11,7 +10,7 @@ class SmartNotificationService: NSObject, ObservableObject {
     static let shared = SmartNotificationService()
     
     private let notificationService = NotificationService.shared
-    private let logger = Logger(subsystem: "com.aproposmagazine.app", category: "SmartNotificationService")
+
     
     private override init() {
         super.init()
@@ -31,7 +30,7 @@ class SmartNotificationService: NSObject, ObservableObject {
         if authorized {
             HapticManager.shared.success()
         } else {
-            logger.warning("Push-autorisation blev ikke givet.")
+            AppDiagnostics.recordOperational(.notificationPermissionDenied)
             HapticManager.shared.error()
         }
     }
@@ -165,14 +164,13 @@ class SmartNotificationService: NSObject, ObservableObject {
         trigger: UNNotificationTrigger
     ) {
         guard NotificationDeliveryPolicy.shouldScheduleLocalNotification(settings: notificationSettings) else {
-            logger.info("Skipped local notification \(identifier, privacy: .public) due to delivery policy")
             return
         }
 
         let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
         UNUserNotificationCenter.current().add(request) { error in
-            if let error = error {
-                self.logger.error("Fejl ved planlægning af \(identifier, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            if error != nil {
+                AppDiagnostics.recordOperational(.notificationScheduleFailed)
             }
         }
     }

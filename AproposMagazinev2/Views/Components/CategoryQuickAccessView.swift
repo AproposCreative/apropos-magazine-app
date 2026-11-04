@@ -13,7 +13,7 @@ struct CategoryQuickAccessView: View {
     private var availableCategories: [String] {
         let categories = viewModel.topics
             .filter { topic in
-                viewModel.articles.contains { article in
+                viewModel.visibleArticles.contains { article in
                     let topicName = viewModel.topics.first(where: { $0.id == article.topicID })?.name ?? ""
                     return topicName.trimmingCharacters(in: .whitespacesAndNewlines) == topic.name
                 }
@@ -53,7 +53,7 @@ struct CategoryChipView: View {
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: 6) {
-                Text(title)
+                Text(LocalizedStringKey(title))
                     .font(.subheadline.weight(.medium))
                 
                 if let count = count, count > 0 {

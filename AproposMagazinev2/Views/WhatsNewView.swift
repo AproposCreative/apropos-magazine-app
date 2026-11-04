@@ -52,7 +52,7 @@ struct WhatsNewView: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 12)
                 
-                Text(sortedEntries.first?.subtitle ?? "Her er de seneste forbedringer i appen")
+                Text(LocalizedStringKey(sortedEntries.first?.subtitle ?? "Her er de seneste forbedringer i appen"))
                     .font(.system(.subheadline, weight: .medium))
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
@@ -102,7 +102,7 @@ private struct WhatsNewVersionSection: View {
                     .font(.system(.title2, weight: .bold))
                 
                 if let subtitle = entry.subtitle {
-                    Text(subtitle)
+                    Text(LocalizedStringKey(subtitle))
                         .font(.system(.subheadline, weight: .medium))
                         .foregroundStyle(.secondary)
                 }
@@ -154,11 +154,11 @@ private struct WhatsNewRow: View {
             .frame(width: 44, height: 44)
 
             VStack(alignment: .leading, spacing: 6) {
-                Text(item.title)
+                Text(LocalizedStringKey(item.title))
                     .font(.system(.headline, weight: .semibold))
                     .multilineTextAlignment(.leading)
 
-                Text(item.description)
+                Text(LocalizedStringKey(item.description))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

@@ -1,6 +1,6 @@
 import Foundation
 
-struct PodcastEpisode: Identifiable, Hashable {
+struct PodcastEpisode: Identifiable, Hashable, Sendable {
     let id: String
     let articleId: String?
     let articleSlug: String?
@@ -15,6 +15,7 @@ struct PodcastEpisode: Identifiable, Hashable {
     /// True when the audio is an AI-generated narration (vs. a human/NotebookLM podcast).
     /// Defaulted so existing initializers keep working.
     var isAINarration: Bool = false
+    var sourceContentRevision: String? = nil
 
     var hasPlayableAudioURL: Bool {
         guard let audioURL else { return false }
@@ -22,7 +23,7 @@ struct PodcastEpisode: Identifiable, Hashable {
     }
 }
 
-struct PodcastArticlePair: Identifiable, Hashable {
+struct PodcastArticlePair: Identifiable, Hashable, Sendable {
     let article: Article
     let episode: PodcastEpisode
 

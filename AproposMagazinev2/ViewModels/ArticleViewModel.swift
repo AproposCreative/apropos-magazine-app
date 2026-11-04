@@ -2,217 +2,654 @@ import Combine
 import FirebaseAuth
 import FirebaseFirestore
 import Foundation
-import OSLog
 
 @MainActor
 class ArticleViewModel: ObservableObject {
-    @Published var articles: [Article] = []
+    typealias ReadPermission = @MainActor () -> Bool
+    typealias ReadCompletion<Value> = (Result<Value, Error>) -> Void
+    /// Lazy effects at the existing read/cache boundaries; construction opens no SDK.
+    @MainActor struct ReadEffects {
+        typealias CatalogPreparation = (ArticleMirrorCatalog.Update, @escaping @MainActor () -> [Article], @escaping ReadPermission) async throws -> ArticleFeedSnapshot.Update
+        var feed: (@escaping ReadPermission, @escaping ReadCompletion<[Article]>) -> Void = { _, done in done(.failure(CancellationError())) }
+        var catalog: ((@escaping ReadPermission, @escaping ReadCompletion<ArticleMirrorCatalog.Update>) -> Void)?
+        var beginCatalogRead: () -> CatalogPreparation = { { _, _, _ in throw CancellationError() } }
+        var invalidateFeedCache: () -> Void = {}
+        var cacheFeed: (ArticleFeedSnapshot.Update) -> Void = { _ in }
+        var recordFeedArticles: ([Article]) -> Void = { _ in }
+        var scheduleFeedTimeout: ArticleFeedRefreshCoordinator.ScheduleTimeout?
+        var reconcileAvailability: (Set<String>) -> Void = { _ in }
+        var pruneFeedCache: () -> Void = {}
+        var article: (String, @escaping ReadPermission, @escaping ReadCompletion<Article>) -> Void = { _, _, done in done(.failure(CancellationError())) }
+        var canDownloadSavedBodies: () -> Bool = { false }
+        var recoverSavedAudioDownloads: (@escaping ReadPermission) -> Void = { _ in }
+        var refreshSavedAudioCatalog: (@escaping ReadPermission) async -> Void = { _ in }
+        var feedFallback: (@escaping ReadPermission, @escaping ReadCompletion<[Article]>) -> Void = { _, done in done(.failure(CancellationError())) }
+        var topics: (@escaping ReadPermission, @escaping ReadCompletion<[Topic]>) -> Void = { _, done in done(.failure(CancellationError())) }
+        var topicsFallback: (@escaping ReadPermission, @escaping ReadCompletion<[Topic]>) -> Void = { _, done in done(.failure(CancellationError())) }
+        var sections: (@escaping ReadPermission, @escaping ReadCompletion<[WebflowSection]>) -> Void = { _, done in done(.failure(CancellationError())) }
+        var sectionsFallback: (@escaping ReadPermission, @escaping ReadCompletion<[WebflowSection]>) -> Void = { _, done in done(.failure(CancellationError())) }
+        var authors: (@escaping ReadPermission, @escaping ReadCompletion<[Author]>) -> Void = { _, done in done(.failure(CancellationError())) }
+        var authorsFallback: (@escaping ReadPermission, @escaping ReadCompletion<[Author]>) -> Void = { _, done in done(.failure(CancellationError())) }
+        var stars: (@escaping ReadPermission, @escaping ([String: String]?) -> Void) -> Void = { _, done in done(nil) }
+        var starsFallback: (@escaping ReadPermission, @escaping ([String: String]) -> Void) -> Void = { _, done in done([:]) }
+        var incoming: (String, @escaping ReadPermission) async -> Result<Article, Error> = { _, _ in .failure(CancellationError()) }
+        var cacheTopics: ([Topic]) -> Void = { _ in }
+        var cacheSections: ([WebflowSection]) -> Void = { _ in }
+        var cacheAuthors: ([Author]) -> Void = { _ in }
+        var cacheStars: ([String: String]) -> Void = { _ in }
+        static var live: Self {
+            var e = Self()
+            e.feed = { permission, done in FirestoreArticleService.shared.fetchArticles(stillCurrent: permission, completion: done) }
+            e.catalog = { permission, done in FirestoreArticleService.shared.fetchCatalog(stillCurrent: permission, completion: done) }
+            e.beginCatalogRead = {
+                let cache = CacheManager.shared, original = cache.captureArticlesHydration()
+                return { update, current, permission in
+                    try await cache.prepareFeedUpdate(update, original: original, current: current, stillPermitted: permission)
+                }
+            }
+            e.invalidateFeedCache = { CacheManager.shared.invalidateArticleReads() }
+            e.cacheFeed = { update in
+                if let date = update.cacheTimestamp {
+                    CacheManager.shared.cacheArticles(update.articles, articlesAreSorted: true, timestamp: date)
+                }
+            }
+            e.recordFeedArticles = { PodcastAvailabilityService.recordArticles($0) }
+            e.reconcileAvailability = { withdrawn in
+                let availability = ArticleAvailabilityService.model
+                for id in withdrawn {
+                    let offline = OfflineManager.shared.offlineArticle(articleID: id)
+                    if availability.withdrawnIDs.contains(id) || offline.map({ !availability.permitsBody($0) }) != false {
+                        OfflineManager.shared.removeArticleFromOffline(id)
+                    }
+                }
+                FavoritesRuntime.model.reconcileAvailability()
+                OfflineManager.shared.synchronizeCurrentMembership()
+            }
+            e.pruneFeedCache = { CacheManager.shared.pruneUnavailableArticleMetadata() }
+            e.article = { id, permission, done in FirestoreArticleService.shared.fetchArticle(by: id, stillCurrent: permission, completion: done) }
+            e.canDownloadSavedBodies = { OfflineManager.shared.isOnline }
+            e.recoverSavedAudioDownloads = { permission in
+                guard permission() else { return }
+                OfflineManager.shared.recoverSavedAudioDownloads()
+            }
+            e.refreshSavedAudioCatalog = { permission in
+                guard permission() else { return }
+                await PodcastRepository.shared.refreshManifest(force: true, allowPrefetch: false)
+            }
+            e.feedFallback = { permission, done in guard permission() else { done(.failure(CancellationError())); return }; WebflowService.shared.fetchArticles(completion: done) }
+            e.topics = { permission, done in FirestoreMetadataService.shared.fetchTopics(stillCurrent: permission, completion: done) }
+            e.topicsFallback = { permission, done in guard permission() else { done(.failure(CancellationError())); return }; WebflowService.shared.fetchTopics(completion: done) }
+            e.sections = { permission, done in FirestoreMetadataService.shared.fetchSections(stillCurrent: permission, completion: done) }
+            e.sectionsFallback = { permission, done in guard permission() else { done(.failure(CancellationError())); return }; WebflowService.shared.fetchSections(completion: done) }
+            e.authors = { permission, done in FirestoreMetadataService.shared.fetchAuthors(stillCurrent: permission, completion: done) }
+            e.authorsFallback = { permission, done in guard permission() else { done(.failure(CancellationError())); return }; WebflowService.shared.fetchAuthors(completion: done) }
+            e.stars = { permission, done in FirestoreMetadataService.shared.fetchStarsMapping(stillCurrent: permission, completion: done) }
+            e.starsFallback = { permission, done in guard permission() else { done([:]); return }; WebflowService.shared.fetchStarsMapping(completion: done) }
+            e.incoming = { id, permission in await FirestoreArticleService.shared.fetchIncomingLinkArticle(
+                identifier: id, language: PreferencesManager.shared.articleLanguage, stillCurrent: permission) }
+            e.cacheTopics = { CacheManager.shared.cacheTopics($0) }
+            e.cacheSections = { CacheManager.shared.cacheSections($0) }
+            e.cacheAuthors = { CacheManager.shared.cacheAuthors($0) }
+            e.cacheStars = { CacheManager.shared.cacheStarsMapping($0) }
+            return e
+        }
+    }
+    private let injectedStartup: ReaderSDKStartupState?
+    private let readIdentity: CanonicalSessionState
+    private let injectedActualUserID: (@MainActor () -> String?)?
+    private let readEffects: ReadEffects
+    private var startRequested = false
+    private var startedContext: CanonicalSessionState.ContextTicket?
+    private var startAttempt = UUID()
+    private var startupStepsOverride: [(@escaping ReadPermission) -> Void]?
+    private var metadataStartupTask: Task<Void, Never>?
+    private var metadataRequests: [String: UUID] = [:]
+
+    struct AvailabilitySelection: Equatable {
+        let articleID: String
+        fileprivate let token: UUID
+    }
+    private let injectedAvailabilityModel: ArticleAvailabilityModel?
+    private let injectedAvailabilitySubscribe: ArticleAvailabilityService.Subscribe?
+    private let injectedAvailabilityMirror: ArticleAvailabilityService.Mirror?
+    private var availabilitySelection: AvailabilitySelection?
+    private var availabilityAttempt: UUID?
+    private var availabilityPermission: ReadPermission?
+    private var availabilityObservation: (model: ArticleAvailabilityModel, ticket: ArticleAvailabilityModel.ObservationTicket)?
+
+    func captureReadPermission() -> ReadPermission? {
+        if let injectedStartup {
+            guard let actual = injectedActualUserID else { return nil }
+            return injectedStartup.captureReaderWork(identity: readIdentity, actualUserID: actual)
+        }
+        return AuthService.shared.captureReaderWorkPermission()
+    }
+
+    /// The future guarded composition calls this after its accepted startup.
+    /// Legacy identity changes also call it, giving cold guest/account a fresh read.
+    func resumeReaderStartup(retryFailedFavorites: Bool = true) {
+        resumeAvailabilityObservation()
+        if retryFailedFavorites { refreshFavoritesAfterInterruption() }
+        else if favoritesObservationRequested { startFavoritesListenerIfNeeded() }
+        guard startRequested else { return }
+        start(readerSteps: startupStepsOverride)
+        if startupStepsOverride == nil { IncomingLinkRuntime.shared.refreshStartupReadiness() }
+    }
+
+    private func readContextChanged() {
+        stopFavoritesListener()
+        retireAvailabilityObservation()
+        startAttempt = UUID(); startedContext = nil
+        startupHydrationTask?.cancel(); startupHydrationTask = nil
+        startupHydrationBegan = false; startupAdmission.invalidate()
+        delayedFeedRefresh?.cancel(); delayedFeedRefresh = nil
+        metadataStartupTask?.cancel(); metadataStartupTask = nil
+        metadataRequests.removeAll()
+        feedRefreshCoordinator.invalidate()
+        objectWillChange.send()
+        Task { @MainActor [weak self] in self?.resumeReaderStartup() }
+    }
+
+    private let feedPublication = ArticleFeedPublication()
+    private lazy var startupAdmission = ArticleFeedStartupAdmission(feed: feedPublication)
+    var articles: [Article] {
+        get { feedPublication.snapshot.articles }
+        set { _ = feedPublication.replace(newValue) }
+    }
+    var articleChanges: AnyPublisher<[Article], Never> { feedPublication.changes.map(\.articles).eraseToAnyPublisher() }
+    private let languagePreferences: PreferencesManager?
+    @Published private(set) var articleLanguage: ArticleContentLanguage = .danish
+    let accountSaveGate: SavedArticleAccountGate
+    private let languageChanges = PassthroughSubject<Void, Never>()
+    private var feedFailures: [ArticleContentLanguage: Error] = [:]
+    /// Keep the authoritative catalog intact. A language choice only changes
+    /// presentation; it never removes a favorite, cached body or publication.
+    var visibleArticles: [Article] { ArticleLanguageSelection.visible(articles, language: articleLanguage) }
+    var visibleArticleChanges: AnyPublisher<[Article], Never> {
+        Publishers.Merge(articleChanges.map { _ in () }, languageChanges.eraseToAnyPublisher())
+            .map { [weak self] in self?.visibleArticles ?? [] }.eraseToAnyPublisher()
+    }
+    func isVisibleArticle(_ article: Article) -> Bool {
+        article.hasValidContentIdentity && article.contentLanguage == articleLanguage
+    }
+
+    private func selectArticleLanguage(_ language: ArticleContentLanguage) {
+        guard language != articleLanguage else { return }
+        accountSaveGate.cancel()
+        articleLanguage = language
+        fetchError = feedFailures[language].map { _ in ArticleMirrorCatalog.LanguageFailure(language: language) }
+        languageChanges.send()
+        guard hasStarted else { return }
+        // A result from the previous language cannot refill its Home rails.
+        recommendationCoordinator.invalidate()
+        personalizedRecommendations = []
+        aiRecommendations = []
+        homeRecommendations = []
+        prepareHomeIfNeeded()
+        queueRecommendationRefresh()
+        CacheManager.shared.syncWidgetFeed(from: articles, language: language)
+    }
+    private let homeInputReceiver = HomeFeedInputReceiver()
+    private lazy var preparedHome = HomeFeedPreparationModel(currentAuthority: { [weak self] in
+        self?.homeInputReceiver.authority
+    })
+    var homeFeedModel: HomeFeedPreparationModel { preparedHome }
+    private var homeAvailabilityRevision = UUID()
+    private var homeRecommendations: [HomeRecommendation] = []
+    private var homeRecommendationsOwner: UUID?
+    private var startupHydrationTask: Task<Void, Never>?
+    private var startupHydrationBegan = false
+    private var warmedHomeImageURLs = Set<URL>()
     @Published var aiRecommendations: [Article] = []
     @Published var personalizedRecommendations: [(Article, String)] = []
     @Published var isLoading: Bool = false
     @Published var fetchError: Error? = nil
     @Published var isLoadingAI: Bool = false
     @Published var aiError: String? = nil
-    @Published var favorites: [Article] = []
-    @Published var favoriteError: String? = nil
-    @Published var isLoadingFavorites: Bool = false
+    // Membership is never copied into a second mutable or legacy-backed list.
+    var favorites: [Article] { FavoritesRuntime.model.snapshot.articles }
+    var favoriteError: String? { FavoritesRuntime.model.snapshot.issueMessage }
+    var isLoadingFavorites: Bool { FavoritesRuntime.model.snapshot.state == .loading }
     @Published var user: UserProfile? = nil
-    @Published var topics: [Topic] = []
-    @Published var topicsError: Error? = nil
-    @Published var sections: [WebflowSection] = []
+    private struct Metadata {
+        var topics: [Topic] = []
+        var sections: [WebflowSection] = []
+        var authors: [Author] = []
+        var starsMapping: [String: String] = [:]
+    }
+    private var metadata = Metadata()
+    private let authorEvents = PassthroughSubject<[Author], Never>()
+    var authorChanges: AnyPublisher<[Author], Never> { authorEvents.eraseToAnyPublisher() }
+    var topics: [Topic] {
+        get { metadata.topics }
+        set { commitMetadata(newValue, at: \.topics, stillCurrent: { true }) }
+    }
+    var sections: [WebflowSection] {
+        get { metadata.sections }
+        set { commitMetadata(newValue, at: \.sections, stillCurrent: { true }) }
+    }
+    var authors: [Author] {
+        get { metadata.authors }
+        set { commitMetadata(newValue, at: \.authors, stillCurrent: { true }); authorEvents.send(metadata.authors) }
+    }
+    var starsMapping: [String: String] {
+        get { metadata.starsMapping }
+        set { commitMetadata(newValue, at: \.starsMapping, stillCurrent: { true }) }
+    }
+    private var topicFailure: Error?
+    var topicsError: Error? { topicFailure }
+    private func commitTopicsError(_ error: Error?, stillCurrent: ReadPermission) {
+        guard stillCurrent() else { return }
+        objectWillChange.send()
+        guard stillCurrent() else { return }
+        topicFailure = error
+    }
+    var isLoadingTopics: Bool { metadataRequests["topics"] != nil }
     @Published var sectionsError: Error? = nil
-    @Published var authors: [Author] = []
-    @Published var starsMapping: [String: String] = [:]
+
+    private func commitMetadata<Value>(_ value: Value, at path: WritableKeyPath<Metadata, Value>, stillCurrent: ReadPermission) {
+        guard stillCurrent() else { return }
+        objectWillChange.send()
+        guard stillCurrent() else { return }
+        metadata[keyPath: path] = value
+        prepareHomeIfNeeded()
+    }
     @Published var fullArticle: Article?
     @Published var anmeldelserTopicID:String? = nil
-    private let favoritesKey = "favoriteArticlesJSON"
     private var hasStarted = false
+    private var feedAvailabilityObservation: AnyCancellable?
+    private var appliedWithdrawals = Set<String>()
+    private var recommendationRefreshTask: Task<Void, Never>?
+    private var recommendationCanonicalUID: String? { AuthService.shared.state.snapshot.userID }
+    private var recommendationAccountInput: ReaderRecommendationAccountInput?
+    private var recommendationProfileUID: String?
+    private var recommendationProfileReadIDs: [String] = []
+    private var recommendationHistoryGeneration: UUID?
+    private var recommendationReadIDs = Set<String>()
+    private var observedFavoritesGeneration: UUID?
+    private lazy var recommendationCoordinator = RecommendationHistoryCoordinator(calculate: { input in
+        await RecommendationService.shared.generateRecommendations(input: input)
+    }, onChange: { [weak self] state in self?.applyRecommendations(state) })
     
-    // Track which articles are currently being loaded to prevent duplicate calls
-    var loadingArticles: Set<String> = []
-    
-    // Limit concurrent article loading to prevent system overload
-    private let maxConcurrentLoads = 1  // Reduced to 1 to prevent memory issues
-    private var currentLoadCount = 0
-    private var pendingLoads: [String] = []
-    private var didStartFavoritesListener = false
-    
-    private var notificationObserverTokens: [NSObjectProtocol] = []
-    private var pendingNotificationPayload: NotificationNavigation.Payload?
-    private let logger = Logger(subsystem: "com.aproposmagazine.app", category: "ArticleViewModel")
-    
-    init() {
-        // Listen for notification navigation
-        let openArticleToken = NotificationCenter.default.addObserver(
-            forName: NSNotification.Name("OpenArticleFromNotification"),
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            guard let self = self else { return }
-
-            if let payload = NotificationNavigation.payload(from: notification.userInfo ?? [:]) {
+    // Detail work has one active transport and only the latest pending selection.
+    @Published private(set) var loadingArticles: Set<String> = []
+    private lazy var detailLoader = ArticleDetailLoader(
+        fetchArticle: { [weak self] id, completion in
+            // The callback carries the membership/revision which existed before
+            // transport. It cannot acquire a later account's cache authority.
+            let access = OfflineManager.shared.captureAccess(articleID: id)
+            self?.fetchArticle(by: id) { result in
                 Task { @MainActor in
-                    await AppReadiness.waitUntilUIReady()
-                    self.navigateFromNotification(payload: payload)
+                    if let access, case .success(let article) = result {
+                        _ = OfflineManager.shared.saveArticleForOffline(article, ticket: access)
+                    }
+                    completion(result)
                 }
+            }
+        },
+        fetchAuthor: { [weak self] id, completion in
+            self?.fetchAuthor(by: id) { result in
+                Task { @MainActor in completion(result) }
+            }
+        },
+        offlineArticle: { Self.offlineArticle(for: $0) },
+        permitsBody: { ArticleAvailabilityService.model.permitsBody($0) },
+        onBody: { [weak self] article, origin in self?.applyDetailBody(article, origin: origin) },
+        onAuthor: { [weak self] id, authorID, author in
+            self?.applyDetailAuthor(author, articleID: id, authorID: authorID)
+        },
+        onFailure: { _, _ in
+            AppDiagnostics.recordOperational(.contentFetchFailed)
+        },
+        onLoadingChange: { [weak self] in self?.loadingArticles = $0 }
+    )
+
+    init(startup: ReaderSDKStartupState? = nil, identity: CanonicalSessionState? = nil,
+         featureIdentity: CanonicalSessionState? = nil,
+         actualUserID: (@MainActor () -> String?)? = nil, readEffects: ReadEffects? = nil,
+         availabilityModel: ArticleAvailabilityModel? = nil,
+         availabilitySubscribe: ArticleAvailabilityService.Subscribe? = nil,
+         availabilityMirror: ArticleAvailabilityService.Mirror? = nil,
+         favoriteObservationModel: FavoritesModel? = nil,
+         favoriteOffline: FavoritesOfflineCoordinator? = nil,
+         favoriteSubscribe: FirestoreService.FavoriteSubscribe? = nil,
+         favoriteCanonicalUserID: (@MainActor () -> String?)? = nil,
+         favoriteRetry: (@MainActor (UUID) -> Void)? = nil,
+         languagePreferences: PreferencesManager? = nil) {
+        self.languagePreferences = languagePreferences
+        articleLanguage = languagePreferences?.articleLanguage ?? .danish
+        injectedFavoriteModel = favoriteObservationModel
+        injectedFavoriteOffline = favoriteOffline
+        injectedFavoriteSubscribe = favoriteSubscribe
+        injectedFavoriteCanonicalUserID = favoriteCanonicalUserID
+        injectedFavoriteRetry = favoriteRetry
+        injectedAvailabilityModel = availabilityModel
+        injectedAvailabilitySubscribe = availabilitySubscribe
+        injectedAvailabilityMirror = availabilityMirror
+        injectedStartup = startup
+        readIdentity = identity ?? AuthService.shared.bootstrapIdentity
+        accountSaveGate = SavedArticleAccountGate(canonical: featureIdentity ?? identity ?? AuthService.shared.state)
+        injectedActualUserID = actualUserID
+        self.readEffects = readEffects ?? .live
+        if let favoriteObservationModel, favoriteOffline != nil {
+            // The all-local composition exercises the same narrow callback as
+            // the production favorite observer without starting its services.
+            favoriteObservationModel.changes.sink { [weak self] snapshot in
+                self?.observeSavedOfflineFavorites(snapshot)
+            }.store(in: &cancellables)
+        }
+        accountSaveGate.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+        languagePreferences?.$preferences.map { $0.contentPreferences.language == .english
+            ? ArticleContentLanguage.english : .danish }.removeDuplicates()
+            .sink { [weak self] in self?.selectArticleLanguage($0) }.store(in: &cancellables)
+        var previous = readIdentity.contextTicket()
+        readIdentity.changes.sink { [weak self] _ in
+            guard let self else { return }
+            let next = self.readIdentity.contextTicket()
+            guard next != previous else { return }
+            previous = next
+            self.readContextChanged()
+        }.store(in: &cancellables)
+        (startup ?? ReaderSDKStartupState.application).changes.sink { [weak self] in
+            // Identity may already have arrived while local startup was closed.
+            // Re-evaluate through the same original-account guards, including
+            // explicit guest startup; closing also retires old observations.
+            self?.readContextChanged()
+        }.store(in: &cancellables)
+        // Inert forwarding only; no SDK, cache or player construction.
+        feedPublication.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+        feedPublication.changes.sink { [weak self] _ in
+            guard let self, self.hasStarted else { return }
+            self.queueRecommendationRefresh()
+            self.prepareHomeIfNeeded()
+        }.store(in: &cancellables)
+    }
+
+    /// Captures committed source values only. Clock/progress/loading are absent.
+    /// Availability edges call this synchronously, before any deferred cleanup.
+    func prepareHomeIfNeeded() {
+        guard hasStarted else { return }
+        let owner = AuthService.shared.state.snapshot.generation
+        let permittedArticles = visibleArticles.filter { ArticleAvailabilityService.model.permitsBody($0) }
+        let permittedEpisodes = PodcastRepository.shared.episodes.filter { PodcastAvailabilityService.model.allows($0) }
+        let input = homeInputReceiver.receive(articles: permittedArticles, topics: topics, sections: sections,
+            authors: authors, episodes: permittedEpisodes, recommendations: homeRecommendations,
+            owner: owner, recommendationOwner: homeRecommendationsOwner, availability: homeAvailabilityRevision, now: Date())
+        preparedHome.update(input)
+    }
+
+    func acceptedHomeArticle(id: String, authority: HomeFeedAuthority) -> Article? {
+        guard hasStarted, homeInputReceiver.isCurrent(authority, owner: AuthService.shared.state.snapshot.generation),
+              let original = preparedHome.snapshot,
+              original.authority == authority,
+              let article = articles.first(where: { $0.id == id }),
+              isVisibleArticle(article),
+              ArticleAvailabilityService.model.permitsBody(article) else { return nil }
+        return article
+    }
+
+    func acceptedHomePair(articleID: String, episodeID: String, authority: HomeFeedAuthority) -> PodcastArticlePair? {
+        guard let article = acceptedHomeArticle(id: articleID, authority: authority),
+              let pair = preparedHome.snapshot?.podcastPairs.first(where: { $0.article.id == articleID && $0.episode.id == episodeID }),
+              ArticleDetailContentPolicy.sameRevision(pair.article, article),
+              HomePodcastAdmission.rawEpisode(for: pair, in: PodcastRepository.shared.episodes, requiresUniquePlayableID: false) != nil,
+              PodcastAvailabilityService.model.allows(pair.episode, articleID: articleID) else { return nil }
+        return PodcastArticlePair(article: article, episode: pair.episode)
+    }
+
+    func acceptedHomeResumePair(articleID: String, episodeID: String, authority: HomeFeedAuthority,
+                                progressContext: PodcastProgressContext, progressGeneration: UUID) -> PodcastArticlePair? {
+        guard let article = acceptedHomeArticle(id: articleID, authority: authority) else { return nil }
+        let store = PodcastProgressRuntime.store
+        let progress = store.snapshot
+        guard progressContext.namespace != nil, store.context == progressContext,
+              progress.generation == progressGeneration,
+              let pair = preparedHome.snapshot?.resumeIndex.pair(episodeID: progress.lastPlayedEpisodeID,
+                articleID: progress.lastPlayedArticleID, hasResumableProgress: progress.hasResumableProgress(for: episodeID)),
+              pair.article.id == articleID, pair.episode.id == episodeID,
+              ArticleDetailContentPolicy.sameRevision(pair.article, article),
+              HomePodcastAdmission.rawEpisode(for: pair, in: PodcastRepository.shared.episodes, requiresUniquePlayableID: true) != nil,
+              PodcastAvailabilityService.model.allows(pair.episode, articleID: articleID) else { return nil }
+        return PodcastArticlePair(article: article, episode: PodcastRepository.enriched(pair.episode, with: article))
+    }
+
+    /// Called only by the shared Home presentation after accepted content is
+    /// displayed. A completed worker or a dismissed spinner alone is not shown.
+    func homeSnapshotWasShown(_ snapshot: HomeFeedSnapshot) {
+        guard hasStarted, !snapshot.hero.isEmpty || snapshot.rails.contains(where: { !$0.visible.isEmpty }),
+              homeInputReceiver.isCurrent(snapshot.authority, owner: AuthService.shared.state.snapshot.generation),
+              preparedHome.isCurrent(snapshot.authority) else { return }
+        let heroURLs = snapshot.hero.prefix(2).compactMap { snapshot.metadataByID[$0.id]?.heroImageCandidates.first }
+        let articleURLs = (snapshot.podcastPairs.prefix(2).map(\.article) + snapshot.rail(.recommended).visible.prefix(4))
+            .compactMap { snapshot.metadataByID[$0.id]?.cardImageURL }
+        let requested = Array((heroURLs + articleURLs).prefix(FeatureFlags.homeImagePreloadLimit))
+            .filter { warmedHomeImageURLs.insert($0).inserted }
+        if !requested.isEmpty { CacheManager.shared.prefetchURLs(requested) }
+    }
+
+    func homeSceneBecameActive() { preparedHome.sceneBecameActive() }
+
+    func start(readerSteps: [(@escaping ReadPermission) -> Void]? = nil) {
+        startRequested = true
+        if let readerSteps { startupStepsOverride = readerSteps }
+        guard let permission = captureReadPermission() else { return }
+        let context = readIdentity.contextTicket()
+        guard startedContext != context else { return }
+        let attempt = UUID(); startAttempt = attempt
+        let steps = startupStepsOverride ?? [
+            { [weak self] permission in self?.installReaderObservers(stillCurrent: permission) },
+            { [weak self] permission in self?.beginStartupHydrationIfNeeded(stillCurrent: permission) },
+            { [weak self] permission in self?.scheduleReaderLoads(stillCurrent: permission) }
+        ]
+        for step in steps {
+            guard startAttempt == attempt, permission() else { return }
+            step(permission)
+        }
+        guard startAttempt == attempt, permission() else { return }
+        startedContext = context
+    }
+
+    private func installReaderObservers(stillCurrent: @escaping ReadPermission) {
+        guard !hasStarted, stillCurrent() else { return }
+        hasStarted = true
+        IncomingLinkRuntime.shared.bindResolver({ [weak self] request in
+            await self?.resolveIncomingLink(request)
+        }, cancelPendingSeek: { PodcastPlayerManager.shared.cancelIncomingLinkSeek() })
+        let favoritesModel = FavoritesRuntime.model
+        favoritesModel.changes.sink { [weak self] snapshot in
+            self?.observeFavorites(snapshot)
+        }.store(in: &cancellables)
+        observeFavorites(favoritesModel.snapshot)
+        let history = ReadingHistoryRuntime.model
+        observeRecommendationHistory(history.snapshot)
+        history.changes.sink { [weak self] snapshot in
+            self?.observeRecommendationHistory(snapshot)
+        }.store(in: &cancellables)
+        let canonical = AuthService.shared.state
+        canonical.changes.sink { [weak self, weak canonical] snapshot in
+            guard let canonical, snapshot.generation == canonical.snapshot.generation,
+                  snapshot.revision == canonical.snapshot.revision else { return }
+            self?.observeRecommendationAccount()
+        }.store(in: &cancellables)
+        let profileState = UserManager.shared.state
+        let receiveProfile: (UserProfileState.Snapshot) -> Void = { [weak self, weak profileState] snapshot in
+            guard let self, let profileState,
+                  snapshot.generation == profileState.snapshot.generation,
+                  snapshot.revision == profileState.snapshot.revision else { return }
+            let profile = snapshot.profile
+            let uid = profile?.uid
+            let ids = RecommendationHistorySelection.validatedProfileIDs(profile?.readArticles ?? [])
+            guard uid != self.recommendationProfileUID || Set(ids) != Set(self.recommendationProfileReadIDs) else { return }
+            self.recommendationProfileUID = uid
+            self.recommendationProfileReadIDs = ids
+            self.queueRecommendationRefresh()
+        }
+        profileState.changes.sink(receiveValue: receiveProfile).store(in: &cancellables)
+        receiveProfile(profileState.snapshot)
+        installFeedAvailabilityObserver(stillCurrent: stillCurrent)
+        if stillCurrent() { ReaderPreferencesService.shared.start() }
+        let preferences = ReaderPreferencesService.shared.model
+        preferences.changes.sink { [weak self, weak preferences] snapshot in
+            guard let preferences, snapshot.generation == preferences.snapshot.generation,
+                  snapshot.revision == preferences.snapshot.revision else { return }
+            self?.observeRecommendationAccount()
+        }.store(in: &cancellables)
+        let guestInterests = ReaderIntroductionRuntime.guestInterests
+        guestInterests.changes.sink { [weak self, weak guestInterests] snapshot in
+            guard let guestInterests, snapshot.revision == guestInterests.snapshot.revision else { return }
+            self?.observeRecommendationAccount()
+        }.store(in: &cancellables)
+        guestInterests.start()
+        // Passthrough publishers deliberately do not replay a previous owner.
+        // Capture the actual committed initial state after subscribing to both.
+        observeRecommendationAccount()
+
+        let repository = PodcastRepository.shared
+        repository.changes.sink { [weak self] _ in self?.prepareHomeIfNeeded() }.store(in: &cancellables)
+        PodcastAvailabilityService.model.changes.sink { [weak self] in
+            self?.homeAvailabilityRevision = UUID()
+            self?.prepareHomeIfNeeded()
+        }.store(in: &cancellables)
+        prepareHomeIfNeeded()
+
+    }
+
+    /// Same subscription in the live composition and the isolated read harness.
+    /// Installing it alone never starts account, metadata or playback services.
+    func installFeedAvailabilityObserver(stillCurrent: @escaping ReadPermission) {
+        guard feedAvailabilityObservation == nil, stillCurrent() else { return }
+        let availability = injectedAvailabilityModel ?? ArticleAvailabilityService.model
+        feedAvailabilityObservation = availability.changes.sink { [weak self] change in
+            // Preserve the denial edge even if republication overtakes cleanup.
+            self?.homeAvailabilityRevision = UUID()
+            self?.prepareHomeIfNeeded()
+            self?.recommendationCoordinator.invalidate()
+            for id in change.invalidatedBodyIDs { self?.detailLoader.invalidate(id: id) }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.applyArticleAvailability(observedWithdrawals: change.withdrawnIDs)
+                if change.refreshFeed { _ = self.requestFeedRefresh(showsLoading: false) }
+            }
+        }
+    }
+
+    private func scheduleReaderLoads(stillCurrent: @escaping ReadPermission) {
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            guard let self, stillCurrent(), !Task.isCancelled else { return }
+            self.loadFavorites()
+            guard stillCurrent() else { return }
+            self.loadCachedMetadata(stillCurrent: stillCurrent)
+        }
+        metadataStartupTask?.cancel()
+        metadataStartupTask = Task { @MainActor [weak self] in
+            do { try await Task.sleep(nanoseconds: 2_500_000_000) } catch { return }
+            guard let self, stillCurrent(), !Task.isCancelled,
+                  !PodcastPlayerManager.shared.isPlaybackSessionActive else { return }
+            self.fetchMetadataInBackground(stillCurrent: stillCurrent)
+            guard stillCurrent(), !Task.isCancelled else { return }
+            self.fetchPersonalizedRecommendationsIfNeeded(force: true)
+            guard stillCurrent(), !Task.isCancelled else { return }
+            await SeriesService.shared.fetchSeries(stillCurrent: stillCurrent)
+        }
+    }
+
+    deinit {
+        // The shared editorial model outlives this VM. Retire only this exact
+        // listener; a new view may subscribe before MainActor cleanup runs.
+        if let observation = availabilityObservation {
+            Task { @MainActor in observation.model.stop(observation: observation.ticket) }
+        }
+        recommendationRefreshTask?.cancel()
+        startupHydrationTask?.cancel()
+        metadataStartupTask?.cancel()
+        delayedFeedRefresh?.cancel()
+        if let observation = favoritesObservation {
+            Task { @MainActor in
+                observation.model.endObservation(observation.ticket)
+                observation.listener?.remove()
+            }
+        }
+        
+
+    }
+    
+    private var delayedFeedRefresh: Task<Void, Never>?
+    private lazy var feedRefreshCoordinator = ArticleFeedRefreshCoordinator(
+        fetchCatalog: { [weak self] permission, completion in
+            guard let self else {
+                completion(.failure(CancellationError()))
                 return
             }
-
-            if let articleId = notification.userInfo?["articleId"] as? String, !articleId.isEmpty {
-                Task { @MainActor in
-                    await AppReadiness.waitUntilUIReady()
-                    self.navigateFromNotification(
-                        payload: NotificationNavigation.Payload(
-                            articleIdentifier: articleId,
-                            articleSlug: nil,
-                            type: "general",
-                            podcastTitle: nil
-                        )
-                    )
-                }
-            } else if let articleName = notification.userInfo?["articleName"] as? String, !articleName.isEmpty {
-                Task { @MainActor in
-                    await AppReadiness.waitUntilUIReady()
-                    self.navigateToArticleByName(articleName: articleName)
-                }
-            }
+            guard permission() else { completion(.failure(CancellationError())); return }
+            self.fetchRemoteFeedUpdate(stillCurrent: permission, completion: completion)
+        },
+        scheduleTimeout: readEffects.scheduleFeedTimeout,
+        loadingChanged: { [weak self] isLoading in
+            self?.isLoading = isLoading
+            if isLoading { self?.fetchError = nil }
+        },
+        completedCatalog: { [weak self] result, showsLoading, permission in
+            guard let self, permission() else { return }
+            self.handleRemoteArticlesResult(result, isSilent: !showsLoading, stillCurrent: permission)
         }
-        notificationObserverTokens.append(openArticleToken)
-        
-        // Listen for article fetch requests
-        let fetchArticleToken = NotificationCenter.default.addObserver(
-            forName: NSNotification.Name("FetchArticleForNavigation"),
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            guard let self = self else { return }
-            if let articleId = notification.userInfo?["articleId"] as? String {
-                Task { @MainActor in
-                    self.fetchAndNavigateToArticle(articleId: articleId)
-                }
-            }
-        }
-        notificationObserverTokens.append(fetchArticleToken)
+    )
 
-        let openAuthorToken = NotificationCenter.default.addObserver(
-            forName: NSNotification.Name("OpenAuthorFromDeepLink"),
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            guard let self = self else { return }
-            guard let authorId = notification.userInfo?["authorId"] as? String, !authorId.isEmpty else { return }
-            Task { @MainActor in
-                await AppReadiness.waitUntilUIReady()
-                self.openAuthorPage(authorId: authorId)
-            }
-        }
-        notificationObserverTokens.append(openAuthorToken)
-
-    }
-
-    func start() {
-        guard !hasStarted else { return }
-        hasStarted = true
-
-        // Hydrate cached articles synchronously so repeat launches can skip the
-        // splash and show Home immediately instead of waiting on async work.
-        if let cached = CacheManager.shared.getCachedArticles(), !cached.isEmpty {
-            articles = sortedNewestFirst(cached.filter(\.isPubliclyPublished))
-            isLoading = false
-        }
-
-        // First paint: favorites + articles only. Defer the rest.
-        Task { @MainActor in
-            await Task.yield()
-            loadFavorites()
-            fetchArticles()
-            loadCachedMetadata()
-        }
-
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 2_500_000_000)
-            guard !PodcastPlayerManager.shared.isPlaybackSessionActive else { return }
-            fetchMetadataInBackground()
-            if let cached = RecommendationService.shared.loadCached() {
-                personalizedRecommendations = cached
-            }
-            await SeriesService.shared.fetchSeries()
-        }
-
-        // Overvåg UserManager ændringer og synkroniser favoritter
-        UserManager.shared.$currentUser
-            .removeDuplicates { user1, user2 in
-                // Safety check: ensure we have valid users to compare
-                guard let uid1 = user1?.uid, !uid1.isEmpty,
-                      let uid2 = user2?.uid, !uid2.isEmpty else {
-                    return user1?.uid == user2?.uid
-                }
-                return uid1 == uid2
-            }
-            .sink { [weak self] user in
-                guard let self = self else { return }
-                
-                if let user = user, !user.uid.isEmpty {
-                    self.startFavoritesListenerIfNeeded()
-                    Task { await self.syncFavoritesWithFirestore() }
-                } else {
-                    // Tear down cloud listener only — do not wipe guest local favorites.
-                    // Authenticated logout clears via clearSessionDataOnLogout() from Settings.
-                    self.favoritesListener?.remove()
-                    self.favoritesListener = nil
-                    self.didStartFavoritesListener = false
-                }
-            }
-            .store(in: &cancellables)
-
-    }
-    
-    deinit {
-        if let favoritesListener = favoritesListener {
-            favoritesListener.remove()
-            self.favoritesListener = nil
-        }
-        
-        for token in notificationObserverTokens {
-            NotificationCenter.default.removeObserver(token)
-        }
-        notificationObserverTokens.removeAll()
-    }
-    
     func fetchArticles(forceRefresh: Bool = false) {
-        guard !isLoading || forceRefresh else {
-            return
+        if forceRefresh || feedRefreshCoordinator.isRefreshing || startupHydrationBegan {
+            _ = requestFeedRefresh(showsLoading: forceRefresh || articles.isEmpty)
+        } else {
+            beginStartupHydrationIfNeeded()
         }
-        
-        // Try cache first for fast startup (unless force refresh)
-        if !forceRefresh, let cached = CacheManager.shared.getCachedArticles(), !cached.isEmpty {
-            // Sort cached articles by date (newest first)
-            let sortedCached = sortedNewestFirst(cached.filter(\.isPubliclyPublished))
-            
-            // Show cached articles immediately (no loading state)
-            self.articles = sortedCached
-            self.isLoading = false
-            CacheManager.shared.syncWidgetFeed(from: sortedCached)
-            self.retryPendingNotificationNavigationIfNeeded()
-            
-            // Keep launch light: only warm the first few visible images.
-            CacheManager.shared.preloadImages(for: Array(sortedCached.prefix(5)))
-            
-            // Load favorites after articles are available
-            Task { [weak self] in await self?.syncFavoritesWithFirestore() }
-            
-            // Silently refresh in background (don't show loading state)
-            refreshArticlesInBackground()
-            return
-        }
+    }
 
-        Task { [weak self] in
-            await self?.performRemoteArticleFetch(forceRefresh: forceRefresh, minimumLoadingDuration: 0.3)
+    private func beginStartupHydrationIfNeeded(stillCurrent: ReadPermission? = nil) {
+        guard !startupHydrationBegan, let permission = stillCurrent ?? captureReadPermission(), permission() else { return }
+        startupHydrationBegan = true
+        // Empty is not an authoritative result while the captured cache is
+        // still decoding. Late cache replies recheck ownership before clearing.
+        isLoading = articles.isEmpty
+        let original = startupAdmission.capture()
+        let cache = CacheManager.shared
+        let capture = cache.captureArticlesHydration()
+        startupHydrationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let outcome = await cache.loadCapturedArticles(capture, stillPermitted: { [weak self] in
+                permission() && self?.startupAdmission.isCurrent(original) == true && !Task.isCancelled
+            })
+            guard permission(), self.startupAdmission.isCurrent(original), !Task.isCancelled else { return }
+            if case .ready(let prepared) = outcome, !prepared.articles.isEmpty {
+                let availability = ArticleAvailabilityService.model
+                let authority = availability.projectionRevision
+                let accepted = prepared.articles.filter { availability.permitsBody($0) }
+                guard !accepted.isEmpty else {
+                    _ = self.requestFeedRefresh(showsLoading: self.articles.isEmpty, stillCurrent: permission)
+                    return
+                }
+                PodcastAvailabilityService.recordArticles(accepted)
+                guard let receipt = self.startupAdmission.adopt(accepted, original: original,
+                    stillPermitted: { permission() && cache.isCurrentArticleRead(capture)
+                        && availability.projectionRevision == authority }),
+                    self.startupAdmission.isCurrent(original), self.feedPublication.isCurrent(receipt),
+                    cache.isCurrentArticleRead(capture), permission(), availability.projectionRevision == authority else { return }
+                self.isLoading = false
+                guard permission(), self.startupAdmission.isCurrent(original), self.feedPublication.isCurrent(receipt),
+                      availability.projectionRevision == authority else { return }
+                cache.syncWidgetFeed(from: accepted, articlesAreSorted: true)
+                // Home performs one bounded first-screen warm from its snapshot.
+                self.refreshArticlesInBackground(stillCurrent: permission)
+            } else {
+                _ = self.requestFeedRefresh(showsLoading: self.articles.isEmpty, stillCurrent: permission)
+            }
         }
     }
 
     func refreshArticles() async {
+        guard let permission = captureReadPermission() else { return }
         await performRemoteArticleFetch(forceRefresh: true, minimumLoadingDuration: 0)
+        guard permission(), !Task.isCancelled else { return }
         await PodcastRepository.shared.refreshManifest(force: true)
     }
 
@@ -220,156 +657,171 @@ class ArticleViewModel: ObservableObject {
         forceRefresh: Bool,
         minimumLoadingDuration: TimeInterval
     ) async {
-        guard !isLoading || forceRefresh else { return }
-
-        isLoading = true
-        fetchError = nil
-        let startTime = Date()
-
-        let result: Result<[Article], Error> = await withCheckedContinuation { continuation in
-            let lock = NSLock()
-            var hasResumed = false
-            let resumeOnce: (Result<[Article], Error>) -> Void = { value in
-                lock.lock()
-                defer { lock.unlock() }
-                guard !hasResumed else { return }
-                hasResumed = true
-                continuation.resume(returning: value)
-            }
-
-            fetchRemoteArticles { result in
-                resumeOnce(result)
-            }
-
-            // Prevent an unbounded Firestore hang from leaving isLoading=true forever
-            // (which previously kept the splash screen from ever dismissing).
-            Task {
-                try? await Task.sleep(nanoseconds: 12_000_000_000)
-                resumeOnce(.failure(
-                    NSError(
-                        domain: "ArticleViewModel",
-                        code: NSURLErrorTimedOut,
-                        userInfo: [NSLocalizedDescriptionKey: "Timeout ved hentning af artikler"]
-                    )
-                ))
-            }
-        }
-
-        let elapsed = Date().timeIntervalSince(startTime)
-        let remainingTime = max(0, minimumLoadingDuration - elapsed)
-        if remainingTime > 0 {
-            try? await Task.sleep(nanoseconds: UInt64(remainingTime * 1_000_000_000))
-        }
-
-        isLoading = false
-        handleRemoteArticlesResult(result, clearOnEmptyFailure: !forceRefresh)
-        resumeArticleLoadWaiters()
+        // Keep this entry point for notification navigation. Request ownership
+        // is shared with silent refreshes; force never bypasses an active query.
+        // Local loading no longer adds an artificial minimum delay.
+        await requestFeedRefresh(showsLoading: true).value
     }
-
-    private var articleLoadWaiters: [CheckedContinuation<Void, Never>] = []
 
     /// Waits until the current article fetch cycle completes.
     func waitForArticleLoadCycle() async {
-        if !isLoading { return }
-        await withCheckedContinuation { continuation in
-            articleLoadWaiters.append(continuation)
-        }
+        await feedRefreshCoordinator.waitForCurrentRefresh()
     }
 
-    private func resumeArticleLoadWaiters() {
-        guard !articleLoadWaiters.isEmpty else { return }
-        for waiter in articleLoadWaiters {
-            waiter.resume()
-        }
-        articleLoadWaiters.removeAll()
+    @discardableResult
+    private func requestFeedRefresh(showsLoading: Bool, stillCurrent: ReadPermission? = nil) -> Task<Void, Never> {
+        guard let permission = stillCurrent ?? captureReadPermission(), permission() else { return Task {} }
+        delayedFeedRefresh?.cancel()
+        delayedFeedRefresh = nil
+        return feedRefreshCoordinator.refresh(showsLoading: showsLoading, stillCurrent: permission)
     }
     
     /// Feed list without HTML bodies. Keeps any body already loaded in `articles`
     /// so an open reader is not blanked by a silent refresh.
     private func feedArticles(from articles: [Article]) -> [Article] {
-        let loadedBodies = Dictionary(
-            uniqueKeysWithValues: self.articles.compactMap { article -> (String, String)? in
-                guard let content = article.content, !content.isEmpty else { return nil }
-                return (article.id, content)
-            }
-        )
-        return sortedNewestFirst(articles.filter(\.isPubliclyPublished)).map { article in
-            if let body = loadedBodies[article.id] {
-                return article.replacingBodyContent(body)
-            }
-            return article.strippingBodyContent()
+        return ArticleFeedSnapshot.merging(articles, retainingDetailsFrom: self.articles)
+    }
+
+    func fetchRemoteArticles(stillCurrent: ReadPermission? = nil, completion: @escaping ReadCompletion<[Article]>) {
+        fetchRemoteFeedUpdate(stillCurrent: stillCurrent) { result in
+            completion(result.flatMap { update in
+                if let error = ArticleContentLanguage.allCases.compactMap({ update.failures[$0] }).first {
+                    return .failure(error)
+                }
+                return .success(update.articles)
+            })
         }
     }
 
-    private func fetchRemoteArticles(completion: @escaping (Result<[Article], Error>) -> Void) {
-        FirestoreArticleService.shared.fetchArticles { result in
-            switch result {
-            case .success:
-                completion(result)
-            case .failure(FirestoreArticleError.empty):
-                self.logger.info("Firestore articles empty – falling back to Webflow")
-                WebflowService.shared.fetchArticles(completion: completion)
-            case .failure(let error):
-                completion(.failure(error))
+    func fetchRemoteFeedUpdate(stillCurrent: ReadPermission? = nil,
+                               completion: @escaping ReadCompletion<ArticleFeedSnapshot.Update>) {
+        guard let permission = stillCurrent ?? captureReadPermission(), permission() else {
+            completion(.failure(CancellationError())); return
+        }
+        if readEffects.canDownloadSavedBodies(), permission() {
+            let model = injectedFavoriteModel ?? FavoritesRuntime.model
+            let availability = injectedAvailabilityModel ?? ArticleAvailabilityService.model
+            availability.trackPublicationIDs(Set(model.snapshot.articles.map(\.id)))
+        }
+        if let catalog = readEffects.catalog {
+            guard permission() else { completion(.failure(CancellationError())); return }
+            let prepare = readEffects.beginCatalogRead()
+            guard permission() else { completion(.failure(CancellationError())); return }
+            catalog(permission) { [weak self] result in
+                Task { @MainActor in
+                    guard let self, permission() else { completion(.failure(CancellationError())); return }
+                    switch result {
+                    case .success(let update):
+                        do {
+                            let prepared = try await prepare(update, { [weak self] in self?.articles ?? [] }, permission)
+                            completion(permission() ? .success(prepared) : .failure(CancellationError()))
+                        } catch { completion(permission() ? .failure(error) : .failure(CancellationError())) }
+                    case .failure(let error as FirestoreArticleError) where error.allowsCMSFallback:
+                        self.readEffects.feedFallback(permission) { result in
+                            Task { @MainActor in
+                                completion(permission() ? result.map(ArticleFeedSnapshot.Update.complete) : .failure(CancellationError()))
+                            }
+                        }
+                    case .failure(let error): completion(.failure(error))
+                    }
+                }
+            }
+            return
+        }
+        readEffects.feed(permission) { [weak self] result in
+            Task { @MainActor in
+                guard let self, permission() else { completion(.failure(CancellationError())); return }
+                if case .failure(let error as FirestoreArticleError) = result, error.allowsCMSFallback {
+                    self.readEffects.feedFallback(permission) { result in
+                        Task { @MainActor in completion(permission() ? result.map(ArticleFeedSnapshot.Update.complete) : .failure(CancellationError())) }
+                    }
+                } else { completion(result.map(ArticleFeedSnapshot.Update.complete)) }
             }
         }
     }
 
-    private func handleRemoteArticlesResult(_ result: Result<[Article], Error>, clearOnEmptyFailure: Bool) {
+    private func handleRemoteArticlesResult(_ result: Result<ArticleFeedSnapshot.Update, Error>, isSilent: Bool, stillCurrent: @escaping ReadPermission) {
+        guard stillCurrent() else { return }
         switch result {
-        case .success(let articles):
-            let sortedArticles = feedArticles(from: articles)
-            self.articles = sortedArticles
-            CacheManager.shared.cacheArticles(sortedArticles)
-            CacheManager.shared.preloadImages(for: Array(sortedArticles.prefix(5)))
-            self.retryPendingNotificationNavigationIfNeeded()
-            Task { [weak self] in await self?.syncFavoritesWithFirestore() }
+        case .success(let update):
+            guard update.baselineIsCurrent(), stillCurrent(), update.baselineIsCurrent() else { return }
+            guard update.hasAcceptedNamespace else {
+                // A forced refresh can precede normal startup hydration. Failed
+                // reads may still reveal an existing valid cache, never renew it.
+                if articles.isEmpty && !update.articles.isEmpty {
+                    let original = startupAdmission.capture()
+                    let availability = injectedAvailabilityModel ?? ArticleAvailabilityService.model
+                    let authority = availability.projectionRevision
+                    let cached = feedArticles(from: update.articles).filter { availability.permitsBody($0) }
+                    guard let receipt = startupAdmission.adopt(cached, original: original, stillPermitted: {
+                        update.baselineIsCurrent() && stillCurrent() && update.baselineIsCurrent()
+                            && availability.projectionRevision == authority
+                    }), feedPublication.isCurrent(receipt), stillCurrent() else { return }
+                }
+                feedFailures = update.failures
+                fetchError = update.displayError(for: articleLanguage)
+                return
+            }
+            // Even an authoritative empty result wins over an older cache read.
+            startupAdmission.invalidate()
+            readEffects.invalidateFeedCache()
+            let original = startupAdmission.capture()
+            let availability = injectedAvailabilityModel ?? ArticleAvailabilityService.model
+            readEffects.recordFeedArticles(update.sourceArticles)
+            guard stillCurrent(), startupAdmission.isCurrent(original) else { return }
+            let authority = availability.projectionRevision
+            let permitted: ReadPermission = {
+                stillCurrent() && availability.projectionRevision == authority
+            }
+            let sortedArticles = feedArticles(from: update.articles).filter { availability.permitsBody($0) }
+            guard let receipt = startupAdmission.adopt(sortedArticles, original: original, stillPermitted: permitted),
+                  startupAdmission.isCurrent(original), feedPublication.isCurrent(receipt), permitted() else { return }
+            if update.cacheTimestamp != nil { readEffects.cacheFeed(.init(articles: sortedArticles,
+                sourceArticles: update.sourceArticles, cacheTimestamp: update.cacheTimestamp,
+                failures: update.failures, hasAcceptedNamespace: true, didChange: update.didChange,
+                freshLanguages: update.freshLanguages, baselineIsCurrent: { true })) }
+            guard permitted(), startupAdmission.isCurrent(original), feedPublication.isCurrent(receipt) else { return }
+            refreshSavedOfflineContent(from: update.sourceArticles.filter {
+                $0.contentLanguage.map(update.freshLanguages.contains) == true && availability.permitsBody($0)
+            }, stillCurrent: {
+                permitted() && self.startupAdmission.isCurrent(original) && self.feedPublication.isCurrent(receipt)
+            })
+            guard permitted(), startupAdmission.isCurrent(original), feedPublication.isCurrent(receipt) else { return }
+            Task { [weak self] in guard permitted() else { return }; await self?.syncFavoritesWithFirestore() }
 
-            if articles.isEmpty {
+            guard stillCurrent() else { return }
+            feedFailures = update.failures
+            if let error = update.displayError(for: articleLanguage) {
+                self.fetchError = error
+            } else if update.articles.isEmpty {
                 self.fetchError = NSError(
                     domain: "ViewModel",
                     code: -1,
-                    userInfo: [NSLocalizedDescriptionKey: "Ingen artikler fundet."]
+                    userInfo: [NSLocalizedDescriptionKey: AppLocalization.string("Ingen artikler fundet.", language: articleLanguage)]
                 )
             } else {
                 self.fetchError = nil
             }
         case .failure(let error):
-            logger.error("Fejl ved hentning af artikler: \(error.localizedDescription, privacy: .public)")
-            self.fetchError = error
-            if clearOnEmptyFailure && self.articles.isEmpty {
-                self.articles = []
+            guard !(error is CancellationError) else { return }
+            feedFailures = Dictionary(uniqueKeysWithValues: ArticleContentLanguage.allCases.map { ($0, error) })
+            AppDiagnostics.recordOperational(.contentFetchFailed)
+            if !isSilent || self.articles.isEmpty {
+                self.fetchError = ArticleMirrorCatalog.LanguageFailure(language: articleLanguage)
             }
         }
     }
     
     /// Silently refresh articles in background without showing loading state
-    private func refreshArticlesInBackground() {
-        Task { [weak self] in
-            guard let self = self else { return }
-            
+    private func refreshArticlesInBackground(stillCurrent: ReadPermission? = nil) {
+        guard delayedFeedRefresh == nil, let permission = stillCurrent ?? captureReadPermission(), permission() else { return }
+        delayedFeedRefresh = Task { [weak self] in
             // Wait a bit to not interfere with initial load
-            try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
-            
-            fetchRemoteArticles { [weak self] result in
-                guard let self = self else { return }
-                
-                switch result {
-                case .success(let articles):
-                    let sortedArticles = self.feedArticles(from: articles)
-                    
-                    Task { @MainActor in
-                        // Compare feed metadata (bodies are stripped), so field-level
-                        // changes replace the stale cache instead of being discarded.
-                        if sortedArticles != self.articles {
-                            self.articles = sortedArticles
-                            CacheManager.shared.cacheArticles(sortedArticles)
-                        }
-                    }
-                case .failure(let error):
-                    self.logger.error("Baggrundsopdatering af artikler fejlede: \(error.localizedDescription, privacy: .public)")
-                }
-            }
+            do { try await Task.sleep(nanoseconds: 2_000_000_000) }
+            catch { return }
+            guard !Task.isCancelled, let self, permission() else { return }
+            self.delayedFeedRefresh = nil
+            await self.requestFeedRefresh(showsLoading: false, stillCurrent: permission).value
         }
     }
     
@@ -377,25 +829,14 @@ class ArticleViewModel: ObservableObject {
     /// loading state and only replaces the list if the content actually changed,
     /// so the user sees fresh articles without a jarring spinner or scroll reset.
     func refreshOnForeground() {
+        // The scene already retried favorites before its playback/feed throttle.
+        resumeReaderStartup(retryFailedFavorites: false)
+        guard let permission = captureReadPermission() else { return }
+        preparedHome.sceneBecameActive()
         guard !PodcastPlayerManager.shared.isPlaybackSessionActive else { return }
-        fetchRemoteArticles { [weak self] result in
-            guard let self = self else { return }
-            switch result {
-            case .success(let articles):
-                let sortedArticles = self.feedArticles(from: articles)
-                Task { @MainActor in
-                    if sortedArticles != self.articles {
-                        self.articles = sortedArticles
-                        CacheManager.shared.cacheArticles(sortedArticles)
-                        CacheManager.shared.syncWidgetFeed(from: sortedArticles)
-                    }
-                }
-            case .failure(let error):
-                self.logger.error("Forgrunds-opdatering af artikler fejlede: \(error.localizedDescription, privacy: .public)")
-            }
-        }
+        _ = requestFeedRefresh(showsLoading: false, stillCurrent: permission)
         Task { @MainActor in
-            guard !PodcastPlayerManager.shared.isPlaybackSessionActive else { return }
+            guard permission(), !PodcastPlayerManager.shared.isPlaybackSessionActive else { return }
             await PodcastRepository.shared.refreshManifest()
         }
     }
@@ -406,185 +847,208 @@ class ArticleViewModel: ObservableObject {
 
     func fetchPersonalizedRecommendationsIfNeeded(force: Bool = false) {
         guard force || personalizedRecommendations.isEmpty else { return }
-        guard !isLoadingAI else { return }
+        recommendationCoordinator.update(capturedRecommendationInput(), force: force)
+    }
 
-        isLoadingAI = true
-        aiError = nil
+    private func capturedRecommendationInput() -> RecommendationHistoryInput? {
+        let history = ReadingHistoryRuntime.model
+        let account = ReaderRecommendationSelection.capture(canonical: AuthService.shared.state.snapshot,
+            preferences: ReaderPreferencesService.shared.model.snapshot,
+            guestInterestTopicIDs: ReaderIntroductionRuntime.guestInterests.selectedTopicIDs)
+        return RecommendationHistorySelection.capture(context: history.context, snapshot: history.snapshot,
+            canonicalUserID: account.canonicalUserID, profileUserID: recommendationProfileUID,
+            profileReadIDs: recommendationProfileReadIDs, articles: visibleArticles, favorites: favorites.filter(isVisibleArticle),
+            favoritesGeneration: FavoritesCloudSelection.recommendationGeneration(
+                favoritesContext: FavoritesRuntime.model.context, favoritesSnapshot: FavoritesRuntime.model.snapshot,
+                historyContext: history.context, historyGeneration: history.snapshot.generation,
+                canonicalUserID: account.canonicalUserID),
+            interestTopicIDs: account.interestTopicIDs)
+    }
 
-        Task { @MainActor in
-            let readIds = iCloudSyncService.shared.readArticleIds
-            let subscribedCategories = UserManager.shared.currentUser?.favoriteCategories ?? []
-            let recommendations = await RecommendationService.shared.generateRecommendations(
-                articles: articles,
-                favorites: favorites,
-                subscribedCategoryIds: subscribedCategories,
-                readArticleIds: readIds
-            )
-            personalizedRecommendations = recommendations
-            aiRecommendations = recommendations.map(\.0)
-            isLoadingAI = false
+    private func observeRecommendationAccount() {
+        let account = ReaderRecommendationSelection.capture(canonical: AuthService.shared.state.snapshot,
+            preferences: ReaderPreferencesService.shared.model.snapshot,
+            guestInterestTopicIDs: ReaderIntroductionRuntime.guestInterests.selectedTopicIDs)
+        guard account != recommendationAccountInput else { return }
+        recommendationAccountInput = account
+        prepareHomeIfNeeded()
+        queueRecommendationRefresh()
+        startFavoritesListenerIfNeeded()
+    }
+
+    private func observeRecommendationHistory(_ snapshot: ReadingHistorySnapshot) {
+        guard RecommendationHistorySelection.isCurrent(snapshot, comparedTo: ReadingHistoryRuntime.model.snapshot) else { return }
+        let ids = Set(snapshot.readArticleIDs)
+        guard snapshot.generation != recommendationHistoryGeneration || ids != recommendationReadIDs else { return }
+        recommendationHistoryGeneration = snapshot.generation
+        recommendationReadIDs = ids
+        queueRecommendationRefresh()
+        startFavoritesListenerIfNeeded()
+    }
+
+    private func queueRecommendationRefresh() {
+        recommendationCoordinator.invalidate()
+        recommendationRefreshTask?.cancel()
+        recommendationRefreshTask = Task { @MainActor [weak self] in
+            guard !Task.isCancelled, let self else { return }
+            self.recommendationCoordinator.update(self.capturedRecommendationInput())
         }
+    }
+
+    private func applyRecommendations(_ state: RecommendationHistoryCoordinator.State) {
+        guard recommendationCoordinator.isCurrent(state) else { return }
+        isLoadingAI = state.isLoading
+        guard recommendationCoordinator.isCurrent(state) else { return }
+        aiError = nil
+        let visible = state.recommendations.filter { isVisibleArticle($0.0) && ArticleAvailabilityService.model.permitsBody($0.0) }
+        let originalOwner = AuthService.shared.state.snapshot.generation
+        guard recommendationCoordinator.isCurrent(state) else { return }
+        personalizedRecommendations = visible
+        guard recommendationCoordinator.isCurrent(state), AuthService.shared.state.snapshot.generation == originalOwner else { return }
+        aiRecommendations = visible.map(\.0)
+        guard recommendationCoordinator.isCurrent(state), AuthService.shared.state.snapshot.generation == originalOwner else { return }
+        homeRecommendations = visible.map { HomeRecommendation(articleID: $0.0.id, reason: $0.1) }
+        homeRecommendationsOwner = originalOwner
+        prepareHomeIfNeeded()
     }
     
     // MARK: - Metadata Loading (with caching)
     
     /// Load cached metadata immediately (fast)
-    private func loadCachedMetadata() {
+    private func loadCachedMetadata(stillCurrent: @escaping ReadPermission) {
+        guard stillCurrent() else { return }
         // Load topics from cache
         if let cachedTopics = CacheManager.shared.getCachedTopics() {
-            self.topics = cachedTopics
+            self.commitMetadata(cachedTopics, at: \.topics, stillCurrent: stillCurrent)
         }
         
+        guard stillCurrent() else { return }
         // Load sections from cache
         if let cachedSections = CacheManager.shared.getCachedSections() {
-            self.sections = cachedSections
+            self.commitMetadata(cachedSections, at: \.sections, stillCurrent: stillCurrent)
         }
         
+        guard stillCurrent() else { return }
         // Load authors from cache
         if let cachedAuthors = CacheManager.shared.getCachedAuthors() {
-            self.authors = cachedAuthors
+            self.commitMetadata(cachedAuthors, at: \.authors, stillCurrent: stillCurrent)
+            if stillCurrent() { self.authorEvents.send(cachedAuthors) }
         }
         
+        guard stillCurrent() else { return }
         // Load stars mapping from cache
         if let cachedStars = CacheManager.shared.getCachedStarsMapping() {
-            self.starsMapping = cachedStars
+            self.commitMetadata(cachedStars, at: \.starsMapping, stillCurrent: stillCurrent)
         }
     }
     
     /// Fetch metadata in background and update cache
-    private func fetchMetadataInBackground() {
-        fetchTopics()
-        fetchSections()
-        fetchAuthors()
-        fetchStars()
+    private func fetchMetadataInBackground(stillCurrent: @escaping ReadPermission) {
+        for load in [{ self.fetchTopics(stillCurrent: stillCurrent) }, { self.fetchSections(stillCurrent: stillCurrent) }, { self.fetchAuthors(stillCurrent: stillCurrent) }, { self.fetchStars(stillCurrent: stillCurrent) }] {
+            guard stillCurrent() else { return }
+            load()
+        }
     }
-    
-    func fetchTopics() {
-        FirestoreMetadataService.shared.fetchTopics { [weak self] result in
-            guard let self else { return }
-            switch result {
-            case .success(let topics):
-                self.applyTopics(topics)
-            case .failure(FirestoreMetadataError.empty):
-                self.logger.info("Firestore topics empty – falling back to Webflow")
-                WebflowService.shared.fetchTopics { [weak self] webflowResult in
-                    guard let self else { return }
-                    switch webflowResult {
-                    case .success(let topics):
-                        self.applyTopics(topics)
-                    case .failure(let error):
-                        self.logger.error("Failed to fetch topics – keeping cached/bundled defaults: \(error.localizedDescription, privacy: .public)")
-                    }
+
+    func fetchTopics(stillCurrent: ReadPermission? = nil) {
+        fetchMetadata(key: "topics", stillCurrent: stillCurrent, primary: readEffects.topics, fallback: readEffects.topicsFallback) { [weak self] values, permission in
+            guard let self, permission() else { return }
+            self.commitMetadata(values, at: \.topics, stillCurrent: permission)
+            guard permission() else { return }
+            self.readEffects.cacheTopics(values)
+        }
+    }
+    func fetchSections(stillCurrent: ReadPermission? = nil) {
+        fetchMetadata(key: "sections", stillCurrent: stillCurrent, primary: readEffects.sections, fallback: readEffects.sectionsFallback) { [weak self] values, permission in
+            guard let self, permission() else { return }
+            self.commitMetadata(values, at: \.sections, stillCurrent: permission)
+            guard permission() else { return }
+            self.readEffects.cacheSections(values)
+        }
+    }
+    func fetchAuthors(stillCurrent: ReadPermission? = nil) {
+        fetchMetadata(key: "authors", stillCurrent: stillCurrent, primary: readEffects.authors, fallback: readEffects.authorsFallback) { [weak self] values, permission in
+            guard let self, permission() else { return }
+            self.commitMetadata(values, at: \.authors, stillCurrent: permission)
+            guard permission() else { return }
+            self.authorEvents.send(values)
+            guard permission() else { return }
+            self.readEffects.cacheAuthors(values)
+        }
+    }
+    func fetchStars(stillCurrent: ReadPermission? = nil) {
+        fetchMetadata(key: "stars", stillCurrent: stillCurrent, primary: { [readEffects] permission, done in
+            readEffects.stars(permission) { value in done(value.flatMap { $0.isEmpty ? nil : $0 }.map(Result.success) ?? .failure(FirestoreMetadataError.empty)) }
+        }, fallback: { [readEffects] permission, done in
+            readEffects.starsFallback(permission) { done(.success($0)) }
+        }) { [weak self] values, permission in
+            guard let self, permission() else { return }
+            self.commitMetadata(values, at: \.starsMapping, stillCurrent: permission)
+            guard permission() else { return }
+            self.readEffects.cacheStars(values)
+        }
+    }
+    private func fetchMetadata<Value>(key: String, stillCurrent: ReadPermission? = nil,
+        primary: (@escaping ReadPermission, @escaping ReadCompletion<Value>) -> Void,
+        fallback: @escaping (@escaping ReadPermission, @escaping ReadCompletion<Value>) -> Void,
+        apply: @escaping (Value, ReadPermission) -> Void) {
+        guard metadataRequests[key] == nil, let permission = stillCurrent ?? captureReadPermission(), permission() else { return }
+        let id = UUID(); metadataRequests[key] = id
+        let current: ReadPermission = { [weak self] in permission() && self?.metadataRequests[key] == id }
+        if key == "topics" { commitTopicsError(nil, stillCurrent: current) }
+        let cleanup: @MainActor () -> Void = { [weak self] in
+            guard let self, self.metadataRequests[key] == id else { return }
+            self.metadataRequests[key] = nil
+            if key == "topics" { self.objectWillChange.send() }
+        }
+        let complete: ReadCompletion<Value> = { [weak self] result in
+            Task { @MainActor in
+                guard let self, current() else { cleanup(); return }
+                if key == "topics" {
+                    guard current() else { cleanup(); return }
+                    if case .failure(let error) = result { self.commitTopicsError(error, stillCurrent: current) }
                 }
-            case .failure(let error):
-                self.logger.error("Failed to fetch topics from Firestore – keeping cached/bundled defaults: \(error.localizedDescription, privacy: .public)")
+                guard current() else { cleanup(); return }
+                if case .success(let value) = result { apply(value, current) }
+                cleanup()
+            }
+        }
+        guard current() else { cleanup(); return }
+        primary(current) { result in
+            Task { @MainActor in
+                guard current() else { cleanup(); return }
+                if case .failure(FirestoreMetadataError.empty) = result { fallback(current, complete) }
+                else { complete(result) }
             }
         }
     }
 
-    private func applyTopics(_ topics: [Topic]) {
-        Task { @MainActor in
-            self.topics = topics
-            CacheManager.shared.cacheTopics(topics)
-        }
-    }
-
-    func fetchSections() {
-        FirestoreMetadataService.shared.fetchSections { [weak self] result in
-            guard let self else { return }
-            switch result {
-            case .success(let sections):
-                self.applySections(sections)
-            case .failure(FirestoreMetadataError.empty):
-                self.logger.info("Firestore sections empty – falling back to Webflow")
-                WebflowService.shared.fetchSections { [weak self] webflowResult in
-                    guard let self else { return }
-                    switch webflowResult {
-                    case .success(let sections):
-                        self.applySections(sections)
-                    case .failure(let error):
-                        self.logger.error("Failed to fetch sections – keeping cached/bundled defaults: \(error.localizedDescription, privacy: .public)")
-                    }
-                }
-            case .failure(let error):
-                self.logger.error("Failed to fetch sections from Firestore – keeping cached/bundled defaults: \(error.localizedDescription, privacy: .public)")
-            }
-        }
-    }
-
-    private func applySections(_ sections: [WebflowSection]) {
-        Task { @MainActor in
-            self.sections = sections
-            CacheManager.shared.cacheSections(sections)
-        }
-    }
-
-    func fetchAuthors() {
-        FirestoreMetadataService.shared.fetchAuthors { [weak self] result in
-            guard let self else { return }
-            switch result {
-            case .success(let authors):
-                self.applyAuthors(authors)
-            case .failure(FirestoreMetadataError.empty):
-                self.logger.info("Firestore authors empty – falling back to Webflow")
-                WebflowService.shared.fetchAuthors { [weak self] webflowResult in
-                    guard let self else { return }
-                    switch webflowResult {
-                    case .success(let authors):
-                        self.applyAuthors(authors)
-                    case .failure(let error):
-                        self.logger.error("Failed to fetch authors – keeping cached/bundled defaults: \(error.localizedDescription, privacy: .public)")
-                    }
-                }
-            case .failure(let error):
-                self.logger.error("Failed to fetch authors from Firestore – keeping cached/bundled defaults: \(error.localizedDescription, privacy: .public)")
-            }
-        }
-    }
-
-    private func applyAuthors(_ authors: [Author]) {
-        Task { @MainActor in
-            self.authors = authors
-            CacheManager.shared.cacheAuthors(authors)
-        }
-    }
-
-    func fetchStars() {
-        FirestoreMetadataService.shared.fetchStarsMapping { [weak self] mapping in
-            guard let self else { return }
-            if let mapping, !mapping.isEmpty {
-                self.applyStarsMapping(mapping)
-                return
-            }
-            self.logger.info("Firestore stars mapping empty – falling back to Webflow")
-            WebflowService.shared.fetchStarsMapping { [weak self] webflowMapping in
-                self?.applyStarsMapping(webflowMapping)
-            }
-        }
-    }
-
-    private func applyStarsMapping(_ mapping: [String: String]) {
-        Task { @MainActor in
-            self.starsMapping = mapping
-            CacheManager.shared.cacheStarsMapping(mapping)
-        }
-    }
-    
     func fetchArticle(by id: String, completion: @escaping (Result<Article, Error>) -> Void) {
         guard !id.isEmpty else {
             completion(.failure(NSError(domain: "Invalid ID", code: 0, userInfo: [NSLocalizedDescriptionKey: "Article ID is empty"])))
             return
         }
 
-        FirestoreArticleService.shared.fetchArticle(by: id) { result in
+        guard let permission = captureReadPermission() else { completion(.failure(CancellationError())); return }
+        let savedRead = captureSavedPublicationRead(articleID: id, permission: permission)
+        guard permission() else { completion(.failure(CancellationError())); return }
+        readEffects.article(id, permission) { result in
+            Task { @MainActor in
+            guard permission() else { completion(.failure(CancellationError())); return }
             switch result {
             case .success(let article):
+                if let savedRead { self.applySavedPublicationRead(article, capture: savedRead) }
+                guard permission() else { completion(.failure(CancellationError())); return }
                 completion(.success(article))
-            case .failure(FirestoreArticleError.empty):
-                self.logger.info("Firestore article \(id, privacy: .public) missing – falling back to Webflow")
-                self.fetchArticleFromWebflow(by: id, completion: completion)
+            case .failure(let error as FirestoreArticleError) where error.allowsCMSFallback
+                && ArticleLanguageSelection.mirrorLanguage(forReaderID: id) == .danish:
+                AppDiagnostics.recordOperational(.contentFallbackUsed)
+                self.fetchArticleFromWebflow(by: id) { result in
+                    Task { @MainActor in completion(permission() ? result : .failure(CancellationError())) }
+                }
             case .failure(let error):
                 completion(.failure(error))
+            }
             }
         }
     }
@@ -628,7 +1092,10 @@ class ArticleViewModel: ObservableObject {
             
             do {
                 let decoder = JSONDecoder()
-                let article = try decoder.decode(Article.self, from: data)
+                guard let liveData = try WebflowLiveCatalogLoader.normalizedLiveItem(data) else {
+                    completion(.failure(FirestoreArticleError.withdrawn)); return
+                }
+                let article = try decoder.decode(Article.self, from: liveData)
                 guard article.isPubliclyPublished else {
                     completion(.failure(NSError(
                         domain: "WebflowService",
@@ -645,9 +1112,13 @@ class ArticleViewModel: ObservableObject {
     }
     
     func fetchAuthor(by id: String, completion: @escaping (Result<Author, Error>) -> Void) {
+        guard let permission = captureReadPermission() else { completion(.failure(CancellationError())); return }
+        let deliver: (Result<Author, Error>) -> Void = { result in
+            Task { @MainActor in completion(permission() ? result : .failure(CancellationError())) }
+        }
         // Safety check: ensure ID is not empty
         guard !id.isEmpty else {
-            completion(.failure(NSError(domain: "Invalid ID", code: 0, userInfo: [NSLocalizedDescriptionKey: "Author ID is empty"])))
+            deliver(.failure(NSError(domain: "Invalid ID", code: 0, userInfo: [NSLocalizedDescriptionKey: "Author ID is empty"])))
             return
         }
 
@@ -655,7 +1126,7 @@ class ArticleViewModel: ObservableObject {
         // already-loaded list or the on-disk cache before touching the network.
         if let resolved = authors.first(where: { $0.id == id })
             ?? CacheManager.shared.getCachedAuthors()?.first(where: { $0.id == id }) {
-            completion(.success(resolved))
+            deliver(.success(resolved))
             return
         }
 
@@ -664,7 +1135,7 @@ class ArticleViewModel: ObservableObject {
         // Without it the request would just return 401 on every article open.
         let token = WebflowService.shared.apiToken
         guard !token.isEmpty else {
-            completion(.failure(NSError(
+            deliver(.failure(NSError(
                 domain: "AuthorUnavailable",
                 code: 404,
                 userInfo: [NSLocalizedDescriptionKey: "Forfatter ikke tilgængelig i cache."]
@@ -675,7 +1146,7 @@ class ArticleViewModel: ObservableObject {
         let urlString = "https://api.webflow.com/v2/collections/67dbf17ba540975b5b21c294/items/\(id)"
         
         guard let url = URL(string: urlString) else {
-            completion(.failure(NSError(domain: "Invalid URL", code: 0)))
+            deliver(.failure(NSError(domain: "Invalid URL", code: 0)))
             return
         }
         
@@ -684,20 +1155,21 @@ class ArticleViewModel: ObservableObject {
         request.httpMethod = "GET"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         
+        guard permission() else { deliver(.failure(CancellationError())); return }
         URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
-                completion(.failure(error))
+                deliver(.failure(error))
                 return
             }
             
             if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
                 let description = HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
-                completion(.failure(NSError(domain: "HTTPError", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: "Server returned status \(http.statusCode): \(description)"])));
+                deliver(.failure(NSError(domain: "HTTPError", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: "Server returned status \(http.statusCode): \(description)"])));
                 return
             }
             
             guard let data = data else {
-                completion(.failure(NSError(domain: "No data", code: 0)))
+                deliver(.failure(NSError(domain: "No data", code: 0)))
                 return
             }
             
@@ -705,10 +1177,10 @@ class ArticleViewModel: ObservableObject {
                 let decoder = JSONDecoder()
                 let authorWrapper = try decoder.decode(AuthorWrapper.self, from: data)
                 let author = authorWrapper.toAuthor()
-                completion(.success(author))
+                deliver(.success(author))
             } catch {
-                self.logger.error("Kunne ikke dekode forfatterdata: \(error.localizedDescription, privacy: .public)")
-                completion(.failure(error))
+                AppDiagnostics.recordOperational(.metadataDecodeFailed)
+                deliver(.failure(error))
             }
         }.resume()
     }
@@ -743,7 +1215,7 @@ class ArticleViewModel: ObservableObject {
             .lowercased()
         guard !normalizedId.isEmpty else { return [] }
 
-        let matches = articles.filter { article in
+        let matches = visibleArticles.filter { article in
             if let authorID = article.authorID?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased(),
@@ -761,192 +1233,173 @@ class ArticleViewModel: ObservableObject {
     
 
     
-    func loadFullArticle(with id: String) {
-        // Safety check: ensure ID is not empty
-        guard !id.isEmpty else {
-            logger.error("loadFullArticle kaldt med tomt ID")
+    func loadFullArticle(with id: String, initialArticle: Article? = nil) {
+        guard !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            AppDiagnostics.recordOperational(.contentIdentityInvalid)
             return
         }
-
-        // Prefer offline snapshot when the device is offline.
-        if !OfflineManager.shared.isOnline, let offline = Self.offlineArticle(for: id) {
-            fullArticle = offline
-            updateArticleInAllArrays(offline)
-            return
+        guard !ArticleAvailabilityService.model.withdrawnIDs.contains(id) else { return }
+        let isOnline = OfflineManager.shared.isOnline
+        var cached = !isOnline ? Self.offlineArticle(for: id) : nil
+        if cached == nil {
+            cached = ArticleDetailContentPolicy.cachedArticle(
+                id: id,
+                feed: articles.first(where: { $0.id == id }),
+                full: fullArticle,
+                initial: initialArticle
+            )
         }
-        
-        guard !articles.isEmpty else {
-            if let offline = Self.offlineArticle(for: id) {
-                fullArticle = offline
-                updateArticleInAllArrays(offline)
-            }
-            return
+        cached = cached.flatMap { ArticleAvailabilityService.model.sanitized($0) }
+        if var article = cached, let author = author(for: article) {
+            article.author = author
+            cached = article
         }
-        
-        if let existingArticle = articles.first(where: { $0.id == id }) {
-            if existingArticle.author != nil {
-                return
-            }
-            
-            if let content = existingArticle.content, !content.isEmpty {
-                loadAuthorIfNeeded(for: existingArticle)
-                return
-            }
-        }
-        
-        if loadingArticles.contains(id) {
-            return
-        }
-        
-        if pendingLoads.contains(id) {
-            return
-        }
-        
-        // Check if we've reached the concurrent load limit
-        if currentLoadCount >= maxConcurrentLoads {
-            // print("🔄 Max concurrent loads reached, queuing article \(id)")
-            pendingLoads.append(id)
-            return
-        }
-        
-        // Start loading the article
-        startLoadingArticle(id)
+        detailLoader.select(id: id, cached: cached, canFetch: isOnline)
     }
-    
-    private func loadAuthorIfNeeded(for article: Article) {
-        guard let authorID = article.authorID, !authorID.isEmpty else { return }
-        guard !loadingArticles.contains(article.id) else { return }
-        
-        loadingArticles.insert(article.id)
-        fetchAuthor(by: authorID) { [weak self] result in
-            guard let self else { return }
-            
-            var updatedArticle = article
-            if case .success(let author) = result {
-                updatedArticle.author = author
-            }
-            
-            DispatchQueue.main.async {
-                self.updateArticleInAllArrays(updatedArticle)
-                self.loadingArticles.remove(article.id)
-            }
-        }
+
+    func cancelFullArticleLoad(for id: String) {
+        detailLoader.deselect(id: id)
     }
-    
-    private func startLoadingArticle(_ id: String) {
-        // Mark article as being loaded
-        loadingArticles.insert(id)
-        currentLoadCount += 1
-        // print("🔄 Fetching article with ID: \(id) (loads: \(currentLoadCount)/\(maxConcurrentLoads))")
-        
-        // Add timeout to prevent articles from being stuck in loading state
-        DispatchQueue.main.asyncAfter(deadline: .now() + 15) { [weak self] in  // Reduced timeout
-            guard let self = self else { return }
-            if self.loadingArticles.contains(id) {
-                // print("⏰ Timeout for article \(id), removing from loading state")
-                self.loadingArticles.remove(id)
-                self.currentLoadCount = max(0, self.currentLoadCount - 1)
-                self.processNextPendingLoad()
-            }
+
+    /// A view owns its exact selection, not every future observation of this ID.
+    /// Retain the selection while startup is closed, without touching a live model/SDK.
+    @discardableResult
+    func observeArticleAvailability(for id: String) -> AvailabilitySelection {
+        let selection = AvailabilitySelection(articleID: id, token: UUID())
+        availabilitySelection = selection
+        retireAvailabilityObservation()
+        guard availabilitySelection == selection else { return selection }
+        resumeAvailabilityObservation()
+        return selection
+    }
+
+    func stopObservingArticleAvailability(_ selection: AvailabilitySelection) {
+        guard availabilitySelection == selection else { return }
+        availabilitySelection = nil
+        retireAvailabilityObservation()
+    }
+
+    private func retireAvailabilityObservation() {
+        let previous = availabilityObservation
+        availabilityObservation = nil
+        availabilityAttempt = nil
+        availabilityPermission = nil
+        if let previous { previous.model.stop(observation: previous.ticket) }
+    }
+
+    private func resumeAvailabilityObservation() {
+        guard let selection = availabilitySelection else { return }
+        if let permission = availabilityPermission, let previousAttempt = availabilityAttempt {
+            let permitted = permission()
+            guard availabilitySelection == selection, availabilityAttempt == previousAttempt else { return }
+            // A returned listener may already have permanently revoked itself.
+            // A synchronous subscription still on the stack only needs deduplication.
+            let observing = availabilityObservation.map { $0.model.isCurrent($0.ticket) } ?? true
+            guard availabilitySelection == selection, availabilityAttempt == previousAttempt else { return }
+            if permitted && observing { return }
         }
+        retireAvailabilityObservation()
+        guard availabilitySelection == selection,
+              CMSMirrorDocumentPolicy.isSafeDocumentID(selection.articleID),
+              let permission = captureReadPermission(),
+              availabilitySelection == selection, permission(),
+              availabilitySelection == selection else { return }
+        let attempt = UUID()
+        availabilityAttempt = attempt
+        let original: ReadPermission = { [weak self] in
+            guard let self, self.availabilitySelection == selection, self.availabilityAttempt == attempt else { return false }
+            let permitted = permission()
+            return permitted && self.availabilitySelection == selection && self.availabilityAttempt == attempt
+        }
+        availabilityPermission = original
+        let model = injectedAvailabilityModel ?? ArticleAvailabilityService.model
+        guard original() else { return }
+        let ticket = ArticleAvailabilityService.observe(selection.articleID, stillCurrent: original,
+            model: model, subscribe: injectedAvailabilitySubscribe, recordPodcastMirror: injectedAvailabilityMirror)
+        // subscribe/model notifications may synchronously replace this selection.
+        guard original(), let ticket, model.isCurrent(ticket) else {
+            if let ticket { model.stop(observation: ticket) }
+            if availabilityAttempt == attempt {
+                availabilityAttempt = nil; availabilityPermission = nil
+            }
+            return
+        }
+        availabilityObservation = (model, ticket)
+    }
 
-        fetchArticle(by: id) { [weak self] result in
-            guard let self = self else { return }
-            switch result {
-            case .success(let fetchedArticle):
-                // print("✅ Article fetched: \(fetchedArticle.name ?? "No name")")
+    private func applyArticleAvailability(observedWithdrawals: Set<String>) {
+        recommendationCoordinator.invalidate()
+        let availability = injectedAvailabilityModel ?? ArticleAvailabilityService.model
+        // Transport invalidation was synchronous; preserve each observed edge
+        // for local cleanup even if republication overtook this UI task.
+        readEffects.reconcileAvailability(observedWithdrawals.subtracting(appliedWithdrawals))
+        appliedWithdrawals = observedWithdrawals
+        articles = articles.filter { availability.permitsBody($0) }
+        aiRecommendations = aiRecommendations.filter { availability.permitsBody($0) }
+        personalizedRecommendations = personalizedRecommendations.filter { availability.permitsBody($0.0) }
+        fullArticle = fullArticle.flatMap { availability.sanitized($0) }
+        readEffects.pruneFeedCache()
+        queueRecommendationRefresh()
+    }
 
-                var updatedArticle = fetchedArticle
+    private func applyDetailBody(_ article: Article, origin: ArticleDetailBodyOrigin) {
+        guard ArticleAvailabilityService.model.permitsBody(article) else { return }
+        let current = articles.first(where: { $0.id == article.id })
+        let canUpdateFeed: Bool
+        switch origin {
+        case .fetched(let requestedFrom):
+            guard ArticleDetailContentPolicy.canApplyFetchedBody(
+                article, requestedFrom: requestedFrom, current: current
+            ) else { return }
+            canUpdateFeed = true
+        case .cached, .offlineFallback:
+            // An offline snapshot may remain readable without restoring old
+            // metadata/body to a feed which already carries a newer revision.
+            canUpdateFeed = current.map { ArticleDetailContentPolicy.sameRevision($0, article) } ?? true
+        }
+        fullArticle = article
+        if canUpdateFeed { updateArticleInAllArrays(article) }
+    }
 
-                // Safety check: ensure authorID is not empty before fetching
-                guard let authorID = fetchedArticle.authorID, !authorID.isEmpty else {
-                    DispatchQueue.main.async {
-                        self.fullArticle = updatedArticle
-                        self.updateArticleInAllArrays(updatedArticle)
-                        if self.isFavorite(updatedArticle) {
-                            OfflineManager.shared.saveArticleForOffline(updatedArticle)
-                        }
-                        self.finishLoadingArticle(id)
-                    }
-                    return
-                }
-
-                self.fetchAuthor(by: authorID) { authorResult in
-                    switch authorResult {
-                    case .success(let author):
-                        updatedArticle.author = author
-                        // print("✅ Author fetched: \(author.name)")
-                    case .failure(let error):
-                        self.logger.error("Kunne ikke hente forfatter: \(error.localizedDescription, privacy: .public)")
-                    }
-                    DispatchQueue.main.async {
-                        self.fullArticle = updatedArticle
-                        self.updateArticleInAllArrays(updatedArticle)
-                        if self.isFavorite(updatedArticle) {
-                            OfflineManager.shared.saveArticleForOffline(updatedArticle)
-                        }
-                        self.finishLoadingArticle(id)
-                    }
-                }
-
-                case .failure(let error):
-                logger.error("Kunne ikke hente artikel \(id, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                DispatchQueue.main.async {
-                    // Offline fallback: use saved favorite / offline snapshot when network fails.
-                    if let offline = Self.offlineArticle(for: id) {
-                        self.fullArticle = offline
-                        self.updateArticleInAllArrays(offline)
-                    }
-                    self.finishLoadingArticle(id)
-                }
+    private func applyDetailAuthor(_ author: Author, articleID: String, authorID: String) {
+        guard !ArticleAvailabilityService.model.withdrawnIDs.contains(articleID) else { return }
+        // Patch current values: an author callback must never reintroduce an
+        // older body or overwrite metadata committed by a feed refresh.
+        if let current = ArticleDetailContentPolicy.applyingAuthor(
+            author, articleID: articleID, authorID: authorID, to: fullArticle
+        ) {
+            fullArticle = current
+        }
+        if let index = articles.firstIndex(where: { $0.id == articleID && $0.authorID == authorID }) {
+            if let current = ArticleDetailContentPolicy.applyingAuthor(
+                author, articleID: articleID, authorID: authorID, to: articles[index]
+            ) {
+                articles[index] = current
             }
         }
     }
 
     private static func offlineArticle(for id: String) -> Article? {
-        if let offline = OfflineManager.shared.getOfflineArticles().first(where: { $0.id == id }),
-           let content = offline.content, !content.isEmpty {
-            return offline
-        }
-        if let data = UserDefaults.standard.data(forKey: "favoriteArticlesJSON"),
-           let favorites = try? JSONDecoder().decode([Article].self, from: data),
-           let favorite = favorites.first(where: { $0.id == id }),
-           let content = favorite.content, !content.isEmpty {
-            return favorite
+        guard !ArticleAvailabilityService.model.withdrawnIDs.contains(id) else { return nil }
+        if let offline = OfflineManager.shared.offlineArticle(articleID: id),
+           ArticleDetailContentPolicy.hasBody(offline) {
+            return ArticleAvailabilityService.model.sanitized(offline)
         }
         return nil
     }
     
-    private func finishLoadingArticle(_ id: String) {
-        loadingArticles.remove(id)
-        currentLoadCount = max(0, currentLoadCount - 1)
-        // print("✅ Finished loading article \(id) (loads: \(currentLoadCount)/\(maxConcurrentLoads))")
-        
-        // Process next pending load
-        processNextPendingLoad()
-    }
-    
-    private func processNextPendingLoad() {
-        guard currentLoadCount < maxConcurrentLoads, !pendingLoads.isEmpty else {
-            return
-        }
-        
-        let nextId = pendingLoads.removeFirst()
-        // print("🔄 Processing next pending load: \(nextId)")
-        startLoadingArticle(nextId)
-    }
-
     private func updateArticleInAllArrays(_ updated: Article) {
+        guard ArticleAvailabilityService.model.permitsBody(updated) else { return }
         // Safety check: ensure we have a valid article
         guard !updated.id.isEmpty else {
-            logger.error("Forsøgte at opdatere artikel uden ID")
+            AppDiagnostics.recordOperational(.contentUpdateRejected)
             return
         }
         
         func replace(in array: inout [Article]) {
             // Safety check: ensure we have a valid article ID
             guard !updated.id.isEmpty else {
-                logger.error("Forsøgte at erstatte artikel uden ID")
+                AppDiagnostics.recordOperational(.contentUpdateRejected)
                 return
             }
             
@@ -959,7 +1412,48 @@ class ArticleViewModel: ObservableObject {
     }
     
     private var cancellables: Set<AnyCancellable> = []
-    private var favoritesListener: ListenerRegistration?
+    @MainActor private final class FavoriteObservation {
+        let model: FavoritesModel
+        let ticket: FavoritesModel.ObservationTicket
+        let uid: String
+        let generation: UUID
+        let permission: ReadPermission
+        var listener: FirestoreService.FavoriteListener?
+        var attaching = true
+        var attachmentFailed = false
+        var revoked = false
+        init(model: FavoritesModel, ticket: FavoritesModel.ObservationTicket, uid: String,
+             generation: UUID, permission: @escaping ReadPermission) {
+            self.model = model; self.ticket = ticket; self.uid = uid
+            self.generation = generation; self.permission = permission
+        }
+    }
+    private let injectedFavoriteModel: FavoritesModel?
+    private let injectedFavoriteOffline: FavoritesOfflineCoordinator?
+    private var refreshingSavedOfflineContent = false
+    private struct SavedPublicationRead {
+        let model: FavoritesModel
+        let offline: FavoritesOfflineCoordinator
+        let member: FavoritesModel.MembershipTicket
+        let current: ReadPermission
+        let published: @MainActor (Article) -> Bool
+    }
+    private let injectedFavoriteSubscribe: FirestoreService.FavoriteSubscribe?
+    private let injectedFavoriteCanonicalUserID: (@MainActor () -> String?)?
+    private let injectedFavoriteRetry: (@MainActor (UUID) -> Void)?
+    private var favoritesObservation: FavoriteObservation?
+    private var favoritesObservationRequested = false
+    private var favoritesEntry = UUID()
+
+    private var favoriteCanonicalUID: String? {
+        if let injectedFavoriteCanonicalUserID { return injectedFavoriteCanonicalUserID() }
+        return recommendationCanonicalUID
+    }
+    private func favoriteActualUID() -> String? {
+        if let injectedActualUserID { return injectedActualUserID() }
+        return Auth.auth().currentUser?.uid
+    }
+
     
     func isFavorite(_ article: Article) -> Bool {
         guard !article.id.isEmpty else { return false }
@@ -967,230 +1461,361 @@ class ArticleViewModel: ObservableObject {
     }
     
     func toggleFavorite(for article: Article) {
-        // Safety check: ensure we have a valid article
-        guard let name = article.name, !name.isEmpty else { 
-            logger.error("Forsøgte at togg­le favorit på artikel uden navn")
-            return 
+        guard let safe = ArticleAvailabilityService.model.sanitized(article) else { return }
+        if accountSaveGate.isGuest, isFavorite(safe) {
+            _ = setFavorite(safe, enabled: false)
+            return
         }
-        
-        let wasFavorite = isFavorite(article)
-        
-        if wasFavorite {
-            favorites.removeAll { $0.id == article.id }
-            OfflineManager.shared.removeArticleFromOffline(article.id)
-        } else {
-            // Prefer in-memory body if the list snapshot was stripped for feed cache.
-            let articleWithBody: Article = {
-                if let content = article.content, !content.isEmpty {
-                    return article
-                }
-                if let loaded = articles.first(where: { $0.id == article.id }),
-                   let content = loaded.content, !content.isEmpty {
-                    return loaded
-                }
-                if let full = fullArticle, full.id == article.id,
-                   let content = full.content, !content.isEmpty {
-                    return full
-                }
-                return article
-            }()
-            favorites.append(articleWithBody)
-            OfflineManager.shared.saveArticleForOffline(articleWithBody)
-            if articleWithBody.content?.isEmpty != false {
-                ensureFavoriteHasBodyContent(articleId: article.id)
-            }
+        if accountSaveGate.isGuest {
+            _ = accountSaveGate.present(article: safe, language: articleLanguage)
+            return
         }
-        
-        // Always save to UserDefaults for local persistence (works for logged out users)
-        saveFavorites()
-        
-        // Sync with Firebase when auth is ready
-        if Auth.auth().currentUser != nil {
-            Task {
-                do {
-                    try await FirestoreService.shared.toggleFavorite(article, isFavorite: !wasFavorite)
-                } catch {
-                    self.logger.error("Favorit sync-fejl: \(error.localizedDescription, privacy: .public)")
-                }
-            }
-        }
+        guard accountSaveGate.hasAccount else { return }
+        let enabled = !isFavorite(safe)
+        _ = setFavorite(safe, enabled: enabled)
+    }
 
-        if let user = UserManager.shared.currentUser {
-            if !wasFavorite {
-                // Add to bookmarked articles in UserManager
-                if !user.bookmarkedArticles.contains(article.id) {
-                    UserManager.shared.toggleBookmark(article.id)
+    func reconcileAccountSave() {
+        let model = FavoritesRuntime.model
+        accountSaveGate.reconcile(language: articleLanguage, favorites: model.snapshot,
+            favoritesContext: model.context, canSave: model.canChangeSelection,
+            currentArticle: { [weak self] id in
+                guard let self else { return nil }
+                let candidate = self.articles.first { $0.id == id }
+                    ?? (self.fullArticle?.id == id ? self.fullArticle : nil)
+                    ?? self.accountSaveGate.request?.article
+                return candidate.flatMap {
+                    ArticleAvailabilityService.model.permitsBody($0)
+                        ? ArticleAvailabilityService.model.sanitized($0) : nil
                 }
-            } else {
-                // Remove from bookmarked articles in UserManager
-                if user.bookmarkedArticles.contains(article.id) {
-                    UserManager.shared.toggleBookmark(article.id)
-                }
+            }, save: { [weak self] in self?.setFavorite($0, enabled: true) == true })
+    }
+
+    @discardableResult
+    private func setFavorite(_ safe: Article, enabled: Bool) -> Bool {
+        guard !enabled || accountSaveGate.hasAccount else { return false }
+        guard let mutation = FavoritesRuntime.shared.setFavorite(safe, enabled: enabled),
+              FavoritesRuntime.model.isCurrent(mutation) else { return false }
+        OfflineManager.shared.synchronizeCurrentMembership()
+        guard enabled, let access = OfflineManager.shared.captureAccess(articleID: safe.id) else { return true }
+        let candidates = [safe, fullArticle, articles.first { $0.id == safe.id }].compactMap { $0 }
+        let body = candidates.first(where: {
+            $0.id == safe.id && $0.bodyRevision == safe.bodyRevision && ArticleDetailContentPolicy.hasBody($0)
+        })
+        OfflineManager.shared.requestBody(ticket: access, candidate: body, fetch: fetchOfflineBody)
+        return true
+    }
+
+    /// A delayed body can fill only the membership/revision captured at start.
+    /// Revision migration requires a separate canonical observation, not a late
+    /// callback recapturing whatever membership now happens to exist.
+    private func fetchOfflineBody(articleID: String, completion: @escaping @MainActor (Result<Article, Error>) -> Void) {
+        fetchArticle(by: articleID) { result in
+            Task { @MainActor in completion(result) }
+        }
+    }
+
+    private func captureSavedPublicationRead(articleID: String, permission: @escaping ReadPermission) -> SavedPublicationRead? {
+        guard readEffects.canDownloadSavedBodies(), permission() else { return nil }
+        let model = injectedFavoriteModel ?? FavoritesRuntime.model
+        let offline = injectedFavoriteModel != nil ? injectedFavoriteOffline : FavoritesRuntime.shared.offline
+        guard let offline, let uid = favoriteCanonicalUID, model.context == .confirmed(userID: uid),
+              favoriteActualUID() == uid, permission(), model.context == .confirmed(userID: uid),
+              let member = model.membershipTicket(articleID: articleID), permission() else { return nil }
+        let generation = model.snapshot.generation
+        let availability = injectedAvailabilityModel ?? ArticleAvailabilityService.model
+        let capture = SavedPublicationRead(model: model, offline: offline, member: member, current: { [weak self, weak model] in
+            guard let self, let model else { return false }
+            return self.ownsSavedOfflineOwner(model, uid: uid, generation: generation, permission: permission)
+        }, published: { article in
+            availability.hasFreshPublicationRead(article)
+        })
+        guard capture.current(), model.isCurrent(member) else { return nil }
+        availability.trackPublicationIDs([member.articleID])
+        guard capture.current(), model.isCurrent(member) else { return nil }
+        return capture
+    }
+
+    /// Identity/connectivity providers are injected hooks. Recheck the original
+    /// pure model state after each lookup and leave no provider call after the
+    /// final guard, matching the existing cloud-observation admission boundary.
+    private func ownsSavedOfflineOwner(_ model: FavoritesModel, uid: String, generation: UUID,
+                                      permission: ReadPermission) -> Bool {
+        func currentModel() -> Bool {
+            model.context == .confirmed(userID: uid) && model.snapshot.generation == generation
+        }
+        guard currentModel() else { return false }
+        let canonical = favoriteCanonicalUID
+        guard currentModel(), permission(), currentModel() else { return false }
+        let actual = favoriteActualUID()
+        guard currentModel(), permission(), currentModel() else { return false }
+        return canonical == uid && actual == uid && currentModel()
+    }
+
+    private func applySavedPublicationRead(_ article: Article, capture: SavedPublicationRead) {
+        guard capture.current(), capture.published(article),
+              let member = capture.model.adoptPublishedMetadata(article, ticket: capture.member,
+                stillCurrent: capture.current, permitsPublication: capture.published),
+              capture.current(), capture.model.isCurrent(member),
+              let access = capture.offline.captureAccess(articleID: article.id),
+              access.contentRevision == article.bodyRevision, capture.current() else { return }
+        _ = capture.offline.saveBody(article, ticket: access)
+    }
+
+    /// A current public catalog can repair metadata for an already saved item.
+    /// It cannot create a save intention, rewrite a pending upload or adopt an
+    /// unconfirmed cache revision. Queued downloads retain the resulting exact
+    /// membership; neither their transport nor completion recaptures an owner.
+    private func refreshSavedOfflineContent(from catalog: [Article], stillCurrent: @escaping ReadPermission) {
+        guard !refreshingSavedOfflineContent, readEffects.canDownloadSavedBodies(), stillCurrent() else { return }
+        let model = injectedFavoriteModel ?? FavoritesRuntime.model
+        let offline = injectedFavoriteModel != nil ? injectedFavoriteOffline : FavoritesRuntime.shared.offline
+        guard let offline, let uid = favoriteCanonicalUID, model.context == .confirmed(userID: uid) else { return }
+        let generation = model.snapshot.generation
+        let availability = injectedAvailabilityModel ?? ArticleAvailabilityService.model
+        guard let workPermission = captureReadPermission() else { return }
+        let ownerCurrent: ReadPermission = { [weak self, weak model] in
+            guard let self, let model else { return false }
+            return self.ownsSavedOfflineOwner(model, uid: uid, generation: generation, permission: workPermission)
+        }
+        let published: @MainActor (Article) -> Bool = { article in
+            availability.hasFreshPublicationRead(article)
+        }
+        guard ownerCurrent() else { return }
+        refreshingSavedOfflineContent = true
+        defer { refreshingSavedOfflineContent = false }
+        let members = model.snapshot.articles.compactMap { model.membershipTicket(articleID: $0.id) }
+        availability.trackPublicationIDs(Set(members.map(\.articleID)))
+        guard ownerCurrent(), stillCurrent() else { return }
+        var tickets: [FavoritesOfflineCoordinator.AccessTicket] = []
+        for member in members {
+            guard ownerCurrent(), stillCurrent() else { return }
+            guard let article = catalog.first(where: { $0.id == member.articleID }), published(article),
+                  model.isCurrent(member), ownerCurrent() else { continue }
+            let replacement = model.adoptPublishedMetadata(article, ticket: member,
+                stillCurrent: { ownerCurrent() && stillCurrent() }, permitsPublication: published)
+            // An unchanged pending save can download its own current version;
+            // an old pending payload cannot be silently migrated here.
+            guard ownerCurrent(), let accepted = replacement ?? (model.isCurrent(member)
+                && member.contentRevision == article.bodyRevision ? member : nil),
+                  model.isCurrent(accepted), let access = offline.captureAccess(articleID: article.id),
+                  access.contentRevision == article.bodyRevision, ownerCurrent() else { continue }
+            tickets.append(access)
+        }
+        guard ownerCurrent() else { return }
+        _ = offline.requestBodies(tickets: tickets) { [weak self] id, complete in
+            guard let self, ownerCurrent(), self.readEffects.canDownloadSavedBodies(), ownerCurrent() else {
+                complete(.failure(CancellationError())); return
+            }
+            self.fetchOfflineBody(articleID: id) { result in
+                complete(ownerCurrent() ? result : .failure(CancellationError()))
             }
         }
     }
 
-    /// After feed HTML strip, favoriting from a list card may lack body text.
-    /// Fetch once and refresh the offline + favorites snapshots.
-    private func ensureFavoriteHasBodyContent(articleId: String) {
-        fetchArticle(by: articleId) { [weak self] result in
-            guard let self else { return }
-            guard case .success(let fetched) = result,
-                  let content = fetched.content, !content.isEmpty else { return }
+    func retryOfflineBody(ticket: FavoritesOfflineCoordinator.AccessTicket) {
+        OfflineManager.shared.retryBody(ticket: ticket, fetch: fetchOfflineBody)
+    }
 
-            DispatchQueue.main.async {
-                guard self.isFavorite(fetched) else { return }
-                self.updateArticleInAllArrays(fetched)
-                if let index = self.favorites.firstIndex(where: { $0.id == fetched.id }) {
-                    self.favorites[index] = fetched
-                    self.saveFavorites()
-                }
-                OfflineManager.shared.saveArticleForOffline(fetched)
-            }
+    func retryOfflineContent(ticket: FavoritesOfflineCoordinator.AccessTicket) {
+        let model = injectedFavoriteModel ?? FavoritesRuntime.model
+        let offline = injectedFavoriteModel != nil ? injectedFavoriteOffline : FavoritesRuntime.shared.offline
+        guard let offline, let permission = captureReadPermission(),
+              let uid = favoriteCanonicalUID, model.context == .confirmed(userID: uid) else { return }
+        let generation = model.snapshot.generation
+        let current: ReadPermission = { [weak self, weak model] in
+            guard let self, let model,
+                  self.ownsSavedOfflineOwner(model, uid: uid, generation: generation, permission: permission),
+                  offline.isCurrent(ticket) else { return false }
+            let online = self.readEffects.canDownloadSavedBodies()
+            return online && self.ownsSavedOfflineOwner(model, uid: uid, generation: generation, permission: permission)
+                && offline.isCurrent(ticket)
+        }
+        guard current() else { return }
+        _ = offline.retryBody(ticket: ticket, fetch: fetchOfflineBody)
+        guard current() else { return }
+        readEffects.recoverSavedAudioDownloads(current)
+        Task { @MainActor [weak self] in
+            guard let self, current(), !Task.isCancelled else { return }
+            await self.readEffects.refreshSavedAudioCatalog(current)
         }
     }
-    
+
+    func refreshSavedOfflineAfterInterruption() {
+        guard readEffects.canDownloadSavedBodies(), let permission = captureReadPermission(), permission() else { return }
+        // Existing feed work coalesces these explicit lifecycle events. Unlike
+        // visual Home warming, saved downloads must recover while audio plays.
+        _ = requestFeedRefresh(showsLoading: false, stillCurrent: permission)
+    }
+
     private func loadFavorites() {
-        // Safety check: ensure we're not already loading favorites
-        guard !isLoadingFavorites else {
-            return
-        }
-        
-        // First try to load from UserDefaults for fast access
-        if let data = UserDefaults.standard.data(forKey: favoritesKey),
-           let decoded = try? JSONDecoder().decode([Article].self, from: data) {
-            favorites = decoded
-            OfflineArticleImageCache.shared.pruneOrphanedCaches(
-                keeping: Set(decoded.map(\.id))
-            )
-            OfflineArticleImageCache.shared.scheduleCacheImages(for: decoded)
-            OfflineManager.shared.savePodcastsForOffline(favorites)
-        } else {
-            OfflineArticleImageCache.shared.pruneOrphanedCaches(keeping: [])
-        }
-        
-        // Firebase sync is delayed until after launch to keep the first frame responsive.
+        observeFavorites(FavoritesRuntime.model.snapshot)
     }
 
-    /// Clears device favorites + offline library when the user signs out so
-    /// Min side doesn't leak the previous account's content.
+    /// Canonical sign-out already selected the guest partition. Do not clear
+    /// another owner's persisted library or suspend the newly confirmed guest.
     func clearSessionDataOnLogout() {
-        favoritesListener?.remove()
-        favoritesListener = nil
-        didStartFavoritesListener = false
-
-        favorites = []
-        saveFavorites()
-        OfflineManager.shared.clearOfflineStorage()
-        OfflineArticleImageCache.shared.pruneOrphanedCaches(keeping: [])
-        favoriteError = nil
-        isLoadingFavorites = false
+        stopFavoritesListener()
+        observeFavorites(FavoritesRuntime.model.snapshot)
+        OfflineManager.shared.synchronizeCurrentMembership()
     }
 
-    private func startFavoritesListenerIfNeeded() {
-        guard Auth.auth().currentUser != nil else { return }
-        guard !didStartFavoritesListener else { return }
-
-        let listener = FirestoreService.shared.listenFavorites { [weak self] articles, metadata in
-            guard let self = self else { return }
-            self.applyRemoteFavorites(articles, metadata: metadata)
+    private func observeFavorites(_ snapshot: FavoritesSnapshot) {
+        let model = FavoritesRuntime.model
+        guard snapshot.generation == model.snapshot.generation, snapshot.revision == model.snapshot.revision else { return }
+        if observedFavoritesGeneration != snapshot.generation {
+            observedFavoritesGeneration = snapshot.generation
+            stopFavoritesListener()
         }
-        guard listener != nil else { return }
-
-        favoritesListener = listener
-        didStartFavoritesListener = true
+        // Includes server-proof/overlay edges when the visible array is equal.
+        queueRecommendationRefresh()
+        objectWillChange.send()
+        guard snapshot.generation == model.snapshot.generation, snapshot.revision == model.snapshot.revision else { return }
+        startFavoritesListenerIfNeeded()
+        observeSavedOfflineFavorites(snapshot)
     }
 
-    private func applyRemoteFavorites(_ remote: [Article], metadata: SnapshotMetadata?) {
-        if remote.isEmpty {
-            if let metadata, metadata.isFromCache, !metadata.hasPendingWrites {
-                // Transient empty Firestore cache — keep locally persisted favorites.
-                return
-            }
-            // Server-confirmed empty: clear local so logout/login stays consistent.
-            favorites = []
-        } else {
-            // Cloud is source of truth after login — replace, don't forever-merge guest leftovers.
-            favorites = remote
+    private func observeSavedOfflineFavorites(_ snapshot: FavoritesSnapshot) {
+        let model = injectedFavoriteModel ?? FavoritesRuntime.model
+        guard snapshot.generation == model.snapshot.generation,
+              snapshot.revision == model.snapshot.revision else { return }
+        if let permission = captureReadPermission() {
+            let revision = feedPublication.snapshot.revision
+            refreshSavedOfflineContent(from: articles, stillCurrent: { [weak self] in
+                permission() && self?.feedPublication.snapshot.revision == revision
+            })
         }
-
-        saveFavorites()
-        OfflineArticleImageCache.shared.pruneOrphanedCaches(
-            keeping: Set(favorites.map(\.id))
-        )
-        OfflineArticleImageCache.shared.scheduleCacheImages(for: favorites)
-        for article in favorites {
-            OfflineManager.shared.saveArticleForOffline(article)
-        }
-        OfflineManager.shared.savePodcastsForOffline(favorites)
     }
-    
-    private func syncFavoritesWithFirestore() async {
-        // Safety check: ensure we're not already syncing
-        guard !isLoadingFavorites else {
+
+    /// Detach first: a provider removal hook may synchronously start a new attempt.
+    func stopFavoritesListener() {
+        favoritesEntry = UUID()
+        retireFavoritesObservation()
+    }
+
+    private func retireFavoritesObservation() {
+        let previous = favoritesObservation
+        favoritesObservation = nil
+        if let previous {
+            previous.model.endObservation(previous.ticket)
+            previous.listener?.remove()
+        }
+    }
+
+    private func ownsFavoriteObservation(_ observation: FavoriteObservation) -> Bool {
+        guard !observation.revoked, favoritesObservation === observation,
+              observation.model.isCurrent(observation.ticket) else { return false }
+        guard observation.permission() else { observation.revoked = true; return false }
+        guard !observation.revoked, favoritesObservation === observation,
+              observation.model.isCurrent(observation.ticket) else { return false }
+        let uid = favoriteCanonicalUID
+        // Identity lookup may synchronously change the provider/startup session.
+        // Never accept its old returned UID as authority for this callback.
+        guard observation.permission() else { observation.revoked = true; return false }
+        guard !observation.revoked, favoritesObservation === observation,
+              observation.model.isCurrent(observation.ticket) else { return false }
+        let owned = FavoritesCloudSelection.ownsObservation(context: observation.model.context,
+            snapshot: observation.model.snapshot, canonicalUserID: uid,
+            expectedUserID: observation.uid, expectedGeneration: observation.generation)
+        if !owned { observation.revoked = true }
+        return owned
+    }
+
+    /// An explicit lifecycle/connectivity event may retry a terminal failure.
+    /// Ordinary model publication must not repeatedly retry an unavailable query.
+    func refreshFavoritesAfterInterruption() {
+        guard favoritesObservationRequested else { return }
+        favoritesObservation?.attachmentFailed = false
+        startFavoritesListenerIfNeeded()
+    }
+
+    func startFavoritesListenerIfNeeded() {
+        favoritesObservationRequested = true
+        let entry = UUID(); favoritesEntry = entry
+        guard let permission = captureReadPermission(), favoritesEntry == entry else {
+            if favoritesEntry == entry { retireFavoritesObservation() }
             return
         }
-        
-        guard UserManager.shared.currentUser != nil else {
-            DispatchQueue.main.async { [weak self] in
-                self?.isLoadingFavorites = false
-                self?.favoriteError = nil
-            }
+        // Injected model paths are all-local or closed, never a partial fallback
+        // into an application's account/transport singleton.
+        if injectedFavoriteModel != nil && (injectedFavoriteSubscribe == nil || injectedFavoriteCanonicalUserID == nil || injectedActualUserID == nil) {
+            retireFavoritesObservation(); return
+        }
+        let model = injectedFavoriteModel ?? FavoritesRuntime.model
+        let uid = favoriteCanonicalUID
+        guard favoritesEntry == entry else { return }
+        let actual = favoriteActualUID()
+        guard favoritesEntry == entry else { return }
+        guard let uid, permission(), favoritesEntry == entry,
+              FavoritesCloudSelection.canObserve(context: model.context, snapshot: model.snapshot, expectedUserID: uid), actual == uid else {
+            if favoritesEntry == entry { retireFavoritesObservation() }
             return
         }
-        
-        isLoadingFavorites = true
-        favoriteError = nil
-        
-        do {
-            let firebaseFavorites = try await FirestoreService.shared.fetchFavorites()
-            
-            DispatchQueue.main.async { [weak self] in
-                guard let self = self else { return }
-                // Replace local with cloud so login restores the account's favorites.
-                self.favorites = firebaseFavorites
-                self.saveFavorites()
-                for article in self.favorites {
-                    OfflineManager.shared.saveArticleForOffline(article)
+        if let previous = favoritesObservation {
+            let owned = ownsFavoriteObservation(previous)
+            guard favoritesEntry == entry else { return }
+            let listening = previous.attachmentFailed || (previous.listener?.isCurrent() ?? previous.attaching)
+            guard favoritesEntry == entry else { return }
+            if owned && listening { return }
+        }
+        retireFavoritesObservation()
+        guard favoritesEntry == entry, permission(), favoritesEntry == entry,
+              favoriteCanonicalUID == uid, favoritesEntry == entry,
+              FavoritesCloudSelection.canObserve(context: model.context, snapshot: model.snapshot, expectedUserID: uid),
+              let ticket = model.observationTicket() else { return }
+        let observation = FavoriteObservation(model: model, ticket: ticket, uid: uid,
+            generation: model.snapshot.generation, permission: permission)
+        favoritesObservation = observation
+        let original: ReadPermission = { [weak self, weak observation] in
+            guard let self, let observation else { return false }
+            return self.ownsFavoriteObservation(observation)
+        }
+        let listener = FirestoreService.shared.listenFavorites(expectedUserID: uid, stillCurrent: original,
+            actualUserID: { [weak self] in self?.favoriteActualUID() }, subscribe: injectedFavoriteSubscribe) { [weak self, weak observation] result in
+            guard let self, let observation, self.ownsFavoriteObservation(observation) else { return }
+            switch result {
+            case .success(let remote): _ = model.applyRemote(remote, ticket: ticket)
+            case .failure(let error):
+                if let failure = error as? FirestoreService.FavoriteFailure, case .unavailable = failure {
+                    // Set before publication: model observers may call start.
+                    observation.attachmentFailed = true
                 }
-                OfflineManager.shared.savePodcastsForOffline(self.favorites)
-                self.isLoadingFavorites = false
-            }
-        } catch {
-            DispatchQueue.main.async { [weak self] in
-                self?.favoriteError = "Kunne ikke synkronisere favoritter: \(error.localizedDescription)"
-                self?.isLoadingFavorites = false
-                self?.logger.error("Favoritsync mod Firebase fejlede: \(error.localizedDescription, privacy: .public)")
+                model.observationFailed(ticket: ticket)
+                guard self.ownsFavoriteObservation(observation) else { return }
+                AppDiagnostics.recordOperational(.favoritesSyncFailed)
             }
         }
-    }
-    
-    private func reloadFavorites() {
-        // Safety check: ensure we're not already syncing
-        guard !isLoadingFavorites else {
+        guard original() else {
+            model.endObservation(ticket)
+            listener?.remove()
+            if favoritesObservation === observation { favoritesObservation = nil }
             return
         }
-        
-        Task { [weak self] in
-            await self?.syncFavoritesWithFirestore()
+        observation.attaching = false
+        observation.listener = listener
+        if listener == nil {
+            let alreadyReported = observation.attachmentFailed
+            observation.attachmentFailed = true
+            if !alreadyReported { model.observationFailed(ticket: ticket) }
         }
     }
-    
-    private func saveFavorites() {
-        if favorites.isEmpty {
-            UserDefaults.standard.removeObject(forKey: favoritesKey)
-            UserDefaults.standard.synchronize()
-            return
-        }
 
-        if let data = try? JSONEncoder().encode(favorites) {
-            UserDefaults.standard.set(data, forKey: favoritesKey)
-            UserDefaults.standard.synchronize()
-        } else {
-            logger.error("Kunne ikke serialisere favoritter til disk")
-        }
+    func retryFavorites(generation: UUID) {
+        let model = injectedFavoriteModel ?? FavoritesRuntime.model
+        guard model.snapshot.generation == generation else { return }
+        let entry = UUID(); favoritesEntry = entry
+        // Retire before retry can publish. A nested observer may then attach the
+        // replacement; the original retry must not tear that replacement down.
+        retireFavoritesObservation()
+        guard favoritesEntry == entry, model.snapshot.generation == generation else { return }
+        if injectedFavoriteModel != nil { injectedFavoriteRetry?(generation) }
+        else { FavoritesRuntime.shared.retryCurrentChanges(generation: generation) }
+        guard favoritesEntry == entry, model.snapshot.generation == generation else { return }
+        startFavoritesListenerIfNeeded()
     }
-    
+
+    private func syncFavoritesWithFirestore() async { startFavoritesListenerIfNeeded() }
+
     // Enhanced category management
     var categories: [String] {
         // If no articles loaded, return empty array to prevent crashes
@@ -1198,7 +1823,7 @@ class ArticleViewModel: ObservableObject {
             return []
         }
         
-        let allCategories = articles.compactMap { article in
+        let allCategories = visibleArticles.compactMap { article in
             article.topicID?.trimmingCharacters(in: .whitespacesAndNewlines)
         }.filter { !$0.isEmpty }
         return Array(Set(allCategories)).sorted()
@@ -1211,23 +1836,25 @@ class ArticleViewModel: ObservableObject {
             return []
         }
         
-        let categoryCounts = Dictionary(grouping: articles) { article in
+        let categoryCounts = Dictionary(grouping: visibleArticles) { article in
             topics.first(where: { $0.id == article.topicID })?.name ?? "Ukendt"
         }.mapValues { $0.count }
         
         return categoryCounts.map { (name: $0.key, count: $0.value) }.sorted { $0.count > $1.count }
     }
     
-    // Get articles by category
+    // Resolve membership through the same known primary/secondary topic IDs
+    // already used by the article's category chips, preserving feed order.
     func articles(for category: String) -> [Article] {
-        // If no articles or topics loaded, return empty array to prevent crashes
-        guard !articles.isEmpty && !topics.isEmpty else {
-            return []
-        }
-        
-        return articles.filter { article in
-            let topicName = topics.first(where: { $0.id == article.topicID })?.name ?? ""
-            return topicName.trimmingCharacters(in: .whitespacesAndNewlines) == category
+        let name = category.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, !articles.isEmpty else { return [] }
+        let matchingIDs = Set(topics.lazy.filter {
+            $0.name.trimmingCharacters(in: .whitespacesAndNewlines) == name
+        }.map(\.id))
+        guard !matchingIDs.isEmpty else { return [] }
+        return visibleArticles.filter { article in
+            if let primary = article.topicID, matchingIDs.contains(primary) { return true }
+            return article.topicsIDs?.contains(where: matchingIDs.contains) ?? false
         }
     }
     
@@ -1274,7 +1901,6 @@ class ArticleViewModel: ObservableObject {
     var featuredCategories: [Topic] {
         // If no topics loaded, return empty array to prevent crashes
         guard !topics.isEmpty else {
-            // print("[DEBUG] No topics loaded, returning empty featuredCategories")
             return []
         }
         
@@ -1372,7 +1998,6 @@ class ArticleViewModel: ObservableObject {
     var continueWatching: [Article] {
         // If no articles loaded, return empty array to prevent crashes
         guard !articles.isEmpty else {
-            // print("[DEBUG] No articles loaded, returning empty continueWatching")
             return []
         }
         
@@ -1383,7 +2008,6 @@ class ArticleViewModel: ObservableObject {
     var popular: [Article] {
         // If no articles loaded, return empty array to prevent crashes
         guard !articles.isEmpty else {
-            // print("[DEBUG] No articles loaded, returning empty popular")
             return []
         }
         
@@ -1395,7 +2019,6 @@ class ArticleViewModel: ObservableObject {
     var allAnmeldelser: [Article] {
         // If no topics loaded, return empty array to prevent crashes
         guard !topics.isEmpty else {
-            // print("[DEBUG] No topics loaded, returning empty allAnmeldelser")
             return []
         }
         
@@ -1429,7 +2052,6 @@ class ArticleViewModel: ObservableObject {
     var section: [Article] {
         // If no articles loaded, return empty array to prevent crashes
         guard !articles.isEmpty else {
-            // print("[DEBUG] No articles loaded, returning empty section")
             return []
         }
         
@@ -1467,7 +2089,6 @@ class ArticleViewModel: ObservableObject {
     var allAnmeldelserArticles: [Article] {
         // If no topics loaded, return empty array to prevent crashes
         guard !topics.isEmpty else {
-            // print("[DEBUG] No topics loaded, returning empty allAnmeldelserArticles")
             return []
         }
         
@@ -1483,7 +2104,6 @@ class ArticleViewModel: ObservableObject {
     var allPopularArticles: [Article] {
         // If no articles loaded, return empty array to prevent crashes
         guard !articles.isEmpty else {
-            // print("[DEBUG] No articles loaded, returning empty allPopularArticles")
             return []
         }
         
@@ -1497,7 +2117,6 @@ class ArticleViewModel: ObservableObject {
     var allSectionArticles: [Article] {
         // If no articles loaded, return empty array to prevent crashes
         guard !articles.isEmpty else {
-            // print("[DEBUG] No articles loaded, returning empty allSectionArticles")
             return []
         }
         
@@ -1523,7 +2142,6 @@ class ArticleViewModel: ObservableObject {
     func findSectionForArticle(_ article: Article) -> WebflowSection? {
         // First check if we have sections and topics loaded
         guard !sections.isEmpty && !topics.isEmpty else {
-            // print("[DEBUG] No sections or topics loaded yet")
             return nil
         }
         
@@ -1531,18 +2149,13 @@ class ArticleViewModel: ObservableObject {
         let articleTopicID = article.topicID
         let articleTopicsIDs = article.topicsIDs ?? []
         
-        // print("[DEBUG] Article '\(article.name ?? "Unknown")' analysis:")
-        // print("[DEBUG] - Main topic ID: \(articleTopicID ?? "nil")")
-        // print("[DEBUG] - Additional topics IDs: \(articleTopicsIDs)")
         
         // Find the topic name for the main topic
         if let mainTopicID = articleTopicID,
            let mainTopic = topics.first(where: { $0.id == mainTopicID }) {
-            // print("[DEBUG] - Main topic name: \(mainTopic.name)")
             
             // Map topic to section based on content
             if let section = mapTopicToSection(mainTopic.name) {
-                // print("[DEBUG] - Mapped to section: \(section.name)")
                 return section
             }
         }
@@ -1550,15 +2163,12 @@ class ArticleViewModel: ObservableObject {
         // Check additional topics
         for topicID in articleTopicsIDs {
             if let topic = topics.first(where: { $0.id == topicID }) {
-                // print("[DEBUG] - Additional topic: \(topic.name)")
                 if let section = mapTopicToSection(topic.name) {
-                    // print("[DEBUG] - Mapped to section: \(section.name)")
                     return section
                 }
             }
         }
         
-        // print("[DEBUG] - No section mapping found")
         return nil
     }
     
@@ -1591,251 +2201,138 @@ class ArticleViewModel: ObservableObject {
         return nil
     }
     
-    // MARK: - Notification Navigation
+    // MARK: - Incoming links
 
-    private func navigateFromNotification(payload: NotificationNavigation.Payload) {
-        pendingNotificationPayload = payload
-
-        if payload.isPodcastNotification {
-            navigateToPodcastFromNotification(payload: payload)
-            return
+    private func resolveIncomingLink(_ request: IncomingLinkCoordinator.Request) async {
+        let runtime = IncomingLinkRuntime.shared
+        guard let accountPermission = captureReadPermission() else { return }
+        let language = articleLanguage
+        let permission: ReadPermission = { [weak self] in
+            accountPermission() && self?.articleLanguage == language
         }
-
-        navigateToArticleFromNotification(payload: payload)
-    }
-
-    private func navigateToPodcastFromNotification(payload: NotificationNavigation.Payload) {
-        Task { @MainActor in
-            await PodcastRepository.shared.refreshManifest(force: true)
-            NavigationCoordinator.shared.selectedTab = .home
-
-            let slug = payload.articleSlug ?? payload.articleIdentifier
-            let article = articleMatching(identifier: payload.articleIdentifier)
-            let episode = article.flatMap { PodcastRepository.shared.episode(for: $0) }
-                ?? PodcastRepository.shared.episode(forSlug: slug)
-
-            guard let episode else {
-                logger.warning("Podcast-notifikation uden episode for \(payload.articleIdentifier, privacy: .public) — åbner artikel i stedet")
-                navigateToArticleFromNotification(payload: payload)
+        guard permission(), runtime.isCurrent(request.ticket), !Task.isCancelled else { return }
+        switch request.link {
+        case .category(let name):
+            NavigationCoordinator.shared.selectedTab = .categories
+            guard permission(), runtime.isCurrent(request.ticket) else { return }
+            NavigationCoordinator.shared.navigateToCategory(name, in: .categories)
+        case .author(let id):
+            let author: Author? = await withCheckedContinuation { continuation in
+                fetchAuthor(by: id) { result in continuation.resume(returning: try? result.get()) }
+            }
+            guard permission(), runtime.isCurrent(request.ticket), !Task.isCancelled else { return }
+            guard let author, author.id == id else {
+                runtime.showMessage("Forfatteren kunne ikke åbnes lige nu. Prøv igen senere.", ticket: request.ticket)
                 return
             }
-
-            completePodcastNotificationNavigation(
-                episode: episode,
-                article: article,
-                payload: payload
-            )
-        }
-    }
-
-    private func completePodcastNotificationNavigation(
-        episode: PodcastEpisode,
-        article: Article?,
-        payload: NotificationNavigation.Payload
-    ) {
-        pendingNotificationPayload = nil
-        NavigationCoordinator.shared.clearPendingNotificationNavigation(for: payload.articleIdentifier)
-
-        let articleId = article?.id
-        PodcastPlayerManager.shared.play(episode: episode, articleId: articleId)
-        PodcastPlayerManager.shared.isFullPlayerPresented = true
-        AnalyticsService.shared.trackPodcastPlay(episode: episode, articleId: articleId)
-    }
-
-    /// Navigate to article from notification
-    private func navigateToArticleFromNotification(payload: NotificationNavigation.Payload) {
-        navigateToArticleFromNotification(articleId: payload.articleIdentifier)
-    }
-
-    private func navigateToArticleFromNotification(articleId: String) {
-        AnalyticsService.shared.setPendingArticleOpenSource(.notification)
-
-        if let existingArticle = articleMatching(identifier: articleId) {
-            completeArticleNotificationNavigation(to: existingArticle, articleId: articleId)
-            return
-        }
-
-        fetchAndNavigateToArticle(articleId: articleId)
-    }
-
-    private func completeArticleNotificationNavigation(to article: Article, articleId: String) {
-        pendingNotificationPayload = nil
-        NavigationCoordinator.shared.clearPendingNotificationNavigation(for: articleId)
-        navigateToArticle(article)
-    }
-
-    private func retryPendingNotificationNavigationIfNeeded() {
-        guard let payload = pendingNotificationPayload else { return }
-
-        if payload.isPodcastNotification {
-            navigateToPodcastFromNotification(payload: payload)
-            return
-        }
-
-        guard let article = articleMatching(identifier: payload.articleIdentifier) else { return }
-        completeArticleNotificationNavigation(to: article, articleId: payload.articleIdentifier)
-    }
-
-    private func articleMatching(identifier: String) -> Article? {
-        let normalizedIdentifier = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedIdentifier.isEmpty else { return nil }
-
-        let sources = articles + (CacheManager.shared.getCachedArticles() ?? [])
-        var seen = Set<String>()
-
-        for article in sources {
-            guard seen.insert(article.id).inserted else { continue }
-
-            if article.id == normalizedIdentifier {
-                return article
+            NavigationCoordinator.shared.selectedTab = .home
+            guard permission(), runtime.isCurrent(request.ticket) else { return }
+            NavigationCoordinator.shared.navigateToAuthor(author, in: .home)
+        case .article(let id):
+            guard let article = await resolveIncomingArticle(id, fallback: request.fallbackIdentifier, ticket: request.ticket, stillCurrent: permission),
+                  permission(), runtime.isCurrent(request.ticket), !Task.isCancelled else { return }
+            openIncomingArticle(article, ticket: request.ticket, stillCurrent: permission)
+        case .podcast(let id, let startSeconds):
+            guard let article = await resolveIncomingArticle(id, fallback: request.fallbackIdentifier, ticket: request.ticket, stillCurrent: permission),
+                  permission(), runtime.isCurrent(request.ticket), !Task.isCancelled else { return }
+            await PodcastRepository.shared.refreshManifest(force: true, allowPrefetch: false)
+            guard permission(), runtime.isCurrent(request.ticket), !Task.isCancelled,
+                  ArticleAvailabilityService.model.permitsBody(article) else { return }
+            guard let raw = IncomingLinkResolutionPolicy.episode(for: article, in: PodcastRepository.shared.episodes),
+                  PodcastAvailabilityService.model.allows(raw, articleID: article.id) else {
+                openIncomingArticle(article, ticket: request.ticket, stillCurrent: permission)
+                runtime.showMessage("Lyden er ikke tilgængelig lige nu. Du kan læse artiklen her.", ticket: request.ticket)
+                return
             }
-
-            guard let slug = article.slug?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !slug.isEmpty else {
-                continue
-            }
-
-            if slug.compare(normalizedIdentifier, options: .caseInsensitive) == .orderedSame {
-                return article
+            let episode = PodcastRepository.enriched(raw, with: article)
+            guard permission(), runtime.willStartPlayerWork(ticket: request.ticket) else { return }
+            let accepted = PodcastPlayerManager.shared.play(episode: episode, articleId: article.id,
+                audioStartSeconds: startSeconds.map(TimeInterval.init),
+                routeIsCurrent: { permission() && runtime.isCurrent(request.ticket) })
+            guard permission(), runtime.isCurrent(request.ticket) else { return }
+            if accepted {
+                PodcastPlayerManager.shared.isFullPlayerPresented = true
+                AnalyticsService.shared.trackPodcastPlay(episode: episode, articleId: article.id)
+            } else {
+                openIncomingArticle(article, ticket: request.ticket, stillCurrent: permission)
+                runtime.showMessage("Lyden kunne ikke åbnes. Du kan læse artiklen her.", ticket: request.ticket)
             }
         }
+    }
 
+    private func resolveIncomingArticle(_ identifier: String, fallback: String?, ticket: IncomingLinkCoordinator.Ticket, stillCurrent: @escaping ReadPermission) async -> Article? {
+        let runtime = IncomingLinkRuntime.shared
+        guard stillCurrent(), runtime.isCurrent(ticket) else { return nil }
+        // Offline lookup is scoped to this owned snapshot. An online route uses
+        // the bounded canonical server lookup, never a partial slug cache hit.
+        if !OfflineManager.shared.isOnline {
+            let cache = CacheManager.shared
+            let capture = cache.captureArticlesHydration()
+            let outcome = await cache.loadCapturedArticles(capture, stillPermitted: { stillCurrent() && runtime.isCurrent(ticket) && !Task.isCancelled })
+            guard stillCurrent(), runtime.isCurrent(ticket), !Task.isCancelled else { return nil }
+            let candidates = ArticleLanguageSelection.visible(articles + (outcome.articles ?? []), language: articleLanguage)
+            let found = IncomingLinkResolutionPolicy.offlineArticle(
+                identifier: ArticleLanguageSelection.identifier(identifier, language: articleLanguage), in: candidates,
+                permits: { ArticleAvailabilityService.model.permitsBody($0) })
+            if let found { return found }
+            runtime.showMessage("Linket kunne ikke bekræftes offline. Prøv igen, når du er online.", ticket: ticket)
+            return nil
+        }
+        let permission: ReadPermission = { stillCurrent() && runtime.isCurrent(ticket) && !Task.isCancelled }
+        if let article = await fetchIncomingArticle(identifier, fallback: fallback, stillCurrent: permission) { return article }
+        guard permission() else { return nil }
+        runtime.showMessage("Artiklen kunne ikke åbnes. Den kan være ændret eller ikke længere publiceret.", ticket: ticket)
         return nil
     }
-    
-    private func retryNotificationNavigationAfterRefresh(articleId: String, error: Error) {
-        Task { @MainActor in
-            await performRemoteArticleFetch(forceRefresh: true, minimumLoadingDuration: 0)
-            retryPendingNotificationNavigationIfNeeded()
-            if pendingNotificationPayload != nil {
-                logger.error("Kunne ikke navigere til artikel \(articleId, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            }
-        }
+
+    private func openIncomingArticle(_ article: Article, ticket: IncomingLinkCoordinator.Ticket, stillCurrent: @escaping ReadPermission) {
+        openIncomingArticle(article, ticket: ticket, stillCurrent: stillCurrent,
+            runtime: .shared, navigation: .shared,
+            permitsBody: { ArticleAvailabilityService.model.permitsBody($0) },
+            dismissFullPlayer: { PodcastPlayerManager.shared.dismissFullPlayer() })
     }
 
-    /// Fetch article and navigate to it
-    private func fetchAndNavigateToArticle(articleId: String) {
-        if let cached = articleMatching(identifier: articleId) {
-            if let payload = pendingNotificationPayload, payload.isPodcastNotification {
-                navigateToPodcastFromNotification(payload: payload)
-                return
-            }
-            completeArticleNotificationNavigation(to: cached, articleId: articleId)
-            return
+    /// The production route and local tests share the same admission and path
+    /// commit. Injected effects do not construct a player or reader transport.
+    func openIncomingArticle(_ article: Article, ticket: IncomingLinkCoordinator.Ticket,
+                             stillCurrent: @escaping ReadPermission,
+                             runtime: IncomingLinkRuntime, navigation: NavigationCoordinator,
+                             permitsBody: (Article) -> Bool,
+                             dismissFullPlayer: () -> Void) {
+        func mayPresent() -> Bool {
+            guard stillCurrent(), runtime.isCurrent(ticket), isVisibleArticle(article),
+                  permitsBody(article) else { return false }
+            // Publication and presentation effects can reenter or revoke a route.
+            return stillCurrent() && runtime.isCurrent(ticket)
         }
-
-        fetchArticle(by: articleId) { [weak self] result in
-            guard let self = self else { return }
-            switch result {
-            case .success(let article):
-                if let payload = self.pendingNotificationPayload, payload.isPodcastNotification {
-                    let episode = PodcastRepository.shared.episode(for: article)
-                        ?? PodcastRepository.shared.episode(forSlug: payload.articleSlug ?? payload.articleIdentifier)
-                    if let episode {
-                        self.completePodcastNotificationNavigation(
-                            episode: episode,
-                            article: article,
-                            payload: payload
-                        )
-                        return
-                    }
-                    self.logger.warning("Podcast-notifikation uden episode efter artikelhentning — åbner artikel i stedet")
-                }
-                self.completeArticleNotificationNavigation(to: article, articleId: articleId)
-            case .failure(let error):
-                if let slug = self.pendingNotificationPayload?.articleSlug,
-                   !slug.isEmpty,
-                   slug.compare(articleId, options: .caseInsensitive) != .orderedSame {
-                    self.fetchArticle(by: slug) { slugResult in
-                        switch slugResult {
-                        case .success(let article):
-                            self.completeArticleNotificationNavigation(to: article, articleId: article.id)
-                        case .failure:
-                            self.retryNotificationNavigationAfterRefresh(articleId: articleId, error: error)
-                        }
-                    }
-                    return
-                }
-                self.retryNotificationNavigationAfterRefresh(articleId: articleId, error: error)
-            }
-        }
-    }
-    
-    private func openAuthorPage(authorId: String) {
-        let normalizedId = authorId
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-
-        if let cached = authors.first(where: {
-            $0.id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == normalizedId
-        }) {
-            NavigationCoordinator.shared.navigateToAuthor(cached, in: .home)
-            return
-        }
-
-        fetchAuthor(by: authorId) { result in
-            DispatchQueue.main.async {
-                switch result {
-                case .success(let author):
-                    NavigationCoordinator.shared.navigateToAuthor(author, in: .home)
-                case .failure(let error):
-                    self.logger.error("Kunne ikke åbne forfatter \(authorId, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                }
-            }
-        }
+        guard mayPresent() else { return }
+        dismissFullPlayer() // Dismiss the covering sheet; keep ordinary playback.
+        guard mayPresent() else { return }
+        navigation.selectedTab = .home
+        guard mayPresent() else { return }
+        navigation.goToRoot(in: .home)
+        guard mayPresent() else { return }
+        navigation.navigateToArticle(article, in: .home)
     }
 
-    /// Navigate to article using NavigationCoordinator
-    private func navigateToArticle(_ article: Article) {
-        Task { @MainActor in
-            await AppReadiness.waitUntilUIReady()
-            NotificationCenter.default.post(
-                name: NSNotification.Name("NavigateToArticle"),
-                object: nil,
-                userInfo: ["article": article]
-            )
+    /// Shared server lookup used by actual route resolution and local transports.
+    func fetchIncomingArticle(_ identifier: String, fallback: String?, stillCurrent: @escaping ReadPermission = { true }) async -> Article? {
+        guard let owner = captureReadPermission() else { return nil }
+        let language = articleLanguage
+        let permission: ReadPermission = { [weak self] in owner() && stillCurrent()
+            && !Task.isCancelled && self?.articleLanguage == language }
+        guard permission() else { return nil }
+        let first = await readEffects.incoming(ArticleLanguageSelection.identifier(identifier, language: language), permission)
+        guard permission() else { return nil }
+        if case .success(let article) = first { return isVisibleArticle(article) ? article : nil }
+        if case .failure(FirestoreArticleError.empty) = first, let fallback, fallback != identifier {
+            let second = await readEffects.incoming(ArticleLanguageSelection.identifier(fallback, language: language), permission)
+            guard permission() else { return nil }
+            if case .success(let article) = second { return isVisibleArticle(article) ? article : nil }
         }
-    }
-    
-    /// Navigate to article by name (fallback when ID is not available)
-    private func navigateToArticleByName(articleName: String) {
-        let searchName = articleName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        
-        Task { @MainActor in
-            if searchName.contains("ny") || searchName.contains("new") {
-                await performRemoteArticleFetch(forceRefresh: true, minimumLoadingDuration: 0)
-                if let newestArticle = sortedNewestFirst(articles).first {
-                    navigateToArticle(newestArticle)
-                }
-                return
-            }
-
-            if let existingArticle = matchingArticle(named: searchName, in: articles) {
-                navigateToArticle(existingArticle)
-                return
-            }
-
-            await performRemoteArticleFetch(forceRefresh: false, minimumLoadingDuration: 0)
-            await waitForArticleLoadCycle()
-
-            if let foundArticle = matchingArticle(named: searchName, in: articles) {
-                navigateToArticle(foundArticle)
-            }
-        }
+        return nil
     }
 
-    private func matchingArticle(named searchName: String, in articles: [Article]) -> Article? {
-        if let exact = articles.first(where: {
-            ($0.name?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? "") == searchName
-        }) {
-            return exact
-        }
-
-        return articles.first(where: {
-            let articleName = $0.name?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
-            return articleName.contains(searchName) || searchName.contains(articleName)
-        })
-    }
 }
 
 // MARK: - Preview Extension

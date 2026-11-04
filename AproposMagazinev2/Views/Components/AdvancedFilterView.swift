@@ -111,6 +111,7 @@ enum SortOption: String, CaseIterable {
 // MARK: - Advanced Filter View
 
 struct AdvancedFilterView: View {
+    @Environment(\.locale) private var interfaceLocale
     @Binding var filter: ArticleFilter
     let articles: [Article]
     let onApply: ([Article]) -> Void
@@ -339,7 +340,7 @@ struct AdvancedFilterView: View {
             
             Picker("Sortér", selection: $tempFilter.sortBy) {
                 ForEach(SortOption.allCases, id: \.self) { option in
-                    Text(option.displayName).tag(option)
+                    Text(LocalizedStringKey(option.displayName)).tag(option)
                 }
             }
             .pickerStyle(.menu)
@@ -487,6 +488,7 @@ struct AdvancedFilterView: View {
     
     private func formatDateRange(_ interval: DateInterval) -> String {
         let formatter = DateFormatter()
+        formatter.locale = interfaceLocale
         formatter.dateStyle = .medium
         formatter.timeStyle = .none
         
@@ -506,7 +508,7 @@ struct FilterChip: View {
     
     var body: some View {
         Button(action: action) {
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .font(.caption)
                 .fontWeight(.medium)
                 .foregroundColor(isSelected ? .white : .primary)

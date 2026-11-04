@@ -6,18 +6,43 @@
 //  Updated with robust navigation structure based on Apple's NavigationCookbook
 //
 
+import Combine
 import SwiftUI
 
+/// Only the normal app constructs this bridge. The model itself has no player,
+/// SDK, timer or storage dependency and is also used by local Home fixtures.
+@MainActor
+enum PodcastPlayerPresentationRuntime {
+    static let model: PodcastPlayerPresentationModel = {
+        let player = PodcastPlayerManager.shared
+        let model = PodcastPlayerPresentationModel(read: {
+            .init(activeEpisodeID: player.currentEpisode?.id,
+                preparationID: player.offlinePreparationID,
+                preparationTitle: player.offlinePreparationTitle,
+                isFullPlayerPresented: player.isFullPlayerPresented,
+                offlinePlaybackMessage: player.offlinePlaybackMessage)
+        })
+        model.observe(player.objectWillChange.eraseToAnyPublisher())
+        model.synchronize()
+        return model
+    }()
+}
 
 struct ContentView: View {
     @ObservedObject private var navigationCoordinator = NavigationCoordinator.shared
     @EnvironmentObject var viewModel: ArticleViewModel
     @ObservedObject private var themeManager = ThemeManager.shared
-    @ObservedObject private var podcastPlayerManager = PodcastPlayerManager.shared
+    @ObservedObject private var incomingLinks = IncomingLinkRuntime.shared
+    @ObservedObject private var notificationInbox = NotificationInboxRuntime.model
+    private let podcastPlayerManager = PodcastPlayerManager.shared
+    @ObservedObject private var podcastPresentation = PodcastPlayerPresentationRuntime.model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var articleHeroNamespace
-    @State private var showWhatsNew = false
-    @State private var showNotificationOnboarding = false
+    @State private var replayIntroduction = false
+
+    private var notificationUnreadCount: Int {
+        NotificationTabBadge.unreadCount(in: notificationInbox, language: viewModel.articleLanguage)
+    }
     
     private var tabSelection: Binding<Tab> {
         Binding(
@@ -33,124 +58,52 @@ struct ContentView: View {
     }
     
     var body: some View {
-        ZStack(alignment: .bottom) {
-            TabView(selection: tabSelection) {
-                // Home Tab
-                NavigationStack(path: navigationCoordinator.path(for: .home)) {
-                    HomeView(articleHeroNamespace: articleHeroNamespace)
-                        .environmentObject(viewModel)
-                        .navigationDestination(for: Article.self) { article in
-                            ArticleDetailView(article: article)
-                                .environmentObject(viewModel)
-                                .navigationTransition(.zoom(sourceID: article.id, in: articleHeroNamespace))
-                                .transaction { transaction in
-                                    if reduceMotion {
-                                        transaction.disablesAnimations = true
-                                    }
-                                }
-                        }
-                        .navigationDestination(for: AppRoute.self) { route in
-                            destinationView(for: route)
-                        }
-                        .navigationDestination(for: ContentSeries.self) { series in
-                            SeriesDetailView(
-                                series: series,
-                                articles: series.articleIds.compactMap { id in
-                                    viewModel.articles.first(where: { $0.id == id })
-                                }
-                            )
-                            .environmentObject(viewModel)
-                            .environment(\.navigationCoordinator, navigationCoordinator)
-                        }
-                }
-                .id(navigationCoordinator.homeStackID)
-                .background(InteractivePopGestureEnabler())
-                .tabItem { Label("Hjem", systemImage: "house.fill") }
-                .tag(Tab.home)
-                
-                // Search Tab
-                NavigationStack(path: navigationCoordinator.path(for: .search)) {
-                    SearchView_Enhanced()
-                        .environmentObject(viewModel)
-                        .navigationDestination(for: Article.self) { article in
-                            ArticleDetailView(article: article, analyticsSource: .search)
-                                .environmentObject(viewModel)
-                        }
-                        .navigationDestination(for: AppRoute.self) { route in
-                            destinationView(for: route)
-                        }
-                }
-                .background(InteractivePopGestureEnabler())
-                .tabItem { Label("Artikler", systemImage: "doc.text") }
-                .tag(Tab.search)
-                
-                // Categories Tab
-                NavigationStack(path: navigationCoordinator.path(for: .categories)) {
-                    CategoriesView()
-                        .environmentObject(viewModel)
-                        .environmentObject(navigationCoordinator)
-                        .navigationDestination(for: Article.self) { article in
-                            ArticleDetailView(article: article)
-                                .environmentObject(viewModel)
-                        }
-                        .navigationDestination(for: AppRoute.self) { route in
-                            destinationView(for: route)
-                        }
-                }
-                .background(InteractivePopGestureEnabler())
-                .tabItem { Label("Kategorier", systemImage: "square.grid.2x2.fill") }
-                .tag(Tab.categories)
-                
-                // Favorites Tab
-                NavigationStack(path: navigationCoordinator.path(for: .favorites)) {
-                    FavoritesView()
-                        .environmentObject(viewModel)
-                        .navigationDestination(for: Article.self) { article in
-                            ArticleDetailView(article: article)
-                                .environmentObject(viewModel)
-                        }
-                        .navigationDestination(for: AppRoute.self) { route in
-                            destinationView(for: route)
-                        }
-                }
-                .background(InteractivePopGestureEnabler())
-                .tabItem { Label("Min side", systemImage: "person.crop.circle") }
-                .tag(Tab.favorites)
-            }
-            .background(
-                TabBarSelectionHandler(homeTabIndex: 0) {
-                    navigationCoordinator.navigateToHomeRoot()
-                }
-            )
-            .safeAreaInset(edge: .bottom) {
-                if podcastPlayerManager.hasActiveEpisode {
-                    Color.clear
-                        .frame(height: PodcastMiniPlayerLayout.scrollBottomInset)
-                }
-            }
-            
-            if podcastPlayerManager.hasActiveEpisode {
+        AproposNavigationShell(selection: tabSelection,
+            hasActiveEpisode: podcastPresentation.snapshot.hasActiveEpisode,
+            hasPreparation: podcastPresentation.snapshot.preparationTitle != nil,
+            favoritesUnreadCount: notificationUnreadCount,
+            onTabReselected: { navigationCoordinator.reselect($0) }) {
+            navigationPages
+        } accessory: {
+            if let title = podcastPresentation.snapshot.preparationTitle,
+               let id = podcastPresentation.snapshot.preparationID,
+               !podcastPresentation.snapshot.hasActiveEpisode {
+                PodcastOfflinePreparationBar(title: title, open: {
+                    podcastPlayerManager.isFullPlayerPresented = true
+                }, cancel: {
+                    _ = podcastPlayerManager.cancelOfflinePreparation(id: id)
+                })
+                .zIndex(2)
+            } else if podcastPresentation.snapshot.hasActiveEpisode {
                 PodcastMiniPlayerBar()
                     .environmentObject(podcastPlayerManager)
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 88)
                     .zIndex(2)
-                    .transition(
-                        .asymmetric(
-                            insertion: .move(edge: .bottom).combined(with: .opacity),
-                            removal: .move(edge: .bottom).combined(with: .opacity)
-                        )
-                    )
+                    .transition(AppMotion.playerTransition(reduceMotion: reduceMotion))
             }
         }
         .animation(
-            reduceMotion ? nil : .spring(response: 0.48, dampingFraction: 0.84),
-            value: podcastPlayerManager.hasActiveEpisode
+            AppMotion.playerSpring(response: 0.48, damping: 0.84, reduceMotion: reduceMotion),
+            value: podcastPresentation.snapshot.hasActiveEpisode
         )
         .accentColor(.primary) // Use primary color for active tabs (black in light mode, white in dark mode)
         .environmentObject(viewModel)
         .environmentObject(podcastPlayerManager)
         .environment(\.navigationCoordinator, navigationCoordinator)
+        .environment(\.locale, AppLocalization.locale(for: viewModel.articleLanguage))
+        .modifier(SavedArticleAccountPresenter(gate: viewModel.accountSaveGate))
+        .onChange(of: viewModel.articleLanguage) { _, _ in
+            // Retire incompatible article audio through the existing session
+            // lifecycle before projecting the newly selected text language.
+            podcastPlayerManager.reconcileContentLanguage()
+            // Hidden stacks must not reopen a previous-language article.
+            for tab in [Tab.home, .search, .categories, .favorites] {
+                navigationCoordinator.goToRoot(in: tab)
+            }
+            // The shared language preference is updated by the existing
+            // selection path before this view callback. Reproject its unread
+            // badge immediately, without marking any message read.
+            NotificationInboxRuntime.didBecomeActive()
+        }
         .onAppear {
             // Set tab bar appearance with glass effect from backup
             let appearance = UITabBarAppearance()
@@ -176,39 +129,22 @@ struct ContentView: View {
             AppReadiness.markUIReady()
         }
         .preferredColorScheme(themeManager.currentTheme.colorScheme)
-        .task {
-            // Wait for ContentView to be fully visible after splash screen
-            try? await Task.sleep(nanoseconds: 500_000_000)
-
-            if !showWhatsNew {
-                let shouldShow = WhatsNewManager.shared.shouldShowWhatsNew()
-
-                if shouldShow {
-                    showWhatsNew = true
-                } else {
-                    await presentNotificationOnboardingIfNeeded()
-                }
-            }
-        }
-        .sheet(isPresented: $showWhatsNew) {
-            WhatsNewView(entries: WhatsNewManager.shared.entriesForDisplay()) {
-                if let newest = WhatsNewManager.shared.entriesForDisplay().first {
-                    WhatsNewManager.shared.markEntryAsSeen(newest)
-                }
-                showWhatsNew = false
-                Task { @MainActor in
-                    await presentNotificationOnboardingIfNeeded()
-                }
-            }
-            .interactiveDismissDisabled()
-        }
-        .fullScreenCover(isPresented: $showNotificationOnboarding) {
-            NotificationOnboardingView {
-                showNotificationOnboarding = false
-            }
-            .environmentObject(viewModel)
-        }
-        .sheet(isPresented: $podcastPlayerManager.isFullPlayerPresented) {
+        .modifier(ReaderIntroductionPresenter(automatic: true,
+            startupBlocked: navigationCoordinator.selectedTab != .home
+                || !navigationCoordinator.homePath.isEmpty || !navigationCoordinator.searchPath.isEmpty
+                || !navigationCoordinator.categoriesPath.isEmpty || !navigationCoordinator.favoritesPath.isEmpty
+                || podcastPresentation.snapshot.hasActiveEpisode
+                || podcastPresentation.snapshot.preparationID != nil
+                || podcastPresentation.snapshot.isFullPlayerPresented
+                || viewModel.accountSaveGate.request != nil,
+            replayRequested: $replayIntroduction,
+            featureSetupRequested: viewModel.accountSaveGate.needsSetup,
+            canOpenFeatureSetup: { viewModel.accountSaveGate.permitsSetup },
+            didOpenFeatureSetup: { viewModel.accountSaveGate.acknowledgeSetup() }))
+        .sheet(isPresented: Binding(
+            get: { podcastPresentation.snapshot.isFullPlayerPresented },
+            set: { podcastPlayerManager.isFullPlayerPresented = $0 }
+        )) {
             PodcastAudioPlayerSheet()
                 .environmentObject(viewModel)
                 .environmentObject(podcastPlayerManager)
@@ -216,9 +152,9 @@ struct ContentView: View {
                 .presentationDragIndicator(.hidden)
         }
         .alert(
-            "Kan ikke afspille offline",
+            "Kan ikke afspille",
             isPresented: Binding(
-                get: { podcastPlayerManager.offlinePlaybackMessage != nil },
+                get: { podcastPresentation.snapshot.offlinePlaybackMessage != nil },
                 set: { if !$0 { podcastPlayerManager.clearOfflinePlaybackMessage() } }
             )
         ) {
@@ -226,21 +162,103 @@ struct ContentView: View {
                 podcastPlayerManager.clearOfflinePlaybackMessage()
             }
         } message: {
-            Text(podcastPlayerManager.offlinePlaybackMessage ?? "")
+            Text(LocalizedStringKey(podcastPresentation.snapshot.offlinePlaybackMessage ?? ""))
         }
+        .alert("Gem efter login", isPresented: Binding(
+            get: { viewModel.accountSaveGate.message != nil },
+            set: { if !$0 { viewModel.accountSaveGate.clearMessage() } })) {
+                Button("OK") { viewModel.accountSaveGate.clearMessage() }
+        } message: {
+            Text(LocalizedStringKey(viewModel.accountSaveGate.message ?? ""))
+        }
+        .onChange(of: incomingLinks.acceptedIntentRevision) { _, _ in viewModel.accountSaveGate.cancel() }
     }
 
-    @MainActor
-    private func presentNotificationOnboardingIfNeeded() async {
-        guard !showNotificationOnboarding else { return }
-        guard await NotificationService.shared.shouldPresentOnboarding() else { return }
-        if viewModel.topics.isEmpty {
-            // Give topic fetch a moment so the emner step is useful.
-            try? await Task.sleep(nanoseconds: 1_200_000_000)
+    @ViewBuilder private var navigationPages: some View {
+        // Home Tab
+        NavigationStack(path: navigationCoordinator.path(for: .home)) {
+            HomeView(articleHeroNamespace: articleHeroNamespace)
+                .environmentObject(viewModel)
+                .navigationDestination(for: Article.self) { article in
+                    ArticleDetailView(article: article)
+                        .environmentObject(viewModel)
+                        .navigationTransition(.zoom(sourceID: article.id, in: articleHeroNamespace))
+                        .transaction { transaction in
+                            if reduceMotion {
+                                transaction.disablesAnimations = true
+                            }
+                        }
+                }
+                .navigationDestination(for: AppRoute.self) { route in
+                    destinationView(for: route)
+                }
+                .navigationDestination(for: ContentSeries.self) { series in
+                    SeriesDetailView(
+                        series: series,
+                        articles: series.articleIds.compactMap { id in
+                            viewModel.visibleArticles.first(where: { $0.id == id })
+                        }
+                    )
+                    .environmentObject(viewModel)
+                    .environment(\.navigationCoordinator, navigationCoordinator)
+                }
         }
-        showNotificationOnboarding = true
+        .id(navigationCoordinator.homeStackID)
+        .background(InteractivePopGestureEnabler())
+        .tabItem { Label("Hjem", systemImage: "house.fill") }
+        .tag(Tab.home)
+
+        // Search Tab
+        NavigationStack(path: navigationCoordinator.path(for: .search)) {
+            SearchView_Enhanced()
+                .environmentObject(viewModel)
+                .navigationDestination(for: Article.self) { article in
+                    ArticleDetailView(article: article, analyticsSource: .search)
+                        .environmentObject(viewModel)
+                }
+                .navigationDestination(for: AppRoute.self) { route in
+                    destinationView(for: route)
+                }
+        }
+        .background(InteractivePopGestureEnabler())
+        .tabItem { Label("Artikler", systemImage: "doc.text") }
+        .tag(Tab.search)
+
+        // Categories Tab
+        NavigationStack(path: navigationCoordinator.path(for: .categories)) {
+            CategoriesView()
+                .environmentObject(viewModel)
+                .environmentObject(navigationCoordinator)
+                .navigationDestination(for: Article.self) { article in
+                    ArticleDetailView(article: article)
+                        .environmentObject(viewModel)
+                }
+                .navigationDestination(for: AppRoute.self) { route in
+                    destinationView(for: route)
+                }
+        }
+        .background(InteractivePopGestureEnabler())
+        .tabItem { Label("Kategorier", systemImage: "square.grid.2x2.fill") }
+        .tag(Tab.categories)
+
+        // Favorites Tab
+        NavigationStack(path: navigationCoordinator.path(for: .favorites)) {
+            FavoritesView()
+                .environmentObject(viewModel)
+                .navigationDestination(for: Article.self) { article in
+                    ArticleDetailView(article: article)
+                        .environmentObject(viewModel)
+                }
+                .navigationDestination(for: AppRoute.self) { route in
+                    destinationView(for: route)
+                }
+        }
+        .background(InteractivePopGestureEnabler())
+        .tabItem { NotificationFavoritesTabLabel(unreadCount: notificationUnreadCount) }
+        .modifier(NotificationTabBadge(unreadCount: notificationUnreadCount))
+        .tag(Tab.favorites)
     }
-    
+
     // MARK: - Navigation Destination Views
     
     @ViewBuilder

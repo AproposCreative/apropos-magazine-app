@@ -14,27 +14,28 @@ struct CategoryDetailView: View {
     @Environment(\.navigationCoordinator) private var navigationCoordinator
     
     private var articlesInCategory: [Article] {
-        viewModel.articles.filter { article in
-            let topicName = viewModel.topics.first(where: { $0.id == article.topicID })?.name ?? ""
-            return topicName == categoryName
-        }
+        viewModel.articles(for: categoryName)
     }
     
     var body: some View {
-        ScrollView {
-            LazyVStack(spacing: 16) {
-                ForEach(articlesInCategory) { article in
-                    Button(action: {
-                        navigationCoordinator.navigateToArticle(article, in: .categories)
-                    }) {
-                        ArticleRowCompact(article: article)
+        PodcastMiniPlayerScrollClearance { clearance in
+            ScrollView {
+                LazyVStack(spacing: 16) {
+                    ForEach(articlesInCategory) { article in
+                        Button(action: {
+                            navigationCoordinator.navigateToArticle(article, in: .categories)
+                        }) {
+                            ArticleRowCompact(article: article)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(PlainButtonStyle())
                     }
-                    .buttonStyle(PlainButtonStyle())
                 }
+                .padding(.top, 16)
+                .padding(.bottom, clearance)
             }
-            .padding(.top, 16)
         }
-        .navigationTitle(categoryName)
+        .navigationTitle(LocalizedStringKey(categoryName))
         .navigationBarTitleDisplayMode(.large)
     }
 }

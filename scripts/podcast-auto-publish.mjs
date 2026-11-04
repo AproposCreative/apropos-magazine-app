@@ -9,10 +9,9 @@
  *     2. Upload raw .m4a (any filename)
  *     3. Run: ./scripts/podcast-auto-publish.sh
  *
- *   Option B — replace existing (same as before):
- *     1. Upload/replace raw .m4a in podcasts/articles/{slug}/ (via Console)
- *     2. Run: ./scripts/podcast-auto-publish.sh
- *     → Script finds files > 8 MB, optimizes, re-uploads (keeps URL token)
+ *   Replacements use the same incoming drop zone. Every encoded render gets
+ *   a new immutable object and token; published URLs are never overwritten.
+ *   Existing raw article files can be adopted by a scan without deleting them.
  *
  * Auth once: gcloud auth application-default login
  */
@@ -21,6 +20,7 @@ import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import {
   createWriteStream,
+  readFileSync,
   existsSync,
   mkdirSync,
   rmSync,
@@ -29,10 +29,12 @@ import {
 } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
-import { BUCKET, publicURL, extractToken, resolveDownloadToken } from './lib/firebase-storage.mjs';
+import { BUCKET, publicURL, resolveDownloadToken } from './lib/firebase-storage.mjs';
 import { findArticleBySlug, resolveAuthorName } from './lib/webflow.mjs';
+import { publishManifestThenNotify } from './lib/podcast-notifications.mjs';
+import {postPodcastNotification, resendContext} from './lib/podcast-push-request.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, '..');
@@ -47,11 +49,13 @@ try {
 
 const require = createRequire(join(repoRoot, 'functions', 'package.json'));
 const admin = require('firebase-admin');
+const {createPodcastManifestPublisher, readNarrationSource, verifyNarrationProvenance, publishBoundNarration} = require('./podcastManifest.js');
+const {humanRender, publishHumanReplacement, createHumanInputGuard, selectLatestHumanInputs} = require('./humanAudioPublishing.js');
+const {runBoundedProcess} = require('./boundedProcess.js');
 
 const INCOMING_PREFIX = 'podcasts/incoming/';
 const ARTICLES_PREFIX = 'podcasts/articles/';
 const NARRATION_PREFIX = 'podcasts/narration/';
-const MANIFEST_PATH = 'podcasts/manifest.json';
 const OPTIMIZE_THRESHOLD_BYTES = 8 * 1024 * 1024;
 const TARGET_LUFS = '-16';
 const TARGET_BITRATE = process.env.PODCAST_BITRATE || '96k';
@@ -74,6 +78,7 @@ const narrationSlug = argValue('publish-narration');
 const narrationFileArg = argValue('narration-file');
 // Spring den (uigenkaldelige) broadcast-push over — upload + manifest køres stadig.
 const noNotify = args.has('--no-notify');
+const notificationContext = resendContext({resendId: argValue('resend-id'), resendReason: argValue('resend-reason')});
 
 function formatBytes(bytes) {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -81,9 +86,9 @@ function formatBytes(bytes) {
 }
 
 function requireFfmpeg() {
-  const { execSync } = require('node:child_process');
+  const { execFileSync } = require('node:child_process');
   try {
-    execSync('ffmpeg -version', { stdio: 'ignore' });
+    execFileSync('ffmpeg', ['-version'], { stdio: 'ignore', timeout: 10000, killSignal: 'SIGKILL' });
   } catch {
     console.error('ffmpeg not found. Install: brew install ffmpeg');
     process.exit(1);
@@ -91,36 +96,14 @@ function requireFfmpeg() {
 }
 
 function encodeFile(inputPath, outputPath) {
-  return new Promise((resolvePromise, reject) => {
-    const monoFilter = FORCE_MONO ? ',pan=mono|c0=0.5*c0+0.5*c1' : '';
-    const ff = spawn(
-      'ffmpeg',
-      [
-        '-hide_banner',
-        '-loglevel',
-        'error',
-        '-y',
-        '-i',
-        inputPath,
-        '-af',
-        `loudnorm=I=${TARGET_LUFS}:TP=-1.5:LRA=11${monoFilter}`,
-        '-c:a',
-        'aac',
-        '-b:a',
-        TARGET_BITRATE,
-        '-movflags',
-        '+faststart',
-        outputPath,
-      ],
-      { stdio: 'inherit' }
-    );
-    ff.on('error', reject);
-    ff.on('close', (code) => {
-      if (code === 0) resolvePromise();
-      else reject(new Error(`ffmpeg exited with code ${code}`));
-    });
-  });
+  const monoFilter = FORCE_MONO ? ',pan=mono|c0=0.5*c0+0.5*c1' : '';
+  return runBoundedProcess({spawn, executable: 'ffmpeg', timeoutMs: 120000, args: [
+    '-hide_banner', '-loglevel', 'error', '-y', '-i', inputPath,
+    '-af', `loudnorm=I=${TARGET_LUFS}:TP=-1.5:LRA=11${monoFilter}`,
+    '-c:a', 'aac', '-b:a', TARGET_BITRATE, '-movflags', '+faststart', outputPath,
+  ]});
 }
+
 
 function isAlreadyOptimized(metadata) {
   return metadata?.metadata?.podcastOptimized === 'true';
@@ -134,69 +117,8 @@ function slugFromIncomingPath(objectPath) {
   // podcasts/incoming/my-slug/file.m4a → my-slug
   const relative = objectPath.slice(INCOMING_PREFIX.length);
   const parts = relative.split('/').filter(Boolean);
-  if (parts.length < 2) return null;
+  if (parts.length !== 2 || ['.', '..'].includes(parts[0])) return null;
   return parts[0];
-}
-
-function articleDestPath(slug, filename) {
-  // Prefer slug.m4a for consistency; keep original name if different extension only
-  const base = filename.replace(/\.[^.]+$/, '');
-  const useName = base === slug || base.length === 0 ? `${slug}.m4a` : `${base}.m4a`;
-  return `${ARTICLES_PREFIX}${slug}/${useName}`;
-}
-
-function slugToId(slug) {
-  const compact = slug.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase();
-  return compact || slug;
-}
-
-function titleFromSlug(slug) {
-  return slug
-      .split('-')
-      .filter(Boolean)
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-      .join(' ');
-}
-
-async function readArticleMetadata(bucket, slug) {
-  const metadataPath = `${ARTICLES_PREFIX}${slug}/podcast.json`;
-  try {
-    const [buffer] = await bucket.file(metadataPath).download();
-    const parsed = JSON.parse(buffer.toString('utf8'));
-    return {
-      title: String(parsed.title || '').trim(),
-      hosts: Array.isArray(parsed.hosts) ? parsed.hosts.map(String) : [],
-    };
-  } catch {
-    return { title: '', hosts: [] };
-  }
-}
-
-async function writeArticleMetadata(bucket, slug, metadata) {
-  const metadataPath = `${ARTICLES_PREFIX}${slug}/podcast.json`;
-  const payload = {
-    title: metadata.title,
-    hosts: metadata.hosts,
-    updatedAt: new Date().toISOString(),
-  };
-  await bucket.file(metadataPath).save(JSON.stringify(payload, null, 2), {
-    contentType: 'application/json',
-    resumable: false,
-  });
-}
-
-async function readNarrationMetadata(bucket, slug) {
-  const metadataPath = `${NARRATION_PREFIX}${slug}/narration.json`;
-  try {
-    const [buffer] = await bucket.file(metadataPath).download();
-    const parsed = JSON.parse(buffer.toString('utf8'));
-    return {
-      title: String(parsed.title || '').trim(),
-      hosts: Array.isArray(parsed.hosts) ? parsed.hosts.map(String) : [],
-    };
-  } catch {
-    return { title: '', hosts: [] };
-  }
 }
 
 async function writeNarrationMetadata(bucket, slug, metadata) {
@@ -205,6 +127,8 @@ async function writeNarrationMetadata(bucket, slug, metadata) {
     title: metadata.title,
     hosts: metadata.hosts,
     kind: 'ai',
+    sourceArticleId: metadata.sourceArticleId,
+    sourceContentRevision: metadata.sourceContentRevision,
     updatedAt: new Date().toISOString(),
   };
   await bucket.file(metadataPath).save(JSON.stringify(payload, null, 2), {
@@ -215,9 +139,9 @@ async function writeNarrationMetadata(bucket, slug, metadata) {
 
 /**
  * Udgiv en lokalt genereret AI-oplæsning (fra narration-poc.mjs).
- * Uploader lyd til podcasts/narration/{slug}/{slug}.m4a, skriver narration.json,
- * og sender (efter manifest-sync) en AI-push. Springer over hvis filen allerede
- * findes i Storage, medmindre --force.
+ * Uploader en ny immutable, sourcebundet render og skriver narration.json.
+ * Efter manifestaccept afleveres en præcis URL til podcast-outbox.
+ * --force styrer optimering; genudsendelse kræver eksplicit resend-id/begrundelse.
  */
 async function publishNarration(bucket, slug) {
   const localPath = narrationFileArg
@@ -231,149 +155,34 @@ async function publishNarration(bucket, slug) {
     );
   }
 
-  const destPath = `${NARRATION_PREFIX}${slug}/${slug}.m4a`;
-  const file = bucket.file(destPath);
-  const [exists] = await file.exists();
-
-  if (exists && !forceAll) {
-    console.log(`\nAI-oplæsning findes allerede i Storage: ${destPath}`);
-    console.log('Brug --force for at gen-uploade (regenererer manifest uanset).');
-  } else {
-    // Hent titel + forfatter fra Webflow til manifest/push.
-    let title = titleFromSlug(slug);
-    let hosts = ['Apropos Magazine'];
-    try {
-      const item = await findArticleBySlug(slug);
-      if (item?.fieldData) {
-        const fd = item.fieldData;
-        if (fd.name) title = String(fd.name).trim();
-        const author = await resolveAuthorName(fd.author);
-        if (author) hosts = [author];
-      }
-    } catch (error) {
-      console.warn(`  webflow warning: ${error.message} (bruger fallback-titel)`);
-    }
-
-    const token = await resolveDownloadToken(bucket, destPath);
-    console.log(`\n=== Udgiv AI-oplæsning ===`);
-    console.log(`  slug: ${slug}`);
-    console.log(`  title: ${title}`);
-    console.log(`  fil: ${localPath} (${formatBytes(statSync(localPath).size)})`);
-    console.log(`  → ${destPath}`);
-
-    if (dryRun) {
-      console.log('  (dry run: ville uploade + skrive narration.json)');
-      return;
-    }
-
-    await uploadObject(bucket, localPath, destPath, token);
-    await writeNarrationMetadata(bucket, slug, { title, hosts });
-    console.log('  uploaded + narration.json skrevet');
-    console.log('  url:', publicURL(destPath, token));
-
-    // Gem til push efter manifest-sync.
-    publishNarration._pending = { slug, title, hosts };
-  }
-}
-
-async function uploadManifest(bucket, manifest, token) {
-  mkdirSync(workDir, { recursive: true });
-  const localPath = join(workDir, 'manifest.json');
-  writeFileSync(localPath, JSON.stringify(manifest, null, 2));
-  await bucket.upload(localPath, {
-    destination: MANIFEST_PATH,
-    metadata: {
-      contentType: 'application/json',
-      cacheControl: 'public, max-age=300',
-      metadata: {
-        firebaseStorageDownloadTokens: token,
-      },
-    },
-    resumable: false,
+  const {article, source} = await readNarrationSource(admin.firestore(), '67dbf17ba540975b5b21c2a6', slug);
+  const provenance = JSON.parse(readFileSync(localPath + '.provenance.json', 'utf8'));
+  const digest = createHash('sha256').update(readFileSync(localPath)).digest('hex');
+  verifyNarrationProvenance(provenance, digest, source);
+  const title = String(article.fieldData.name || slug);
+  const author = await resolveAuthorName(article.fieldData.author);
+  const hosts = author ? [author] : ['Apropos Magazine'];
+  const destPath = `${NARRATION_PREFIX}${slug}/${randomUUID()}.m4a`;
+  const token = randomUUID();
+  if (dryRun) { console.log('(dry run: source-bound immutable narration)'); return; }
+  const published = await publishBoundNarration({source, audioURL: publicURL(destPath, token),
+    readSource: async () => (await readNarrationSource(admin.firestore(), '67dbf17ba540975b5b21c2a6', slug, source.sourceArticleId)).source,
+    upload: () => uploadObject(bucket, localPath, destPath, token, {...source, narrationHosts: JSON.stringify(hosts), audioSHA256: digest}),
+    writeMetadata: () => writeNarrationMetadata(bucket, slug, {title, hosts, ...source}),
+    publishManifest: () => syncManifest(bucket),
   });
-  return publicURL(MANIFEST_PATH, token);
+  publishNarration._publication = published;
+
+  publishNarration._pending = {slug, title, hosts, ...source, audioURL: publicURL(destPath, token)};
+
 }
 
-async function syncManifest(bucket) {
-  const files = await listAudioObjects(bucket, ARTICLES_PREFIX);
-  const episodes = [];
-  const humanSlugs = new Set();
-
-  for (const file of files) {
-    const parts = file.name.split('/').filter(Boolean);
-    const slug = parts[parts.length - 2];
-    if (!slug) continue;
-
-    const [metadata] = await file.getMetadata();
-    const token = extractToken(metadata);
-    if (!token) continue;
-
-    const episodeMeta = await readArticleMetadata(bucket, slug);
-    const title = episodeMeta.title || titleFromSlug(slug);
-    const publishedAt = metadata.updated || metadata.timeCreated || new Date().toISOString();
-
-    humanSlugs.add(slug);
-    episodes.push({
-      id: slugToId(slug),
-      articleSlug: slug,
-      title,
-      subtitle: 'Lyt til artiklen',
-      audioURL: publicURL(file.name, token),
-      hosts: episodeMeta.hosts.length ? episodeMeta.hosts : ['Apropos Magazine'],
-      publishedAt,
-    });
-  }
-
-  // AI-oplæsninger (kind:'ai'). Dedupér pr. slug — en rigtig podcast vinder altid.
-  const narrationFiles = await listAudioObjects(bucket, NARRATION_PREFIX);
-  for (const file of narrationFiles) {
-    const parts = file.name.split('/').filter(Boolean);
-    const slug = parts[parts.length - 2];
-    if (!slug || humanSlugs.has(slug)) continue;
-
-    const [metadata] = await file.getMetadata();
-    const token = extractToken(metadata);
-    if (!token) continue;
-
-    const episodeMeta = await readNarrationMetadata(bucket, slug);
-    const title = episodeMeta.title || titleFromSlug(slug);
-    const publishedAt = metadata.updated || metadata.timeCreated || new Date().toISOString();
-
-    episodes.push({
-      id: `ai-${slugToId(slug)}`,
-      articleSlug: slug,
-      title,
-      subtitle: 'Lyt til artiklen',
-      audioURL: publicURL(file.name, token),
-      hosts: episodeMeta.hosts.length ? episodeMeta.hosts : ['Apropos Magazine'],
-      publishedAt,
-      kind: 'ai',
-    });
-  }
-
-  episodes.sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt));
-
-  const manifest = {
-    version: 1,
-    updatedAt: new Date().toISOString(),
-    episodes,
-  };
-
-  let manifestToken = null;
-  try {
-    const [existing] = await bucket.file(MANIFEST_PATH).getMetadata();
-    manifestToken = extractToken(existing);
-  } catch {
-    manifestToken = null;
-  }
-  if (!manifestToken) manifestToken = randomUUID();
-
-  const manifestURL = await uploadManifest(bucket, manifest, manifestToken);
-
-  console.log(`\n=== Manifest (${episodes.length} episodes) ===`);
-  console.log('manifest url:', manifestURL);
-  console.log('Optional: set PODCAST_MANIFEST_URL in Secrets.plist if tokenless URL fails.');
-  return manifestURL;
+async function syncManifest(bucket, beforeCommit = async () => {}) {
+  const result = await createPodcastManifestPublisher({
+    db: admin.firestore(), bucket, collectionId: '67dbf17ba540975b5b21c2a6', publicURL, beforeCommit,
+  })();
+  console.log(`Manifest (${result.manifest.episodes.length} episodes)`);
+  return result;
 }
 
 function readIncomingMetadata(bucket, slug) {
@@ -385,40 +194,18 @@ function readIncomingMetadata(bucket, slug) {
       title: String(parsed.title || '').trim(),
       hosts: Array.isArray(parsed.hosts) ? parsed.hosts : [],
     };
-  }).catch(() => ({ title: '', hosts: [] }));
+  }).catch((error) => {if (Number(error.code) === 404) return {title: '', hosts: []};throw error;});
 }
 
-async function sendPodcastPushNotification({ slug, title, hosts, kind = 'podcast', force = false }) {
+async function sendPodcastPushNotification({slug, kind = 'podcast', sourceArticleId, sourceContentRevision, audioURL}) {
   const secret = process.env.PODCAST_NOTIFY_SECRET;
-  const endpoint = process.env.PODCAST_NOTIFY_URL ||
-    'https://us-central1-apropos-magazine-6004a.cloudfunctions.net/sendPodcastNotification';
-
-  if (!secret) {
-    console.log('  notify: skipped (set PODCAST_NOTIFY_SECRET to enable push)');
-    return;
-  }
-
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Apropos-Podcast-Secret': secret,
-    },
-    body: JSON.stringify({
-      articleSlug: slug,
-      title,
-      hosts,
-      kind,
-      force,
-    }),
+  if (!secret) {console.log('  notify: skipped (rotated PODCAST_NOTIFY_SECRET required)');return;}
+  const receipt = await postPodcastNotification({
+    endpoint: process.env.PODCAST_NOTIFY_URL || 'https://us-central1-apropos-magazine-6004a.cloudfunctions.net/sendPodcastNotification',
+    secret, payload: {articleSlug: slug, kind, sourceArticleId, sourceContentRevision, audioURL, ...notificationContext},
   });
-
-  const body = await response.text();
-  if (!response.ok) {
-    throw new Error(`Podcast notify failed (${response.status}): ${body}`);
-  }
-
-  console.log(`  notify: push queued (${kind === 'ai' ? 'AI-oplæsning' : 'podcast'}) for new_podcasts topic`);
+  console.log(receipt.queued ? `  notify: durable outbox ${receipt.outboxId} (${receipt.state})` : `  notify: suppressed (${receipt.reason})`);
+  return receipt;
 }
 
 async function downloadObject(file, localPath) {
@@ -426,7 +213,7 @@ async function downloadObject(file, localPath) {
   await pipeline(file.createReadStream(), createWriteStream(localPath));
 }
 
-async function uploadObject(bucket, localPath, storagePath, token) {
+async function uploadObject(bucket, localPath, storagePath, token, source = {}) {
   await bucket.upload(localPath, {
     destination: storagePath,
     metadata: {
@@ -435,9 +222,11 @@ async function uploadObject(bucket, localPath, storagePath, token) {
       metadata: {
         firebaseStorageDownloadTokens: token,
         podcastOptimized: 'true',
+        ...source,
       },
     },
     resumable: true,
+    preconditionOpts: {ifGenerationMatch: 0},
   });
 }
 
@@ -446,26 +235,43 @@ async function listAudioObjects(bucket, prefix) {
   return files.filter((f) => isAudioFile(f.name) && !f.name.endsWith('/'));
 }
 
+async function publishEncodedHuman(bucket, file, inputMetadata, localPath, editorialMetadata, removeIncoming = false) {
+  const {source} = await readNarrationSource(admin.firestore(), '67dbf17ba540975b5b21c2a6',
+    file.name.split('/').at(-2));
+  const slug = file.name.split('/').at(-2);
+  const render = humanRender({slug, source, digest: createHash('sha256').update(readFileSync(localPath)).digest('hex'),
+    metadata: editorialMetadata, sourcePublishedAt: inputMetadata.metadata?.humanSourcePublishedAt || inputMetadata.updated || inputMetadata.timeCreated});
+  const input = createHumanInputGuard(bucket, file, inputMetadata);
+  const audioURL = publicURL(render.path, render.token);
+  await publishHumanReplacement({render, source, audioURL, assertInput: input.assertInput,
+    readSource: async () => (await readNarrationSource(admin.firestore(), '67dbf17ba540975b5b21c2a6', slug, source.sourceArticleId)).source,
+    upload: (target) => uploadObject(bucket, localPath, target.path, target.token, target.metadata),
+    publishManifest: (assertCurrent) => syncManifest(bucket, assertCurrent),
+    ...(removeIncoming ? {removeIncoming: input.removeIncoming} : {}),
+  });
+  return {slug, title: render.title, hosts: render.hosts, audioURL, ...source};
+}
+
 async function processIncoming(bucket) {
   const files = await listAudioObjects(bucket, INCOMING_PREFIX);
   if (!files.length) {
     console.log('No incoming podcasts in podcasts/incoming/');
-    return;
+    return [];
   }
 
   console.log(`\n=== Incoming (${files.length}) ===`);
   mkdirSync(workDir, { recursive: true });
+  const notifications = [];
 
+  const inputs = [];
   for (const file of files) {
     const slug = slugFromIncomingPath(file.name);
-    if (!slug) {
-      console.warn(`Skip (bad path): ${file.name}`);
-      continue;
-    }
-
-    const filename = file.name.split('/').pop();
-    const destPath = articleDestPath(slug, filename);
-    const token = randomUUID();
+    if (!slug) {console.warn(`Skip (bad path): ${file.name}`);continue;}
+    const [metadata] = await file.getMetadata();inputs.push({file, metadata, slug});
+  }
+  const latest = selectLatestHumanInputs(inputs);
+  console.log(`Selected ${latest.length} latest inputs; older incoming recordings are preserved.`);
+  for (const {file, metadata: inputMetadata, slug} of latest) {
     const rawLocal = join(workDir, `${slug}-raw.m4a`);
     const optLocal = join(workDir, `${slug}-opt.m4a`);
     const metadata = await readIncomingMetadata(bucket, slug);
@@ -477,7 +283,7 @@ async function processIncoming(bucket) {
     if (metadata.hosts.length) {
       console.log(`  hosts: ${metadata.hosts.join(', ')}`);
     }
-    console.log(`  publish → ${destPath}`);
+    console.log(`  publish → new immutable render under ${ARTICLES_PREFIX}${slug}/`);
 
     if (dryRun) {
       console.log('  (dry run)');
@@ -492,46 +298,32 @@ async function processIncoming(bucket) {
     const optSize = statSync(optLocal).size;
     console.log(`  optimized: ${formatBytes(optSize)} (~${Math.round(100 - (optSize * 100) / rawSize)}% smaller)`);
 
-    await uploadObject(bucket, optLocal, destPath, token);
-    await writeArticleMetadata(bucket, slug, metadata);
-    await file.delete();
+    const published = await publishEncodedHuman(bucket, file, inputMetadata, optLocal, metadata, true);
     rmSync(rawLocal, { force: true });
     rmSync(optLocal, { force: true });
 
-    const url = publicURL(destPath, token);
-    console.log('  uploaded + incoming deleted');
-    console.log('  url:', url);
-
-    try {
-      await sendPodcastPushNotification({
-        slug,
-        title: episodeTitle,
-        hosts: metadata.hosts,
-      });
-    } catch (error) {
-      console.warn(`  notify warning: ${error.message}`);
-    }
+    console.log('  immutable render committed; exact incoming generation deleted');
+    notifications.push(published);
   }
+  return notifications;
 }
 
 async function scanArticles(bucket) {
   const files = await listAudioObjects(bucket, ARTICLES_PREFIX);
-  const candidates = [];
-
+  // Preserve originals, but only encode the newest editorial input per slug.
+  // A later render of an older source must never shadow a newer recording.
+  const inputs = [];
   for (const file of files) {
-    const [metadata] = await file.getMetadata();
-    const size = Number(metadata.size || 0);
-    const needsOptimize =
-      forceAll ||
-      (!isAlreadyOptimized(metadata) && size > OPTIMIZE_THRESHOLD_BYTES);
-    if (needsOptimize) {
-      candidates.push({ file, metadata, size });
-    }
+    const relative = file.name.slice(ARTICLES_PREFIX.length).split('/');
+    if (relative.length !== 2) continue;
+    const [metadata] = await file.getMetadata();inputs.push({file, metadata, slug: relative[0]});
   }
+  const candidates = selectLatestHumanInputs(inputs).map((entry) => ({...entry, size: Number(entry.metadata.size || 0)}))
+    .filter(({metadata, size}) => forceAll || (!isAlreadyOptimized(metadata) && size > OPTIMIZE_THRESHOLD_BYTES));
 
   if (!candidates.length) {
     console.log('\nNothing to optimize — all podcasts already processed (or under 8 MB).');
-    console.log('Upload raw .m4a to podcasts/incoming/{slug}/ or replace a file in articles/, then re-run.');
+    console.log('Upload replacement raw .m4a to podcasts/incoming/{slug}/, then re-run.');
     return;
   }
 
@@ -540,7 +332,6 @@ async function scanArticles(bucket) {
 
   for (const { file, metadata, size } of candidates) {
     const storagePath = file.name;
-    const token = extractToken(metadata) || randomUUID();
     const slug = storagePath.split('/').slice(-2, -1)[0] || 'episode';
     const rawLocal = join(workDir, `${slug}-raw.m4a`);
     const optLocal = join(workDir, `${slug}-opt.m4a`);
@@ -549,7 +340,7 @@ async function scanArticles(bucket) {
     console.log(`  current: ${formatBytes(size)}`);
 
     if (dryRun) {
-      console.log('  would optimize + re-upload (same token)');
+      console.log('  would encode to a new immutable render; preserve original');
       continue;
     }
 
@@ -558,16 +349,15 @@ async function scanArticles(bucket) {
     const optSize = statSync(optLocal).size;
     console.log(`  optimized: ${formatBytes(optSize)} (~${Math.round(100 - (optSize * 100) / size)}% smaller)`);
 
-    await uploadObject(bucket, optLocal, storagePath, token);
+    const editorialMetadata = metadata.metadata?.podcastSchema === '2' ?
+      {title: metadata.metadata.podcastTitle, hosts: JSON.parse(metadata.metadata.podcastHosts || '[]')} :
+      await bucket.file(`${ARTICLES_PREFIX}${slug}/podcast.json`).download().then(([bytes]) => JSON.parse(bytes.toString('utf8')))
+        .catch((error) => {if (Number(error.code) === 404) return {title: '', hosts: []};throw error;});
+    await publishEncodedHuman(bucket, file, metadata, optLocal, editorialMetadata);
     rmSync(rawLocal, { force: true });
     rmSync(optLocal, { force: true });
 
-    console.log('  re-uploaded OK');
-    if (token === extractToken(metadata)) {
-      console.log('  token preserved — app URL unchanged');
-    } else {
-      console.log('  new url:', publicURL(storagePath, token));
-    }
+    console.log('  new immutable render committed; original preserved');
   }
 }
 
@@ -597,13 +387,16 @@ async function main() {
       return;
     }
     await publishNarration(bucket, narrationSlug);
-    await syncManifest(bucket);
+    const published = publishNarration._publication;
     const pending = publishNarration._pending;
+    if (pending && !published.manifest.episodes.some((episode) => episode.kind === "ai" &&
+        episode.articleId === pending.sourceArticleId && episode.sourceContentRevision === pending.sourceContentRevision &&
+        episode.audioURL === pending.audioURL)) throw new Error("Narration was not accepted into manifest; notification suppressed");
     if (pending && noNotify) {
       console.log('  notify: sprunget over (--no-notify). Lyden er i appen; send pushen senere.');
     } else if (pending) {
       try {
-        await sendPodcastPushNotification({ ...pending, kind: 'ai', force: forceAll });
+        await sendPodcastPushNotification({ ...pending, kind: 'ai' });
       } catch (error) {
         console.warn(`  notify warning: ${error.message}`);
       }
@@ -627,13 +420,22 @@ async function main() {
   const runIncoming = !scanOnly;
   const runScan = !incomingOnly;
 
-  if (runIncoming && bucket) await processIncoming(bucket);
+  let incomingNotifications = [];
+  if (runIncoming && bucket) incomingNotifications = await processIncoming(bucket);
   else if (runIncoming && dryRun) console.log('\n(dry run: would process podcasts/incoming/)');
 
   if (runScan && bucket) await scanArticles(bucket);
   else if (runScan && dryRun) console.log('(dry run: would scan podcasts/articles/ for large files)');
 
-  if (bucket) await syncManifest(bucket);
+  if (bucket) {
+    await publishManifestThenNotify({
+      syncManifest: () => syncManifest(bucket),
+      notifications: incomingNotifications,
+      notify: sendPodcastPushNotification,
+      noNotify,
+      onError: (error) => console.warn(`  notify warning: ${error.message}`),
+    });
+  }
 
   if (!dryRun) {
     try {

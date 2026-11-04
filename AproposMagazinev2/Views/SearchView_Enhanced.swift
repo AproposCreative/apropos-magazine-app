@@ -1,295 +1,284 @@
 import SwiftUI
-import SDWebImageSwiftUI
-
-enum ArticleSortOption: String, CaseIterable, Identifiable {
-    case newest = "Nyeste"
-    case oldest = "Ældste"
-    case titleAZ = "Titel A-Å"
-    case titleZA = "Titel Å-A"
-    case category = "Kategori"
-    
-    var id: String { rawValue }
-}
 
 struct SearchView_Enhanced: View {
     @EnvironmentObject var viewModel: ArticleViewModel
     @Environment(\.navigationCoordinator) private var navigationCoordinator
-    @Environment(\.colorScheme) var colorScheme
-    @State private var scrollOffset: CGFloat = 0
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.locale) private var locale
+    @StateObject private var searchResults = ArticleSearchResultsModel()
     @State private var showNavTitle = false
     @State private var searchText = ""
-    @State private var debouncedSearchText = ""
-    @State private var searchDebounceTask: Task<Void, Never>?
     @State private var selectedSort: ArticleSortOption = .newest
     @State private var showSearchBar = false
-    @State private var showSortMenu = false
-    
-    // Pagination state
-    @State private var displayedArticles: [Article] = []
-    @State private var currentPage = 0
-    @State private var isLoadingMore = false
-    private let articlesPerPage = 20
-    
-    // Computed properties for filtered and sorted articles
-    private var filteredArticles: [Article] {
-        if debouncedSearchText.isEmpty {
-            return viewModel.articles
-        } else {
-            return viewModel.articles.filter { article in
-                let title = article.name?.lowercased() ?? ""
-                let intro = article.intro?.lowercased() ?? ""
-                let author = article.author?.name.lowercased() ?? ""
-                let searchQuery = debouncedSearchText.lowercased()
-                return title.contains(searchQuery) || intro.contains(searchQuery) || author.contains(searchQuery)
-            }
-        }
-    }
-    
-    private var sortedArticles: [Article] {
-        let articles = filteredArticles
-        
-        switch selectedSort {
-        case .newest:
-            return articles.sorted { $0.feedSortDate > $1.feedSortDate }
-        case .oldest:
-            return articles.sorted { $0.feedSortDate < $1.feedSortDate }
-        case .titleAZ:
-            return articles.sorted { ($0.name ?? "") < ($1.name ?? "") }
-        case .titleZA:
-            return articles.sorted { ($0.name ?? "") > ($1.name ?? "") }
-        case .category:
-            return articles.sorted { ($0.topicID ?? "") < ($1.topicID ?? "") }
-        }
-    }
-    
-    // Paginated articles for display
-    private var paginatedArticles: [Article] {
-        let startIndex = currentPage * articlesPerPage
-        let endIndex = min(startIndex + articlesPerPage, sortedArticles.count)
-        return Array(sortedArticles[startIndex..<endIndex])
-    }
-    
-    private var hasMoreArticles: Bool {
-        (currentPage + 1) * articlesPerPage < sortedArticles.count
+    private var visibleRows: [Article] {
+        ArticleLanguageSelection.visible(searchResults.page.articles, language: viewModel.articleLanguage)
     }
     
     var body: some View {
-        ScrollView(.vertical, showsIndicators: true) {
-            VStack(spacing: 0) {
-                GeometryReader { geo in
-                    Rectangle()
-                        .fill(.clear)
-                        .preference(key: ScrollOffsetKey.self, value: geo.frame(in: .named("scroll")).minY)
-                }
-                .frame(height: 0)
+        PodcastMiniPlayerScrollClearance(existingBottomPadding: 80) { clearance in
+            ScrollView(.vertical, showsIndicators: true) {
+                VStack(spacing: 0) {
+                    GeometryReader { geo in
+                        Rectangle()
+                            .fill(.clear)
+                            .preference(key: ScrollOffsetKey.self, value: geo.frame(in: .named("scroll")).minY)
+                    }
+                    .frame(height: 0)
 
-                // Large title - shown only at top
-                if !showNavTitle {
-                    Text("Artikler")
-                        .font(.largeTitle.bold())
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 16)
-                        .padding(.top, 16)
-                        .padding(.bottom, 12)
-                        .transition(.opacity)
-                }
-                
-                // Search and Sort Controls
-                VStack(spacing: 12) {
-                    // Search Bar
-                    if showSearchBar {
-                        HStack {
-                            Image(systemName: "magnifyingglass")
-                                .foregroundColor(.secondary)
-                            TextField("Søg artikler...", text: $searchText)
-                                .textFieldStyle(PlainTextFieldStyle())
-                                .autocapitalization(.none)
-                                .disableAutocorrection(true)
-                            
-                            if !searchText.isEmpty {
-                                Button(action: { searchText = "" }) {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .foregroundColor(.secondary)
+                    // Large title - shown only at top
+                    if !showNavTitle {
+                        Text("Artikler")
+                            .font(.largeTitle.bold())
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 16)
+                            .padding(.bottom, 12)
+                            .transition(.opacity)
+                    }
+
+                    // Search and Sort Controls
+                    VStack(spacing: 12) {
+                        // Search Bar
+                        if showSearchBar {
+                            HStack {
+                                Image(systemName: "magnifyingglass")
+                                    .foregroundColor(.secondary)
+                                TextField("Søg artikler...", text: $searchText)
+                                    .textFieldStyle(PlainTextFieldStyle())
+                                    .autocapitalization(.none)
+                                    .disableAutocorrection(true)
+                                    .frame(minHeight: 44)
+                                    .accessibilityIdentifier("search.controls.query")
+
+                                if !searchText.isEmpty {
+                                    Button(action: { searchText = "" }) {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .foregroundColor(.secondary)
+                                            .frame(minWidth: 44, minHeight: 44)
+                                            .contentShape(Rectangle())
+                                    }
+                                    .accessibilityLabel("Ryd søgning")
+                                    .accessibilityIdentifier("search.controls.clear")
                                 }
                             }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 4)
+                            .background(Color(.secondarySystemBackground))
+                            .cornerRadius(12)
+                            .padding(.horizontal, 16)
+                            .transition(.opacity.combined(with: .move(edge: .top)))
                         }
-                        .padding()
-                        .background(Color(.secondarySystemBackground))
-                        .cornerRadius(12)
-                        .padding(.horizontal, 16)
-                        .transition(.opacity.combined(with: .move(edge: .top)))
+
+                        searchControls
                     }
-                    
-                    // Sort and Search Controls
-                    HStack(spacing: 12) {
-                        // Sort Menu
-                        Menu {
-                            ForEach(ArticleSortOption.allCases) { option in
-                                Button(action: { selectedSort = option }) {
-                                    HStack {
-                                        Text(option.rawValue)
-                                        if selectedSort == option {
-                                            Spacer()
-                                            Image(systemName: "checkmark")
-                                        }
+                    .padding(.bottom, 8)
+
+                    // Article list
+                    if (viewModel.isLoading && visibleRows.isEmpty)
+                        || (searchResults.isUpdating && visibleRows.isEmpty) {
+                        shimmerPlaceholder
+                    } else if viewModel.fetchError != nil && visibleRows.isEmpty {
+                        EmptyStateView(
+                            icon: "exclamationmark.triangle.fill",
+                            title: "Kunne ikke hente artikler",
+                            subtitle: "Tjek din internetforbindelse, og prøv igen.",
+                            actionTitle: "Prøv igen"
+                        ) {
+                            viewModel.fetchArticles(forceRefresh: true)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.top, showNavTitle ? 12 : 0)
+                    } else {
+                        if visibleRows.isEmpty {
+                            // Empty state for search results
+                            VStack(spacing: 16) {
+                                Image(systemName: searchText.isEmpty ? "doc.text" : "magnifyingglass")
+                                    .font(.system(size: 48))
+                                    .foregroundColor(.secondary)
+
+                                Text(LocalizedStringKey(searchText.isEmpty ? "Ingen artikler fundet" : "Ingen resultater"))
+                                    .font(.title2)
+                                    .fontWeight(.medium)
+                                    .foregroundColor(.primary)
+
+                                Text(LocalizedStringKey(searchText.isEmpty ? "Prøv at opdatere siden" : "Prøv at søge efter noget andet"))
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                                    .multilineTextAlignment(.center)
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .padding(.top, 100)
+                        } else {
+                            LazyVStack(spacing: 0) {
+                                ForEach(visibleRows) { article in
+                                    Button(action: {
+                                        guard viewModel.isVisibleArticle(article) else { return }
+                                        navigationCoordinator.navigateToArticle(article, in: .search)
+                                    }) {
+                                        ArticleRowCompact(article: article)
+                                            .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(PlainButtonStyle())
+
+                                    if article.id != visibleRows.last?.id {
+                                        Divider()
+                                            .padding(.horizontal, 16)
+                                            .padding(.vertical, 8)
                                     }
                                 }
-                            }
-                        } label: {
-                            HStack {
-                                Image(systemName: "arrow.up.arrow.down")
-                                    .font(.caption)
-                                Text(selectedSort.rawValue)
-                                    .font(.subheadline)
-                                Image(systemName: "chevron.down")
-                                    .font(.caption2)
-                            }
-                            .foregroundColor(.primary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(Color.gray.opacity(0.1))
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                        }
-                        
-                        Spacer()
-                        
-                        // Search Toggle Button
-                        Button(action: {
-                            withAnimation(.easeInOut(duration: 0.3)) {
-                                showSearchBar.toggle()
-                                if !showSearchBar {
-                                    searchText = ""
-                                }
-                            }
-                        }) {
-                            Image(systemName: showSearchBar ? "xmark" : "magnifyingglass")
-                                .foregroundColor(.primary)
-                                .padding(8)
-                                .background(Color.gray.opacity(0.1))
-                                .clipShape(Circle())
-                        }
-                        
-                        // Article Count
-                        Text("\(sortedArticles.count) artikler")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.horizontal, 16)
-                }
-                .padding(.bottom, 8)
 
-                // Article list
-                if viewModel.isLoading || (viewModel.articles.isEmpty && viewModel.fetchError == nil) {
-                    shimmerPlaceholder
-                } else if viewModel.fetchError != nil {
-                    EmptyStateView(
-                        icon: "exclamationmark.triangle.fill",
-                        title: "Kunne ikke hente artikler",
-                        subtitle: "Tjek din internetforbindelse, og prøv igen.",
-                        actionTitle: "Prøv igen"
-                    ) {
-                        viewModel.fetchArticles(forceRefresh: true)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.top, showNavTitle ? 12 : 0)
-                } else {
-                    if sortedArticles.isEmpty {
-                        // Empty state for search results
-                        VStack(spacing: 16) {
-                            Image(systemName: searchText.isEmpty ? "doc.text" : "magnifyingglass")
-                                .font(.system(size: 48))
-                                .foregroundColor(.secondary)
-                            
-                            Text(searchText.isEmpty ? "Ingen artikler fundet" : "Ingen resultater")
-                                .font(.title2)
-                                .fontWeight(.medium)
-                                .foregroundColor(.primary)
-                            
-                            Text(searchText.isEmpty ? "Prøv at opdatere siden" : "Prøv at søge efter noget andet")
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                                .multilineTextAlignment(.center)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .padding(.top, 100)
-                    } else {
-                        VStack(spacing: 0) {
-                            ForEach(displayedArticles) { article in
-                                Button(action: {
-                                    navigationCoordinator.navigateToArticle(article, in: .search)
-                                }) {
-                                    ArticleRowCompact(article: article)
-                                }
-                                .buttonStyle(PlainButtonStyle())
-                                
-                                if article.id != displayedArticles.last?.id {
-                                    Divider()
-                                        .padding(.horizontal, 16)
-                                        .padding(.vertical, 8)
-                                }
-                            }
-                            
-                            // Load More Button
-                            if hasMoreArticles {
-                                Button(action: loadMoreArticles) {
-                                    HStack {
-                                        if isLoadingMore {
-                                            ProgressView()
-                                                .scaleEffect(0.8)
-                                        } else {
+                                // Load More Button
+                                if searchResults.page.hasMore {
+                                    Button(action: searchResults.loadMore) {
+                                        HStack {
                                             Text("Indlæs flere artikler")
                                                 .font(.subheadline)
                                                 .foregroundColor(.primary)
                                         }
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 16)
+                                        .background(Color.gray.opacity(0.1))
+                                        .cornerRadius(8)
+                                        .padding(.horizontal, 16)
+                                        .padding(.top, 8)
                                     }
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 16)
-                                    .background(Color.gray.opacity(0.1))
-                                    .cornerRadius(8)
-                                    .padding(.horizontal, 16)
-                                    .padding(.top, 8)
+                                    .disabled(searchResults.isUpdating)
                                 }
-                                .disabled(isLoadingMore)
                             }
+                            .padding(.top, showNavTitle ? 12 : 0)
                         }
-                        .padding(.top, showNavTitle ? 12 : 0)
                     }
+
+                    Spacer(minLength: 80)
                 }
-                
-                Spacer(minLength: 80)
+                .padding(.bottom, clearance)
             }
         }
         .coordinateSpace(name: "scroll")
         .onPreferenceChange(ScrollOffsetKey.self) { value in
+            let shouldShow = value < -40
+            guard showNavTitle != shouldShow else { return }
             withAnimation(.easeInOut(duration: 0.2)) {
-                showNavTitle = value < -40
+                showNavTitle = shouldShow
             }
         }
         .refreshable {
             await viewModel.refreshArticles()
-            resetPagination()
         }
-        .navigationTitle(showNavTitle ? "Artikler" : "")
+        .navigationTitle(LocalizedStringKey(showNavTitle ? "Artikler" : ""))
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             showNavTitle = false
-            debouncedSearchText = searchText
-            loadInitialArticles()
+            searchResults.observeContent(articles: viewModel.visibleArticleChanges, authors: viewModel.authorChanges)
+            searchResults.updateContent(articles: viewModel.visibleArticles, authors: viewModel.authors)
+            searchResults.activate()
         }
+        .onDisappear { searchResults.deactivate() }
         .onChange(of: searchText) { _, newValue in
-            searchDebounceTask?.cancel()
-            searchDebounceTask = Task {
-                try? await Task.sleep(nanoseconds: 300_000_000)
-                guard !Task.isCancelled else { return }
-                debouncedSearchText = newValue
-                resetPagination()
-            }
+            searchResults.updateQuery(newValue)
         }
-        .onChange(of: selectedSort) { _, _ in
-            resetPagination()
+        .onChange(of: selectedSort) { _, newValue in
+            searchResults.updateSort(newValue)
         }
     }
     
+    @ViewBuilder
+    private var searchControls: some View {
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 12) {
+                    sortMenu
+                    trailingSearchActions
+                }
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) {
+                        sortMenu.fixedSize(horizontal: true, vertical: false)
+                        Spacer(minLength: 0)
+                        searchToggle
+                        articleCount
+                    }
+                    VStack(alignment: .leading, spacing: 12) {
+                        sortMenu
+                        trailingSearchActions
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+    }
+
+    private var sortMenu: some View {
+        Menu {
+            ForEach(ArticleSortOption.allCases) { option in
+                Button(action: { selectedSort = option }) {
+                    HStack {
+                        Text(LocalizedStringKey(option.rawValue))
+                        if selectedSort == option {
+                            Spacer()
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.up.arrow.down").font(.caption)
+                Text(LocalizedStringKey(selectedSort.rawValue))
+                    .font(.subheadline)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .multilineTextAlignment(.leading)
+                Image(systemName: "chevron.down").font(.caption2)
+            }
+            .foregroundColor(.primary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .frame(minWidth: 134, maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
+            .background(Color.gray.opacity(0.1))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .accessibilityLabel("Sortér artikler")
+        .accessibilityValue(Text(LocalizedStringKey(selectedSort.rawValue)))
+        .accessibilityIdentifier("search.controls.sort")
+    }
+
+    private var searchToggle: some View {
+        Button(action: {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                showSearchBar.toggle()
+                if !showSearchBar { searchText = "" }
+            }
+        }) {
+            Image(systemName: showSearchBar ? "xmark" : "magnifyingglass")
+                .foregroundColor(.primary)
+                .padding(8)
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
+                .background(Color.gray.opacity(0.1))
+                .clipShape(Circle())
+        }
+        .accessibilityLabel(LocalizedStringKey(showSearchBar ? "Luk søgning" : "Vis søgning"))
+        .accessibilityIdentifier("search.controls.toggle")
+    }
+
+    private var articleCount: some View {
+        Text(AppLocalization.articleCount(visibleRows.isEmpty ? 0 : searchResults.page.totalCount,
+                                         language: AppLocalization.language(for: locale)))
+            .font(.caption)
+            .foregroundColor(.secondary)
+            .fixedSize(horizontal: true, vertical: true)
+            .accessibilityIdentifier("search.controls.count")
+    }
+
+    private var trailingSearchActions: some View {
+        HStack(spacing: 12) {
+            Spacer(minLength: 0)
+            searchToggle
+            articleCount
+        }
+    }
+
     private var shimmerPlaceholder: some View {
         VStack(spacing: 0) {
             ForEach(0..<6, id: \.self) { index in
@@ -331,32 +320,6 @@ struct SearchView_Enhanced: View {
             }
         }
         .padding(.top, showNavTitle ? 12 : 0)
-    }
-    
-    // MARK: - Pagination Functions
-    
-    private func loadInitialArticles() {
-        currentPage = 0
-        displayedArticles = paginatedArticles
-    }
-    
-    private func loadMoreArticles() {
-        guard !isLoadingMore && hasMoreArticles else { return }
-        
-        isLoadingMore = true
-        
-        // Simulate loading delay for better UX
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            currentPage += 1
-            let newArticles = paginatedArticles
-            displayedArticles.append(contentsOf: newArticles)
-            isLoadingMore = false
-        }
-    }
-    
-    private func resetPagination() {
-        currentPage = 0
-        displayedArticles = paginatedArticles
     }
 }
 

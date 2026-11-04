@@ -6,9 +6,9 @@ struct SearchView: View {
 
     var filteredArticles: [Article] {
         if searchText.isEmpty {
-            return viewModel.articles
+            return viewModel.visibleArticles
         } else {
-            return viewModel.articles.filter { article in
+            return viewModel.visibleArticles.filter { article in
                 let title = article.name?.lowercased() ?? ""
                 let intro = article.intro?.lowercased() ?? ""
                 let searchQuery = searchText.lowercased()

@@ -1,5 +1,5 @@
 import XCTest
-@testable import Apropos_Magazine
+@testable import Apropos
 
 final class SubscriptionAccessTests: XCTestCase {
   private func sampleArticle(isPremium: Bool?) -> Article {

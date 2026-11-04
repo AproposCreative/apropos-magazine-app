@@ -1,0 +1,682 @@
+{
+  "schemaVersion": 1,
+  "scope": "reader-mutation-v1",
+  "vectors": [
+    {
+      "name": "favorite-minimal",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "membershipEpoch": 1,
+        "mutationID": "12345678-1234-1234-1234-123456789abc",
+        "expectedRevision": 0,
+        "kind": "favorite_set",
+        "payload": {
+          "id": "article-1",
+          "pressAccreditation": false
+        }
+      },
+      "requestID": "eac7799487f032435665a48e9a3a8181f2e297a2d24d612a5ea1bec13aa3a6b1",
+      "receipt": {
+        "schemaVersion": 1,
+        "scope": "reader-mutation-v1",
+        "requestID": "eac7799487f032435665a48e9a3a8181f2e297a2d24d612a5ea1bec13aa3a6b1",
+        "status": "committed",
+        "request": {
+          "schemaVersion": 1,
+          "expectedUID": "reader_a",
+          "membershipEpoch": 1,
+          "mutationID": "12345678-1234-1234-1234-123456789abc",
+          "expectedRevision": 0,
+          "kind": "favorite_set",
+          "payload": {
+            "id": "article-1",
+            "pressAccreditation": false
+          }
+        },
+        "committedRevision": 1
+      }
+    },
+    {
+      "name": "favorite-unicode-metadata",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "membershipEpoch": 1,
+        "mutationID": "22345678-1234-1234-1234-123456789abc",
+        "expectedRevision": 0,
+        "kind": "favorite_set",
+        "payload": {
+          "id": "kultur-æøå",
+          "pressAccreditation": true,
+          "name": "Café / Café 🎧",
+          "slug": "kunst/musik",
+          "stjerne": 10,
+          "topicID": "kultur",
+          "topicsIDs": [
+            "café",
+            "café",
+            "musik"
+          ],
+          "sectionID": "sektion",
+          "authorID": "redaktør",
+          "mobileImageURL": "https://example.invalid/images/æøå.jpg",
+          "thumbURL": "https://example.invalid/a.jpg?size=1",
+          "coverURL": "http://example.invalid/cover.jpg",
+          "location": "København",
+          "subtitle": "En stemme 🎵",
+          "fotoCredit": "Åse",
+          "isDraft": false,
+          "isArchived": false,
+          "date": "2026-10-23",
+          "createdOn": "2026-10-23",
+          "lastPublished": "2026-10-23",
+          "lastUpdated": "2026-10-23",
+          "contentRevision": "revision/2",
+          "featured": true,
+          "isPremium": false
+        }
+      },
+      "requestID": "c1b93b72e54be526dfa5c76e22cd8b8f2082e368ec993ad3322e03460c74ec85",
+      "receipt": {
+        "schemaVersion": 1,
+        "scope": "reader-mutation-v1",
+        "requestID": "c1b93b72e54be526dfa5c76e22cd8b8f2082e368ec993ad3322e03460c74ec85",
+        "status": "committed",
+        "request": {
+          "schemaVersion": 1,
+          "expectedUID": "reader_a",
+          "membershipEpoch": 1,
+          "mutationID": "22345678-1234-1234-1234-123456789abc",
+          "expectedRevision": 0,
+          "kind": "favorite_set",
+          "payload": {
+            "id": "kultur-æøå",
+            "pressAccreditation": true,
+            "name": "Café / Café 🎧",
+            "slug": "kunst/musik",
+            "stjerne": 10,
+            "topicID": "kultur",
+            "topicsIDs": [
+              "café",
+              "café",
+              "musik"
+            ],
+            "sectionID": "sektion",
+            "authorID": "redaktør",
+            "mobileImageURL": "https://example.invalid/images/æøå.jpg",
+            "thumbURL": "https://example.invalid/a.jpg?size=1",
+            "coverURL": "http://example.invalid/cover.jpg",
+            "location": "København",
+            "subtitle": "En stemme 🎵",
+            "fotoCredit": "Åse",
+            "isDraft": false,
+            "isArchived": false,
+            "date": "2026-10-23",
+            "createdOn": "2026-10-23",
+            "lastPublished": "2026-10-23",
+            "lastUpdated": "2026-10-23",
+            "contentRevision": "revision/2",
+            "featured": true,
+            "isPremium": false
+          }
+        },
+        "committedRevision": 1
+      }
+    },
+    {
+      "name": "favorite-remove-retains-revision",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "membershipEpoch": 1,
+        "mutationID": "32345678-1234-1234-1234-123456789abc",
+        "expectedRevision": 2,
+        "kind": "favorite_remove",
+        "payload": {
+          "articleID": "article-1"
+        }
+      },
+      "requestID": "5113e515ae63b246d0add7287a52a56d8d20775e609dbb83d75432b5175c3114",
+      "receipt": {
+        "schemaVersion": 1,
+        "scope": "reader-mutation-v1",
+        "requestID": "5113e515ae63b246d0add7287a52a56d8d20775e609dbb83d75432b5175c3114",
+        "status": "committed",
+        "request": {
+          "schemaVersion": 1,
+          "expectedUID": "reader_a",
+          "membershipEpoch": 1,
+          "mutationID": "32345678-1234-1234-1234-123456789abc",
+          "expectedRevision": 2,
+          "kind": "favorite_remove",
+          "payload": {
+            "articleID": "article-1"
+          }
+        },
+        "committedRevision": 3
+      }
+    },
+    {
+      "name": "preferences-ordered-unicode",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "membershipEpoch": 1,
+        "mutationID": "42345678-1234-1234-1234-123456789abc",
+        "expectedRevision": 0,
+        "kind": "preferences_set",
+        "payload": {
+          "interestTopicIDs": [
+            "café",
+            "café",
+            "🎧",
+            "film/musik"
+          ],
+          "onboardingCompleted": true
+        }
+      },
+      "requestID": "6a3d71358fc41d63ade4f3c8fa37fa7a02b570766f30c7afc5cc3fb7417c9693",
+      "receipt": {
+        "schemaVersion": 1,
+        "scope": "reader-mutation-v1",
+        "requestID": "6a3d71358fc41d63ade4f3c8fa37fa7a02b570766f30c7afc5cc3fb7417c9693",
+        "status": "committed",
+        "request": {
+          "schemaVersion": 1,
+          "expectedUID": "reader_a",
+          "membershipEpoch": 1,
+          "mutationID": "42345678-1234-1234-1234-123456789abc",
+          "expectedRevision": 0,
+          "kind": "preferences_set",
+          "payload": {
+            "interestTopicIDs": [
+              "café",
+              "café",
+              "🎧",
+              "film/musik"
+            ],
+            "onboardingCompleted": true
+          }
+        },
+        "committedRevision": 1
+      }
+    },
+    {
+      "name": "preferences-empty-false",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "membershipEpoch": 1,
+        "mutationID": "52345678-1234-1234-1234-123456789abc",
+        "expectedRevision": 0,
+        "kind": "preferences_set",
+        "payload": {
+          "interestTopicIDs": [],
+          "onboardingCompleted": false
+        }
+      },
+      "requestID": "fc20d78efc327f14aa54c26ecf5b4684a9023ca0dd4e4bd75e3ff08cf4dacdc2",
+      "receipt": {
+        "schemaVersion": 1,
+        "scope": "reader-mutation-v1",
+        "requestID": "fc20d78efc327f14aa54c26ecf5b4684a9023ca0dd4e4bd75e3ff08cf4dacdc2",
+        "status": "committed",
+        "request": {
+          "schemaVersion": 1,
+          "expectedUID": "reader_a",
+          "membershipEpoch": 1,
+          "mutationID": "52345678-1234-1234-1234-123456789abc",
+          "expectedRevision": 0,
+          "kind": "preferences_set",
+          "payload": {
+            "interestTopicIDs": [],
+            "onboardingCompleted": false
+          }
+        },
+        "committedRevision": 1
+      }
+    },
+    {
+      "name": "safe-integer-boundaries",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu",
+        "membershipEpoch": 9007199254740991,
+        "mutationID": "ffffffff-ffff-ffff-ffff-ffffffffffff",
+        "expectedRevision": 9007199254740990,
+        "kind": "favorite_remove",
+        "payload": {
+          "articleID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "requestID": "e9598919ad653baebefadcbf8f7f9018c9cee23491f22880c8a70b6dd7624c62",
+      "receipt": {
+        "schemaVersion": 1,
+        "scope": "reader-mutation-v1",
+        "requestID": "e9598919ad653baebefadcbf8f7f9018c9cee23491f22880c8a70b6dd7624c62",
+        "status": "committed",
+        "request": {
+          "schemaVersion": 1,
+          "expectedUID": "uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu",
+          "membershipEpoch": 9007199254740991,
+          "mutationID": "ffffffff-ffff-ffff-ffff-ffffffffffff",
+          "expectedRevision": 9007199254740990,
+          "kind": "favorite_remove",
+          "payload": {
+            "articleID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        "committedRevision": 9007199254740991
+      }
+    }
+  ],
+  "invalidRequests": [
+    {
+      "name": "missing-epoch",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "mutationID": "12345678-1234-1234-1234-123456789abc",
+        "expectedRevision": 0,
+        "kind": "favorite_set",
+        "payload": {
+          "id": "article-1",
+          "pressAccreditation": false
+        }
+      }
+    },
+    {
+      "name": "unknown-key",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "membershipEpoch": 1,
+        "mutationID": "12345678-1234-1234-1234-123456789abc",
+        "expectedRevision": 0,
+        "kind": "favorite_set",
+        "payload": {
+          "id": "article-1",
+          "pressAccreditation": false
+        },
+        "retag": true
+      }
+    },
+    {
+      "name": "uppercase-mutation-id",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "membershipEpoch": 1,
+        "mutationID": "12345678-1234-1234-1234-123456789ABC",
+        "expectedRevision": 0,
+        "kind": "favorite_set",
+        "payload": {
+          "id": "article-1",
+          "pressAccreditation": false
+        }
+      }
+    },
+    {
+      "name": "unsafe-epoch",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "membershipEpoch": 9007199254740992,
+        "mutationID": "12345678-1234-1234-1234-123456789abc",
+        "expectedRevision": 0,
+        "kind": "favorite_set",
+        "payload": {
+          "id": "article-1",
+          "pressAccreditation": false
+        }
+      }
+    },
+    {
+      "name": "overflow-revision",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "membershipEpoch": 1,
+        "mutationID": "12345678-1234-1234-1234-123456789abc",
+        "expectedRevision": 9007199254740991,
+        "kind": "favorite_set",
+        "payload": {
+          "id": "article-1",
+          "pressAccreditation": false
+        }
+      }
+    },
+    {
+      "name": "revision-bool",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "membershipEpoch": 1,
+        "mutationID": "12345678-1234-1234-1234-123456789abc",
+        "expectedRevision": true,
+        "kind": "favorite_set",
+        "payload": {
+          "id": "article-1",
+          "pressAccreditation": false
+        }
+      }
+    },
+    {
+      "name": "missing-consent-flag",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "membershipEpoch": 1,
+        "mutationID": "12345678-1234-1234-1234-123456789abc",
+        "expectedRevision": 0,
+        "kind": "favorite_set",
+        "payload": {
+          "id": "article-1"
+        }
+      }
+    },
+    {
+      "name": "optional-null",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "membershipEpoch": 1,
+        "mutationID": "12345678-1234-1234-1234-123456789abc",
+        "expectedRevision": 0,
+        "kind": "favorite_set",
+        "payload": {
+          "id": "article-1",
+          "pressAccreditation": false,
+          "name": null
+        }
+      }
+    },
+    {
+      "name": "body-in-metadata",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "membershipEpoch": 1,
+        "mutationID": "12345678-1234-1234-1234-123456789abc",
+        "expectedRevision": 0,
+        "kind": "favorite_set",
+        "payload": {
+          "id": "article-1",
+          "pressAccreditation": false,
+          "content": "No"
+        }
+      }
+    },
+    {
+      "name": "slash-target",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "membershipEpoch": 1,
+        "mutationID": "12345678-1234-1234-1234-123456789abc",
+        "expectedRevision": 0,
+        "kind": "favorite_set",
+        "payload": {
+          "id": "article/1",
+          "pressAccreditation": false
+        }
+      }
+    },
+    {
+      "name": "dot-target",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "membershipEpoch": 1,
+        "mutationID": "12345678-1234-1234-1234-123456789abc",
+        "expectedRevision": 0,
+        "kind": "favorite_set",
+        "payload": {
+          "id": "..",
+          "pressAccreditation": false
+        }
+      }
+    },
+    {
+      "name": "reserved-target",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "membershipEpoch": 1,
+        "mutationID": "12345678-1234-1234-1234-123456789abc",
+        "expectedRevision": 0,
+        "kind": "favorite_set",
+        "payload": {
+          "id": "__private__",
+          "pressAccreditation": false
+        }
+      }
+    },
+    {
+      "name": "edge-whitespace-target",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "membershipEpoch": 1,
+        "mutationID": "12345678-1234-1234-1234-123456789abc",
+        "expectedRevision": 0,
+        "kind": "favorite_set",
+        "payload": {
+          "id": " article",
+          "pressAccreditation": false
+        }
+      }
+    },
+    {
+      "name": "control-target",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "membershipEpoch": 1,
+        "mutationID": "12345678-1234-1234-1234-123456789abc",
+        "expectedRevision": 0,
+        "kind": "favorite_set",
+        "payload": {
+          "id": "article​",
+          "pressAccreditation": false
+        }
+      }
+    },
+    {
+      "name": "long-target",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "membershipEpoch": 1,
+        "mutationID": "12345678-1234-1234-1234-123456789abc",
+        "expectedRevision": 0,
+        "kind": "favorite_set",
+        "payload": {
+          "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "pressAccreditation": false
+        }
+      }
+    },
+    {
+      "name": "unsafe-url",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "membershipEpoch": 1,
+        "mutationID": "12345678-1234-1234-1234-123456789abc",
+        "expectedRevision": 0,
+        "kind": "favorite_set",
+        "payload": {
+          "id": "article-1",
+          "pressAccreditation": false,
+          "coverURL": "https://user:pass@example.invalid/a"
+        }
+      }
+    },
+    {
+      "name": "wrong-preferences-type",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "membershipEpoch": 1,
+        "mutationID": "12345678-1234-1234-1234-123456789abc",
+        "expectedRevision": 0,
+        "kind": "preferences_set",
+        "payload": {
+          "interestTopicIDs": [
+            "film"
+          ],
+          "onboardingCompleted": 1
+        }
+      }
+    },
+    {
+      "name": "duplicate-topic",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "membershipEpoch": 1,
+        "mutationID": "12345678-1234-1234-1234-123456789abc",
+        "expectedRevision": 0,
+        "kind": "preferences_set",
+        "payload": {
+          "interestTopicIDs": [
+            "film",
+            "film"
+          ],
+          "onboardingCompleted": true
+        }
+      }
+    },
+    {
+      "name": "too-many-topics",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "membershipEpoch": 1,
+        "mutationID": "12345678-1234-1234-1234-123456789abc",
+        "expectedRevision": 0,
+        "kind": "preferences_set",
+        "payload": {
+          "interestTopicIDs": [
+            "topic-0",
+            "topic-1",
+            "topic-2",
+            "topic-3",
+            "topic-4",
+            "topic-5",
+            "topic-6",
+            "topic-7",
+            "topic-8",
+            "topic-9",
+            "topic-10",
+            "topic-11",
+            "topic-12",
+            "topic-13",
+            "topic-14",
+            "topic-15",
+            "topic-16",
+            "topic-17",
+            "topic-18",
+            "topic-19",
+            "topic-20"
+          ],
+          "onboardingCompleted": true
+        }
+      }
+    },
+    {
+      "name": "null-preferences",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "membershipEpoch": 1,
+        "mutationID": "12345678-1234-1234-1234-123456789abc",
+        "expectedRevision": 0,
+        "kind": "preferences_set",
+        "payload": null
+      }
+    },
+    {
+      "name": "abbreviated-url",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "membershipEpoch": 1,
+        "mutationID": "12345678-1234-1234-1234-123456789abc",
+        "expectedRevision": 0,
+        "kind": "favorite_set",
+        "payload": {
+          "id": "article-1",
+          "pressAccreditation": false,
+          "coverURL": "https:example.invalid/a"
+        }
+      }
+    },
+    {
+      "name": "single-slash-url",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "membershipEpoch": 1,
+        "mutationID": "12345678-1234-1234-1234-123456789abc",
+        "expectedRevision": 0,
+        "kind": "favorite_set",
+        "payload": {
+          "id": "article-1",
+          "pressAccreditation": false,
+          "coverURL": "https:/example.invalid/a"
+        }
+      }
+    },
+    {
+      "name": "empty-host-url",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "membershipEpoch": 1,
+        "mutationID": "12345678-1234-1234-1234-123456789abc",
+        "expectedRevision": 0,
+        "kind": "favorite_set",
+        "payload": {
+          "id": "article-1",
+          "pressAccreditation": false,
+          "coverURL": "https://"
+        }
+      }
+    },
+    {
+      "name": "empty-user-url",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "membershipEpoch": 1,
+        "mutationID": "12345678-1234-1234-1234-123456789abc",
+        "expectedRevision": 0,
+        "kind": "favorite_set",
+        "payload": {
+          "id": "article-1",
+          "pressAccreditation": false,
+          "coverURL": "https://@example.invalid/a"
+        }
+      }
+    },
+    {
+      "name": "missing-authority-url",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "membershipEpoch": 1,
+        "mutationID": "12345678-1234-1234-1234-123456789abc",
+        "expectedRevision": 0,
+        "kind": "favorite_set",
+        "payload": {
+          "id": "article-1",
+          "pressAccreditation": false,
+          "coverURL": "https:///example.invalid/a"
+        }
+      }
+    }
+  ]
+}

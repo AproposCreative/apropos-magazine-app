@@ -36,25 +36,107 @@ private struct ArticleStarRatingView: View {
 }
 
 /// Single pill-shaped category/author tag used under the article header.
-private struct ArticleTagChip: View {
+struct ArticleTagChip: View {
     let text: String
+    #if DEBUG && targetEnvironment(simulator)
+    var onTextFrame: ((CGRect) -> Void)? = nil
+    #endif
 
     var body: some View {
-        Text(text.uppercased())
-            .font(.caption.weight(.semibold))
-            .foregroundColor(.white)
-            .lineLimit(1)
-            .fixedSize(horizontal: true, vertical: false)
-            .frame(height: 22)
+        measuredText
+            .padding(.vertical, 3)
+            .frame(minHeight: 22)
             .padding(.horizontal, 10)
             .background(Color(hex: "#262626"))
             .cornerRadius(8)
     }
+
+    @ViewBuilder private var measuredText: some View {
+        #if DEBUG && targetEnvironment(simulator)
+        styledText.onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
+            onTextFrame?($0)
+        }
+        #else
+        styledText
+        #endif
+    }
+
+    private var styledText: some View {
+        Text(text.uppercased())
+            .font(.caption.weight(.semibold))
+            .foregroundColor(.white)
+            .lineLimit(nil)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// One production header group: the status keeps the same slot and view
+/// lifetime when checking, stored, or retrying. Only its proposed width changes.
+struct ArticleHeaderTagGroup<OfflineStatus: View>: View {
+    @Environment(\.locale) private var interfaceLocale
+    let authorName: String?
+    let categories: [String]
+    let openAuthor: () -> Void
+    private let offlineStatus: OfflineStatus
+    #if DEBUG && targetEnvironment(simulator)
+    private var onFrame: ((String, CGRect) -> Void)? = nil
+    #endif
+
+    init(authorName: String?, categories: [String], openAuthor: @escaping () -> Void,
+         @ViewBuilder offlineStatus: () -> OfflineStatus) {
+        self.authorName = authorName; self.categories = categories
+        self.openAuthor = openAuthor; self.offlineStatus = offlineStatus()
+    }
+
+    var body: some View {
+        measured("container") {
+            ArticleTagFlowLayout(spacing: 8, lineSpacing: 8, alignment: .center) {
+                if let authorName, !authorName.isEmpty {
+                    Button(action: openAuthor) { chip(authorName, key: "author") }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("article.header.author")
+                }
+                ForEach(Array(categories.enumerated()), id: \.offset) { index, category in
+                    if !category.isEmpty {
+                        chip(AppLocalization.taxonomy(category, language: AppLocalization.language(for: interfaceLocale)),
+                             key: "category.\(index)")
+                    }
+                }
+                measured("status") { offlineStatus }
+            }
+            .frame(maxWidth: .infinity, alignment: .center)
+        }
+    }
+
+    @ViewBuilder private func chip(_ text: String, key: String) -> some View {
+        measured("chip." + key) {
+            #if DEBUG && targetEnvironment(simulator)
+            ArticleTagChip(text: text, onTextFrame: { onFrame?("text." + key, $0) })
+            #else
+            ArticleTagChip(text: text)
+            #endif
+        }
+    }
+
+    @ViewBuilder private func measured<Content: View>(_ key: String, @ViewBuilder content: () -> Content) -> some View {
+        #if DEBUG && targetEnvironment(simulator)
+        content().onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { onFrame?(key, $0) }
+        #else
+        content()
+        #endif
+    }
+
+    #if DEBUG && targetEnvironment(simulator)
+    func measuringFrames(_ callback: @escaping (String, CGRect) -> Void) -> Self {
+        var result = self; result.onFrame = callback; return result
+    }
+    #endif
 }
 
 /// Flow layout that places tag chips left-to-right and wraps onto new lines when
 /// they no longer fit, keeping each line centered within the available width.
-private struct ArticleTagFlowLayout: Layout {
+struct ArticleTagFlowLayout: Layout {
     var spacing: CGFloat = 8
     var lineSpacing: CGFloat = 8
     var alignment: HorizontalAlignment = .center
@@ -80,20 +162,26 @@ private struct ArticleTagFlowLayout: Layout {
             default: x = bounds.minX + (bounds.width - row.width) / 2
             }
 
-            for index in row.indices {
-                let size = subviews[index].sizeThatFits(.unspecified)
-                subviews[index].place(
-                    at: CGPoint(x: x, y: y + (row.height - size.height) / 2),
-                    proposal: ProposedViewSize(size)
+            for item in row.items {
+                subviews[item.index].place(
+                    at: CGPoint(x: x, y: y + (row.height - item.size.height) / 2),
+                    anchor: .topLeading,
+                    proposal: item.proposal
                 )
-                x += size.width + spacing
+                x += item.size.width + spacing
             }
             y += row.height + lineSpacing
         }
     }
 
+    private struct Item {
+        let index: Int
+        let size: CGSize
+        let proposal: ProposedViewSize
+    }
+
     private struct Row {
-        var indices: [Int] = []
+        var items: [Item] = []
         var width: CGFloat = 0
         var height: CGFloat = 0
     }
@@ -101,24 +189,30 @@ private struct ArticleTagFlowLayout: Layout {
     private func computeRows(maxWidth: CGFloat, subviews: Subviews) -> [Row] {
         var rows: [Row] = []
         var current = Row()
+        // A long chip can use a full row. Measure and place with the same width
+        // constraint so wrapping cannot change between the two layout passes.
+        let proposal = ProposedViewSize(width: maxWidth.isFinite ? max(0, maxWidth) : nil, height: nil)
 
         for index in subviews.indices {
-            let size = subviews[index].sizeThatFits(.unspecified)
-            let projectedWidth = current.indices.isEmpty
+            let size = subviews[index].sizeThatFits(proposal)
+            // Absent online status is not a chip and must not add a row or gap.
+            guard size.width > 0 || size.height > 0 else { continue }
+            let item = Item(index: index, size: size, proposal: proposal)
+            let projectedWidth = current.items.isEmpty
                 ? size.width
                 : current.width + spacing + size.width
 
-            if !current.indices.isEmpty && projectedWidth > maxWidth {
+            if !current.items.isEmpty && projectedWidth > maxWidth {
                 rows.append(current)
-                current = Row(indices: [index], width: size.width, height: size.height)
+                current = Row(items: [item], width: size.width, height: size.height)
             } else {
-                current.width = current.indices.isEmpty ? size.width : current.width + spacing + size.width
+                current.width = current.items.isEmpty ? size.width : current.width + spacing + size.width
                 current.height = max(current.height, size.height)
-                current.indices.append(index)
+                current.items.append(item)
             }
         }
 
-        if !current.indices.isEmpty {
+        if !current.items.isEmpty {
             rows.append(current)
         }
         return rows
@@ -394,6 +488,7 @@ struct TrailerWebView: UIViewRepresentable {
 struct ArticleDetailView: View {
     var article: Article
     var analyticsSource: AnalyticsService.ArticleOpenSource = .feed
+    @Environment(\.locale) private var interfaceLocale
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.presentationMode) var presentationMode
     @Environment(\.navigationCoordinator) private var navigationCoordinator
@@ -404,9 +499,18 @@ struct ArticleDetailView: View {
     var relatedArticles: [Article] = []
     @EnvironmentObject var viewModel: ArticleViewModel
     private let podcastPlayerManager = PodcastPlayerManager.shared
+    @ObservedObject private var podcastProgress = PodcastProgressRuntime.store
+    @ObservedObject private var readingHistory = ReadingHistoryRuntime.model
     // @Environment(\.navigateToHome) private var navigateToHome
+    @State private var readingMotion = ArticleReadingMotionController()
+    @State private var readerResume = ReaderResumeRuntime.makeController()
+    @State private var historyBinding = ReaderHistoryBinding(model: ReadingHistoryRuntime.model,
+        markRead: { ReadingHistoryRuntime.shared.markRead($0) })
+    @State private var historySession: ReaderHistoryBinding.Session?
+    @State private var readerIsVisible = false
+    @State private var availabilitySelection: ArticleViewModel.AvailabilitySelection?
     @State private var htmlHeight: CGFloat = 100
-    @State private var didLoadFullArticle = false
+    @StateObject private var articleLoadState = ArticleHTMLLoadState()
     @State private var shouldShowRelatedArticles = false
     @State private var showShareSheet = false
     @State private var shareItems: [Any] = []
@@ -414,26 +518,29 @@ struct ArticleDetailView: View {
     @State private var intelligentRelatedArticles: [Article] = []
     @State private var displayCategories: [String] = []
     @State private var displaySection: String = ""
-    @State private var headerImageFailed = false
     @State private var showGlassTopBar = false
-    @State private var lastSavedScrollProgress: Double = -1
     @State private var showPaywall = false
     @ObservedObject private var subscriptionManager = SubscriptionManager.shared
     @ObservedObject private var offlineManager = OfflineManager.shared
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     
-    private var offlineStatusPillTitles: [String] {
-        OfflineAvailability.articleStatusPillTitles(
-            for: resolvedArticle,
-            isOnline: offlineManager.isOnline
-        )
-    }
-
-    private var canShowListenButton: Bool {
-        OfflineAvailability.canOfferListenButton(
-            for: resolvedArticle,
-            isOnline: offlineManager.isOnline
-        )
+    @ViewBuilder private var offlineBodyStatus: some View {
+        if let ticket = offlineManager.captureAccess(articleID: resolvedArticle.id),
+           ticket.contentRevision == resolvedArticle.bodyRevision,
+           let state = offlineManager.bodyState(ticket: ticket) {
+            let requiresAudio = ArticleAudioLanguagePolicy.requiresAudio(for: resolvedArticle)
+            let audioState = requiresAudio ? offlineManager.audioState(ticket: ticket) : nil
+            let progress = requiresAudio ? offlineManager.audioProgress(ticket: ticket) : nil
+            if offlineManager.isCurrentAccess(ticket) {
+                ArticleOfflineBodyStatusView(ticket: ticket, state: state, prepare: { original in
+                    _ = offlineManager.prepareBodyStatus(ticket: original, force: true)
+                }, retry: { viewModel.retryOfflineContent(ticket: ticket) },
+                    audioState: audioState, audioProgress: progress, requiresAudio: requiresAudio)
+            }
+        } else if !offlineManager.isOnline {
+            ArticleOfflineStatusControl(state: .notDownloaded)
+        }
     }
 
     let optionId = "b9a5ef043f1f58db54c41ed6fe3e746e"
@@ -442,20 +549,33 @@ struct ArticleDetailView: View {
         showGlassTopBar ? 1 : 0
     }
 
+    private var readerActivationIdentity: String {
+        "\(article.id)|\(readingHistory.snapshot.generation.uuidString)|\(readerIsVisible)"
+    }
+
     private var bestRelatedArticles: [Article] {
         Array(intelligentRelatedArticles.prefix(3))
     }
 
     private var bottomScrollPadding: CGFloat {
         PodcastMiniPlayerLayout.articleBottomPadding(
-            isPlayerVisible: podcastPlayerManager.hasActiveEpisode
+            isPlayerVisible: podcastPlayerManager.hasActiveEpisode, size: dynamicTypeSize
         )
     }
 
-    private var latestPodcastEpisode: PodcastEpisode? {
-        PodcastRepository.shared.episode(for: resolvedArticle)
+    private func listenEpisode(in repository: PodcastRepository) -> PodcastEpisode? {
+        let currentArticle = resolvedArticle
+        guard ArticleAudioLanguagePolicy.requiresAudio(for: currentArticle) else { return nil }
+        return repository.episode(for: currentArticle)
     }
-    
+
+    private func canListen(to episode: PodcastEpisode) -> Bool {
+        OfflineAvailability.canOfferListenButton(for: episode, articleID: resolvedArticle.id,
+            isOnline: offlineManager.isOnline)
+    }
+
+    @ObservedObject private var availability = ArticleAvailabilityService.model
+
     private var resolvedArticle: Article {
         // Prefer the freshly fetched full article (guaranteed to carry the body
         // content + author). The feed list can be stale or omit a brand-new
@@ -463,9 +583,15 @@ struct ArticleDetailView: View {
         // it — so relying on it alone leaves the body blank ("et stort felt").
         if let full = viewModel.fullArticle, full.id == article.id,
            let content = full.content, !content.isEmpty {
-            return full
+            return availability.sanitized(full) ?? full.strippingBodyContent()
         }
-        return viewModel.articles.first(where: { $0.id == article.id }) ?? article
+        let candidate = viewModel.visibleArticles.first(where: { $0.id == article.id }) ?? article
+        return availability.sanitized(candidate) ?? candidate.strippingBodyContent()
+    }
+
+    private var detailRequestIdentity: ArticleDetailRequestIdentity {
+        ArticleDetailRequestIdentity(viewModel.visibleArticles.first(where: { $0.id == article.id }) ?? article,
+                                     availabilityRevision: availability.approvedRevision(for: article.id))
     }
 
     private var canReadFullArticle: Bool {
@@ -476,6 +602,36 @@ struct ArticleDetailView: View {
     }
     
     var body: some View {
+        ZStack {
+            ArticleAvailabilityGate(articleID: article.id, availability: availability,
+                                    retry: { availabilitySelection = viewModel.observeArticleAvailability(for: article.id) },
+                                    back: { presentationMode.wrappedValue.dismiss() }) {
+                readerContent
+            }
+        }
+        .articleNativeBackNavigation()
+        .onAppear {
+            readerIsVisible = true
+            availabilitySelection = viewModel.observeArticleAvailability(for: article.id)
+        }
+        .onChange(of: article.id) { _, _ in
+            guard readerIsVisible else { return }
+            let previous = availabilitySelection
+            availabilitySelection = nil
+            if let previous { viewModel.stopObservingArticleAvailability(previous) }
+            availabilitySelection = viewModel.observeArticleAvailability(for: article.id)
+        }
+        .onDisappear {
+            readerIsVisible = false
+            if let historySession { historyBinding.endSession(historySession) }
+            historySession = nil
+            let previous = availabilitySelection
+            availabilitySelection = nil
+            if let previous { viewModel.stopObservingArticleAvailability(previous) }
+        }
+    }
+
+    private var readerContent: some View {
         ZStack(alignment: .top) {
             // ✅ GLAS-TOPBAR (indhold placeret inden i glass effekt)
             ZStack(alignment: .top) {
@@ -535,7 +691,7 @@ struct ArticleDetailView: View {
                             .disabled(isGeneratingShareCard)
 
                             SafeFavoriteButton(
-                                article: article,
+                                article: resolvedArticle,
                                 onFavorite: { _ in
                                     // Optional onFavorite action can be added here
                                 }
@@ -549,6 +705,10 @@ struct ArticleDetailView: View {
                     .frame(maxWidth: .infinity)
                 } // Luk VStack for safe area spacing
             } // Luk indre ZStack
+            .overlay(alignment: .bottom) {
+                ArticleReadingProgressLine(controller: readingMotion)
+                    .frame(height: 1.5)
+            }
             .zIndex(1)
             .ignoresSafeArea(edges: .top)
             
@@ -565,22 +725,18 @@ struct ArticleDetailView: View {
                                 }
                             }
 
-                            let progress = min(max(-newValue / 1800, 0), 1)
-                            let quantizedProgress = (progress * 20).rounded() / 20
-                            guard abs(quantizedProgress - lastSavedScrollProgress) >= 0.05 else { return }
-                            lastSavedScrollProgress = quantizedProgress
-                            iCloudSyncService.shared.saveProgress(quantizedProgress, for: resolvedArticle.id)
-                            AnalyticsService.shared.trackArticleReadIfNeeded(resolvedArticle, scrollProgress: quantizedProgress)
+
                         }
                 }
                 .frame(height: 0.1)
+                .background(ArticleReaderScrollProbe(controller: readingMotion))
                 
                 VStack(alignment: .leading, spacing: 16) {
                     // 👇 Skubber alt ned under topbaren
                     Spacer().frame(height: 50)
                     
                     // Top tag shows the CMS Section (e.g. "Serier & Film")
-                    Text(displaySection.isEmpty ? displayCategories.joined(separator: " | ") : displaySection)
+                    LocalizedArticleTaxonomy(displaySection.isEmpty ? displayCategories : [displaySection])
                         .font(.system(size: 15, weight: .semibold))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
@@ -589,22 +745,11 @@ struct ArticleDetailView: View {
                     
                     // Safety check for article name
                     if let articleName = resolvedArticle.name, !articleName.isEmpty {
-                        Text(articleName)
-                            .font(.system(size: 34, weight: .bold))
-                            .lineSpacing(4) // Reduced from 8 to 4 for even tighter spacing
-                            .foregroundColor(textColor)
-                            .multilineTextAlignment(.center)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .padding(.horizontal)
+                        ArticleHeaderTitle(text: articleName, textColor: textColor)
                     }
                     
                     if let subtitle = resolvedArticle.subtitle, !subtitle.isEmpty {
-                        Text(subtitle)
-                            .font(.system(size: 18, weight: .medium))
-                            .foregroundColor(textColor)
-                            .padding(.horizontal)
-                            .frame(maxWidth: .infinity)
-                            .multilineTextAlignment(.center)
+                        ArticleHeaderSubtitle(text: subtitle, textColor: textColor)
                     }
                     
                     // Only show stars if there's a rating
@@ -613,91 +758,26 @@ struct ArticleDetailView: View {
                         .padding(.top, -5)
                     }
 
-                    // Category tags section - wraps onto multiple lines when needed so
-                    // long tag names are shown in full instead of being truncated.
-                    ArticleTagFlowLayout(spacing: 8, lineSpacing: 8, alignment: .center) {
-                        // Show author if available — taps open the author page.
-                        if let authorName = resolvedArticle.author?.name, !authorName.isEmpty {
-                            Button {
-                                openAuthorPageIfPossible()
-                            } label: {
-                                ArticleTagChip(text: authorName)
-                            }
-                            .buttonStyle(.plain)
-                        }
-
-                        // Display real category names from the article
-                        ForEach(displayCategories, id: \.self) { category in
-                            if !category.isEmpty {
-                                ArticleTagChip(text: category)
-                            }
-                        }
-
-                        // Offline availability — same pill style as author/categories.
-                        ForEach(offlineStatusPillTitles, id: \.self) { title in
-                            ArticleTagChip(text: title)
-                        }
+                    ArticleHeaderTagGroup(authorName: resolvedArticle.author?.name,
+                        categories: displayCategories, openAuthor: openAuthorPageIfPossible) {
+                        offlineBodyStatus
                     }
-                    .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.horizontal, 16)
                     .padding(.top, 5)
 
-                    if let episode = latestPodcastEpisode, canShowListenButton {
-                        HStack {
-                            Spacer()
-                            Button {
-                                openPodcast(for: episode)
-                            } label: {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "headphones")
-                                        .font(.caption.weight(.semibold))
-                                    Text(PodcastPlaybackProgressStore.articlePlayButtonTitle(for: episode.id))
-                                        .font(.caption.weight(.semibold))
-                                        .textCase(.uppercase)
-                                }
-                                .foregroundColor(.white)
-                                .frame(height: 28)
-                                .padding(.horizontal, 12)
-                                .background(Color(hex: "#262626"))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .stroke(Color.white.opacity(0.18), lineWidth: 0.6)
-                                )
-                                .cornerRadius(10)
-                                .shadow(color: .black.opacity(colorScheme == .dark ? 0.3 : 0.15), radius: 6, x: 0, y: 3)
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                            Spacer()
-                        }
-                        .padding(.top, 2)
+                    ArticleListenHeroSection(catalog: PodcastRepository.shared,
+                        selection: { listenEpisode(in: $0) },
+                        title: { canListen(to: $0) ? podcastProgress.snapshot.articlePlayButtonTitle(for: $0.id) : "Lyd kræver internet" },
+                        play: { openPodcast(for: $0) }, isEnabled: { canListen(to: $0) }) {
+                        // Safety check for thumbnail URL
+                        var mutableArticle = resolvedArticle
+                        let thumbnailURL = mutableArticle.thumbnailURL
+                        PreparedArticleImage(articleID: resolvedArticle.id, revision: resolvedArticle.bodyRevision,
+                            remoteURL: URL(string: thumbnailURL.trimmingCharacters(in: .whitespacesAndNewlines)), style: .cover)
+                        .frame(maxWidth: .infinity, minHeight: 220, maxHeight: 340)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .padding(.horizontal, 16)
                     }
-
-                    Spacer()
-
-                    // Safety check for thumbnail URL
-                    var mutableArticle = resolvedArticle
-                    let thumbnailURL = mutableArticle.thumbnailURL
-                    ZStack {
-                        ArticleImagePlaceholder(
-                            mode: headerImageFailed ? .offline : .loading,
-                            cornerRadius: 14
-                        )
-
-                        if let remoteURL = URL(string: thumbnailURL.trimmingCharacters(in: .whitespacesAndNewlines)),
-                           !thumbnailURL.isEmpty,
-                           !headerImageFailed,
-                           let url = resolvedArticle.offlineDisplayImageURL(for: remoteURL) {
-                            WebImage(url: url, options: [.retryFailed, .highPriority, .scaleDownLargeImages, .continueInBackground])
-                                .onFailure { _ in
-                                    headerImageFailed = true
-                                }
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 220, maxHeight: 340)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .padding(.horizontal, 16)
 
                     // Photo credit for the hero image (CMS "Foto Credit"). Same small
                     // gray caption style as inline body-image credits, but left-aligned.
@@ -742,11 +822,17 @@ struct ArticleDetailView: View {
                     .padding(.horizontal)
                     .padding(.bottom, 20)
                     
+                    ReadingHistoryNotice(model: readingHistory)
+                        .padding(.horizontal, 16)
+
                     if let content = resolvedArticle.content, !content.isEmpty {
                         if canReadFullArticle {
                             VStack(spacing: 0) {
-                                HTMLTextView(html: content, articleId: resolvedArticle.id, dynamicHeight: $htmlHeight)
-                                    .frame(height: max(htmlHeight, 240))
+                                ReaderResumeNotice(controller: readerResume, motion: readingMotion)
+                                    .padding(.horizontal, 16)
+                                ArticleHTMLBody(html: content, articleId: resolvedArticle.id, articleRevision: resolvedArticle.bodyRevision, dynamicHeight: $htmlHeight, loadState: articleLoadState,
+                                             readingMotion: readingMotion, historyBinding: historyBinding, historySession: historySession,
+                                             resumeController: readerResume, resumeOwner: readingHistory.context.namespace?.recordBinding)
 
                                 if let trailer = resolvedArticle.trailer, !trailer.isEmpty {
                                     LazyVStack {
@@ -775,6 +861,11 @@ struct ArticleDetailView: View {
                                 showPaywall = true
                             }
                         }
+                    } else {
+                        ArticleBodyLoadingState(isLoading: viewModel.loadingArticles.contains(article.id),
+                                                isOffline: !offlineManager.isOnline) {
+                            viewModel.loadFullArticle(with: article.id, initialArticle: article)
+                        }
                     }
 
                     if shouldShowRelatedArticles && !bestRelatedArticles.isEmpty {
@@ -801,10 +892,9 @@ struct ArticleDetailView: View {
                 }
             }
             .coordinateSpace(name: "scroll")
+            .readerScrollInput(controller: readingMotion)
             .allowsHitTesting(true)
         }
-        .navigationBarBackButtonHidden(true)
-        .enhancedSwipeToGoBack(isEnabled: true)
         .sheet(isPresented: $showShareSheet) {
             if !shareItems.isEmpty {
                 ActivityView(activityItems: shareItems)
@@ -813,29 +903,46 @@ struct ArticleDetailView: View {
         .sheet(isPresented: $showPaywall) {
             PaywallView()
         }
-        .task(id: article.id) {
+        .task(id: readerActivationIdentity) {
+            guard readerIsVisible else { return }
+            let activation = readerActivationIdentity
+            if let historySession { historyBinding.endSession(historySession) }
+            historySession = nil
+            readerResume.invalidate()
+            // A new owner gets a fresh document/motion measurement. Existing
+            // viewport callbacks retain their old session and are rejected.
+            readingMotion = ArticleReadingMotionController()
             shouldShowRelatedArticles = false
             htmlHeight = 240
             showGlassTopBar = false
-            lastSavedScrollProgress = -1
-            headerImageFailed = false
             
             let resolvedCategories = viewModel.categories(for: resolvedArticle)
             displayCategories = resolvedCategories.isEmpty ? ["Generelt"] : resolvedCategories
             displaySection = viewModel.sectionName(for: resolvedArticle) ?? ""
 
-            iCloudSyncService.shared.markAsRead(articleId: article.id)
-            CacheManager.shared.preloadArticleDetailImages(for: resolvedArticle)
-            AnalyticsService.shared.trackArticleOpen(resolvedArticle, source: analyticsSource)
+            let originalArticle = resolvedArticle
+            let originalSource = analyticsSource
+            historySession = historyBinding.beginArticle(articleID: originalArticle.id, onOpen: {
+                AnalyticsService.shared.trackArticleOpen(originalArticle, source: originalSource)
+            }, onProgress: { value in
+                AnalyticsService.shared.trackArticleReadIfNeeded(originalArticle, scrollProgress: value)
+            })
+            guard activation == readerActivationIdentity, readerIsVisible else { return }
+            CacheManager.shared.preloadArticleDetailImages(for: originalArticle)
             
-            if !didLoadFullArticle {
-                didLoadFullArticle = true
-                viewModel.loadFullArticle(with: article.id)
-            }
-            
-            try? await Task.sleep(nanoseconds: 350_000_000)
+            do { try await Task.sleep(nanoseconds: 350_000_000) }
+            catch { return }
+            guard !Task.isCancelled, activation == readerActivationIdentity, readerIsVisible else { return }
             generateIntelligentRelatedArticles()
             shouldShowRelatedArticles = true
+        }
+        .task(id: detailRequestIdentity) {
+            viewModel.loadFullArticle(with: article.id, initialArticle: article)
+        }
+        .onDisappear {
+            if let historySession { historyBinding.endSession(historySession) }
+            historySession = nil
+            viewModel.cancelFullArticleLoad(for: article.id)
         }
         .onChange(of: viewModel.topics.count) { _, _ in
             let refreshedCategories = viewModel.categories(for: resolvedArticle)
@@ -845,7 +952,7 @@ struct ArticleDetailView: View {
         .onChange(of: viewModel.sections.count) { _, _ in
             displaySection = viewModel.sectionName(for: resolvedArticle) ?? ""
         }
-        .onChange(of: viewModel.articles.count) { _, _ in
+        .onChange(of: viewModel.visibleArticles.count) { _, _ in
             generateIntelligentRelatedArticles()
         }
     }
@@ -856,6 +963,7 @@ extension ArticleDetailView {
     private func shareArticle() {
         guard !isGeneratingShareCard else { return }
         isGeneratingShareCard = true
+        let shareLanguage = AppLocalization.language(for: interfaceLocale)
         HapticManager.shared.lightImpact()
 
         Task {
@@ -867,7 +975,8 @@ extension ArticleDetailView {
                 shareItems = ArticleShareComposer.shareItems(
                     for: article,
                     categories: categories,
-                    image: image
+                    image: image,
+                    language: shareLanguage
                 )
                 isGeneratingShareCard = false
                 showShareSheet = true
@@ -891,18 +1000,23 @@ extension ArticleDetailView {
     }
 
     private func openPodcast(for episode: PodcastEpisode) {
-        podcastPlayerManager.play(episode: episode, articleId: resolvedArticle.id)
+        _ = podcastPlayerManager.play(episode: episode, articleId: resolvedArticle.id,
+            routeIsCurrent: {
+                canListen(to: episode) && listenEpisode(in: PodcastRepository.shared).map {
+                    ArticleListenAction.sameRecording(episode, $0)
+                } == true
+            })
     }
     
     // Build related articles using lightweight category/topic matching.
     private func generateIntelligentRelatedArticles() {
         // Safety check: ensure we have articles to work with
-        guard !viewModel.articles.isEmpty else {
+        guard !viewModel.visibleArticles.isEmpty else {
             intelligentRelatedArticles = []
             return
         }
         
-        let relatedArticles = viewModel.articles
+        let relatedArticles = viewModel.visibleArticles
             .filter { $0.id != resolvedArticle.id }
             .filter { relatedArticle in
                 if let articleTopic = resolvedArticle.topicID,

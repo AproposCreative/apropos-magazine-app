@@ -21,7 +21,7 @@ extension Article {
 
     /// Returns a locally cached file URL when the article is saved offline; otherwise the remote URL.
     func offlineDisplayImageURL(for remote: URL?) -> URL? {
-        OfflineArticleImageCache.shared.displayURL(for: remote, articleId: id)
+        OfflineArticleImageCache.shared.displayURL(for: remote, articleId: id, expectedRevision: bodyRevision)
     }
 
     var offlineListThumbnailURL: URL? {

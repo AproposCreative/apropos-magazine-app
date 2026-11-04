@@ -88,7 +88,7 @@ struct CategoryListView: View {
             HStack {
                 Spacer()
                 
-                Text(categoryTitle)
+                LocalizedArticleTaxonomy(categoryTitle)
                     .font(.system(size: 24, weight: .bold))
                     .foregroundColor(.primary)
                 
@@ -102,7 +102,7 @@ struct CategoryListView: View {
                             }
                         }) {
                             HStack {
-                                Text(layout.rawValue)
+                                Text(LocalizedStringKey(layout.rawValue))
                                 if selectedLayout == layout {
                                     Image(systemName: "checkmark")
                                 }
@@ -245,7 +245,7 @@ struct GridArticleCard: View {
             
             VStack(alignment: .leading, spacing: 8) {
                 // Category
-                Text(articleCategories.joined(separator: " | "))
+                LocalizedArticleTaxonomy(articleCategories)
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .lineLimit(1)
@@ -311,7 +311,7 @@ struct ListArticleCard: View {
     }
     
     var body: some View {
-        HStack(alignment: .top, spacing: 16) {
+        HStack(alignment: .bottom, spacing: 16) {
             // Image
             WebImage(url: article.listThumbnailURL)
                 .resizable()
@@ -323,7 +323,7 @@ struct ListArticleCard: View {
             
             VStack(alignment: .leading, spacing: 8) {
                 // Category
-                Text(articleCategories.joined(separator: " | "))
+                LocalizedArticleTaxonomy(articleCategories)
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .lineLimit(1)
@@ -354,7 +354,6 @@ struct ListArticleCard: View {
                         .lineLimit(1)
                 }
                 
-                Spacer()
             }
             
             Spacer()
@@ -412,7 +411,7 @@ struct MasonryArticleCard: View {
             
             VStack(alignment: .leading, spacing: 8) {
                 // Category
-                Text(articleCategories.joined(separator: " | "))
+                LocalizedArticleTaxonomy(articleCategories)
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .lineLimit(1)
@@ -488,7 +487,7 @@ struct ImprovedGridArticleCard: View {
             
             VStack(alignment: .leading, spacing: 4) {
                 // Category
-                Text(articleCategories.joined(separator: " | ").uppercased())
+                LocalizedArticleTaxonomy(articleCategories, uppercase: true)
                     .font(.caption)
                     .foregroundColor(.secondary)
                 

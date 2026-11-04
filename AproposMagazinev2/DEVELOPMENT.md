@@ -1,3 +1,9 @@
+# Lokal udvikling og sikker opsætning
+
+Følg [den aktuelle lokale udviklingsvejledning](../Docs/LocalDevelopment.md). Den erstatter setup-, credentials-, build- og testinstruktionerne i den historiske guide nedenfor. Der findes nu et unit-test target. Gamle credentials og backups må ikke genbruges.
+
+---
+
 # Udviklingsguide
 
 ## 🛠️ Setup
@@ -28,12 +34,10 @@ Dependencies opdateres automatisk når projektet åbnes i Xcode.
    
    <key>GOOGLE_API_KEY</key>
    <string>din-google-api-key</string>
-   
-   <key>OPENAI_API_KEY</key>
-   <string>din-openai-api-key</string>
+
    ```
 
-3. Sørg for at `Secrets.plist` er i `.gitignore`
+3. Sørg for at `Secrets.plist` er i `.gitignore`. OpenAI- og administrative pushsecrets må aldrig lægges i appen. OpenAI-secret bruges kun af særskilt provisionerede seriejobs på serveren; den gamle reader-rute er [lukket i den lokale kandidat](../Docs/LegacyRecommendationRetirement.md).
 
 ### 4. Firebase Setup
 

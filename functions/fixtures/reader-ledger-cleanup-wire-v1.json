@@ -1,0 +1,152 @@
+{
+  "schemaVersion": 1,
+  "scope": "reader-mutation-ledger-cleanup-v1",
+  "request": {
+    "schemaVersion": 1,
+    "scope": "reader-mutation-ledger-cleanup-v1",
+    "expectedUID": "reader_a",
+    "membershipEpoch": 1,
+    "parentRequestID": "f23dd3ec75303188c3abf96af36221d6aa420da842267fe9bba149eae07d0e0d"
+  },
+  "parentReceipt": {
+    "requestID": "f23dd3ec75303188c3abf96af36221d6aa420da842267fe9bba149eae07d0e0d",
+    "scope": "reader-cloud-slice-v1",
+    "status": "scopedCloudDataRemoved",
+    "accountDeletionComplete": false,
+    "unresolved": [
+      "shared_profile_fields",
+      "legacy_or_nested_data",
+      "device_and_icloud_data",
+      "push_membership_and_pending_delivery"
+    ],
+    "removedFavoriteDocuments": 2
+  },
+  "receipts": {
+    "admissionPending": {
+      "requestID": "d31c0aab5926e009577e69d9c7b4591cf95ed15d3909634996bb7b45e4b6bfc4",
+      "parentRequestID": "f23dd3ec75303188c3abf96af36221d6aa420da842267fe9bba149eae07d0e0d",
+      "scope": "reader-mutation-ledger-cleanup-v1",
+      "status": "pending",
+      "accountDeletionComplete": false,
+      "unresolved": [
+        "shared_profile_fields",
+        "legacy_or_nested_data",
+        "device_and_icloud_data",
+        "push_membership_and_pending_delivery",
+        "local_mutation_journal",
+        "membership_and_deletion_job_retention"
+      ],
+      "removedReceiptDocuments": 0,
+      "removedRevisionDocuments": 0
+    },
+    "boundedPending": {
+      "requestID": "d31c0aab5926e009577e69d9c7b4591cf95ed15d3909634996bb7b45e4b6bfc4",
+      "scope": "reader-mutation-ledger-cleanup-v1",
+      "status": "pending",
+      "accountDeletionComplete": false,
+      "unresolved": [
+        "shared_profile_fields",
+        "legacy_or_nested_data",
+        "device_and_icloud_data",
+        "push_membership_and_pending_delivery",
+        "local_mutation_journal",
+        "membership_and_deletion_job_retention"
+      ]
+    },
+    "progressPending": {
+      "requestID": "d31c0aab5926e009577e69d9c7b4591cf95ed15d3909634996bb7b45e4b6bfc4",
+      "parentRequestID": "f23dd3ec75303188c3abf96af36221d6aa420da842267fe9bba149eae07d0e0d",
+      "scope": "reader-mutation-ledger-cleanup-v1",
+      "status": "pending",
+      "accountDeletionComplete": false,
+      "unresolved": [
+        "shared_profile_fields",
+        "legacy_or_nested_data",
+        "device_and_icloud_data",
+        "push_membership_and_pending_delivery",
+        "local_mutation_journal",
+        "membership_and_deletion_job_retention"
+      ],
+      "removedReceiptDocuments": 3,
+      "removedRevisionDocuments": 0
+    },
+    "paused": {
+      "requestID": "d31c0aab5926e009577e69d9c7b4591cf95ed15d3909634996bb7b45e4b6bfc4",
+      "scope": "reader-mutation-ledger-cleanup-v1",
+      "status": "paused",
+      "accountDeletionComplete": false,
+      "code": "transport_unavailable",
+      "unresolved": [
+        "shared_profile_fields",
+        "legacy_or_nested_data",
+        "device_and_icloud_data",
+        "push_membership_and_pending_delivery",
+        "local_mutation_journal",
+        "membership_and_deletion_job_retention"
+      ]
+    },
+    "complete": {
+      "requestID": "d31c0aab5926e009577e69d9c7b4591cf95ed15d3909634996bb7b45e4b6bfc4",
+      "parentRequestID": "f23dd3ec75303188c3abf96af36221d6aa420da842267fe9bba149eae07d0e0d",
+      "scope": "reader-mutation-ledger-cleanup-v1",
+      "status": "ledgerDataRemoved",
+      "accountDeletionComplete": false,
+      "unresolved": [
+        "shared_profile_fields",
+        "legacy_or_nested_data",
+        "device_and_icloud_data",
+        "push_membership_and_pending_delivery",
+        "local_mutation_journal",
+        "membership_and_deletion_job_retention"
+      ],
+      "removedReceiptDocuments": 3,
+      "removedRevisionDocuments": 3
+    }
+  },
+  "vectors": [
+    {
+      "name": "minimum-uid",
+      "request": {
+        "schemaVersion": 1,
+        "scope": "reader-mutation-ledger-cleanup-v1",
+        "expectedUID": "a",
+        "membershipEpoch": 1,
+        "parentRequestID": "349b0705fc9c3be3cf775cf495c24a7fc41f4f54bd68c8f06eec892939033559"
+      },
+      "requestID": "6310789064927998ec0ec921405a3d2cd86d53bf2acb7b98dcc387519535fca7"
+    },
+    {
+      "name": "punctuation-uid",
+      "request": {
+        "schemaVersion": 1,
+        "scope": "reader-mutation-ledger-cleanup-v1",
+        "expectedUID": "reader-Z_9",
+        "membershipEpoch": 42,
+        "parentRequestID": "096d620caff5ee6727833f3701652766ff27e2db07657ecbff01dd83f147b5de"
+      },
+      "requestID": "21f1db9619364fcf0a8cbc86c87a2b790dc3d160b2087341953eb89c10413e37"
+    },
+    {
+      "name": "maximum-uid",
+      "request": {
+        "schemaVersion": 1,
+        "scope": "reader-mutation-ledger-cleanup-v1",
+        "expectedUID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "membershipEpoch": 1,
+        "parentRequestID": "66dbe426597b33f36d6e0ed27c99d612d520dbff60c9e1112cd7803214e4adf4"
+      },
+      "requestID": "03d5082407681b2783a2068fb372d10eb2d9f752941fbd0f8c67e347794d2689"
+    },
+    {
+      "name": "maximum-safe-epoch",
+      "request": {
+        "schemaVersion": 1,
+        "scope": "reader-mutation-ledger-cleanup-v1",
+        "expectedUID": "reader_a",
+        "membershipEpoch": 9007199254740991,
+        "parentRequestID": "3f33dcb4784a24a1afaa0f7ee5805f20cb2397312ef97c6b3e2a332cbcca488d"
+      },
+      "requestID": "4d9e9ebca4e8521f45854bf929aaf564ba2c628d4d57dba7b82faeccb9bbe903"
+    }
+  ]
+}

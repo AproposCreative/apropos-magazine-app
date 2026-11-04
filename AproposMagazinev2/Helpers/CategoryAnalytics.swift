@@ -39,7 +39,7 @@ struct CategoryAnalytics {
     
     // Get user's favorite categories
     var userFavoriteCategories: [CategoryStat] {
-        let favoriteArticles = viewModel.articles.filter { viewModel.isFavorite($0) }
+        let favoriteArticles = viewModel.visibleArticles.filter { viewModel.isFavorite($0) }
         let categoryCounts = Dictionary(grouping: favoriteArticles) { article in
             viewModel.categories(for: article).first ?? "Ukendt"
         }.mapValues { $0.count }

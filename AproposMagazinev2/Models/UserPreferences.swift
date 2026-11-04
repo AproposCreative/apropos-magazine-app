@@ -218,8 +218,8 @@ struct PrivacyPreferences: Codable, Equatable {
     var locationServices: Bool
     
     init() {
-        self.analyticsEnabled = true
-        self.crashReportsEnabled = true
+        self.analyticsEnabled = false
+        self.crashReportsEnabled = false
         self.personalizedAds = false
         self.shareUsageData = false
         self.locationServices = false
@@ -251,10 +251,11 @@ class PreferencesManager: ObservableObject {
     @Published var preferences: EnhancedUserPreferences
     static let shared = PreferencesManager()
     
-    private let userDefaults = UserDefaults.standard
+    private let userDefaults: UserDefaults
     private let preferencesKey = "enhanced_user_preferences"
     
-    private init() {
+    init(userDefaults: UserDefaults = .standard) {
+        self.userDefaults = userDefaults
         self.preferences = EnhancedUserPreferences()
         self.preferences = loadPreferences()
     }
@@ -263,9 +264,12 @@ class PreferencesManager: ObservableObject {
     
     private func loadPreferences() -> EnhancedUserPreferences {
         guard let data = userDefaults.data(forKey: preferencesKey),
-              let preferences = try? JSONDecoder().decode(EnhancedUserPreferences.self, from: data) else {
+              var preferences = try? JSONDecoder().decode(EnhancedUserPreferences.self, from: data) else {
             return EnhancedUserPreferences()
         }
+        // Legacy defaults are not an explicit, versioned telemetry choice.
+        preferences.privacyPreferences.analyticsEnabled = false
+        preferences.privacyPreferences.crashReportsEnabled = false
         return preferences
     }
     
@@ -310,6 +314,19 @@ class PreferencesManager: ObservableObject {
     }
     
     // MARK: - Content Preferences
+
+    /// One device preference selects interface and article language together.
+    /// Account consent is independent. Older unsupported choices use Danish.
+    var articleLanguage: ArticleContentLanguage {
+        preferences.contentPreferences.language == .english ? .english : .danish
+    }
+
+    func updateArticleLanguage(_ language: ArticleContentLanguage) {
+        let stored: Language = language == .english ? .english : .danish
+        guard preferences.contentPreferences.language != stored else { return }
+        preferences.contentPreferences.language = stored
+        savePreferences()
+    }
     
     func toggleShowImages() {
         preferences.contentPreferences.showAds.toggle()
@@ -340,9 +357,8 @@ class PreferencesManager: ObservableObject {
     // MARK: - Privacy Preferences
     
     func toggleAnalytics() {
-        preferences.privacyPreferences.analyticsEnabled.toggle()
-        savePreferences()
-        AnalyticsService.shared.applyCollectionPreference()
+        let controller = TelemetryRuntime.shared.controller
+        controller.setAnalyticsEnabled(!controller.snapshot.choices.analyticsEnabled)
         HapticManager.shared.lightImpact()
     }
     
@@ -355,6 +371,7 @@ class PreferencesManager: ObservableObject {
     // MARK: - Reset Preferences
     
     func resetToDefaults() {
+        TelemetryRuntime.shared.controller.disableAll()
         preferences = EnhancedUserPreferences()
         savePreferences()
         HapticManager.shared.heavyImpact()

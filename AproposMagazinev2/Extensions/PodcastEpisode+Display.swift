@@ -2,21 +2,27 @@ import Foundation
 
 extension PodcastEpisode {
     static func matchingArticle(for episode: PodcastEpisode, in articles: [Article]) -> Article? {
-        articles.first { article in
-            if let articleId = episode.articleId?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !articleId.isEmpty,
-               article.id.caseInsensitiveCompare(articleId) == .orderedSame {
-                return true
+        let valid = articles.filter(\.hasValidContentIdentity)
+        if let rawID = episode.articleId {
+            let id = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !id.isEmpty {
+                let matches = valid.filter { article in
+                    article.contentLanguage == .english ? article.id == rawID
+                        : article.id.caseInsensitiveCompare(id) == .orderedSame
+                }
+                // An explicit mismatch can never borrow another locale's slug.
+                return matches.count == 1 ? matches[0] : nil
             }
-            if let slug = episode.articleSlug?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !slug.isEmpty,
-               let articleSlug = article.slug?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !articleSlug.isEmpty,
-               articleSlug.caseInsensitiveCompare(slug) == .orderedSame {
-                return true
-            }
-            return false
         }
+        guard let slug = episode.articleSlug?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !slug.isEmpty else { return nil }
+        let matches = valid.filter { article in
+            guard article.contentLanguage == .danish,
+                  let articleSlug = article.slug?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !articleSlug.isEmpty else { return false }
+            return articleSlug.caseInsensitiveCompare(slug) == .orderedSame
+        }
+        return matches.count == 1 ? matches[0] : nil
     }
 
     func authorDisplayName(

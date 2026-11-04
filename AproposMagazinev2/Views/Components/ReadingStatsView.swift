@@ -63,7 +63,7 @@ struct StatCard: View {
                 .font(.title2.bold())
                 .foregroundColor(.primary)
             
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)

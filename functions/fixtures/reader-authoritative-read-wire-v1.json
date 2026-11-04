@@ -1,0 +1,1122 @@
+{
+  "fixtureVersion": 1,
+  "membershipVectors": [
+    {
+      "name": "missing",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "readID": "12345678-1234-1234-1234-123456789abc"
+      },
+      "response": {
+        "schemaVersion": 1,
+        "scope": "reader-membership-read-v1",
+        "request": {
+          "schemaVersion": 1,
+          "expectedUID": "reader_a",
+          "readID": "12345678-1234-1234-1234-123456789abc"
+        },
+        "membership": null,
+        "validUntilMs": 1792756860000
+      }
+    },
+    {
+      "name": "active",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "readID": "12345678-1234-1234-1234-123456789abc"
+      },
+      "response": {
+        "schemaVersion": 1,
+        "scope": "reader-membership-read-v1",
+        "request": {
+          "schemaVersion": 1,
+          "expectedUID": "reader_a",
+          "readID": "12345678-1234-1234-1234-123456789abc"
+        },
+        "membership": {
+          "schemaVersion": 1,
+          "ownerUID": "reader_a",
+          "epoch": 1,
+          "state": "active"
+        },
+        "validUntilMs": 1792756860000
+      }
+    },
+    {
+      "name": "frozen",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "readID": "12345678-1234-1234-1234-123456789abc"
+      },
+      "response": {
+        "schemaVersion": 1,
+        "scope": "reader-membership-read-v1",
+        "request": {
+          "schemaVersion": 1,
+          "expectedUID": "reader_a",
+          "readID": "12345678-1234-1234-1234-123456789abc"
+        },
+        "membership": {
+          "schemaVersion": 1,
+          "ownerUID": "reader_a",
+          "epoch": 1,
+          "state": "deletion_frozen",
+          "deletionRequestID": "f23dd3ec75303188c3abf96af36221d6aa420da842267fe9bba149eae07d0e0d"
+        },
+        "validUntilMs": 1792756860000
+      }
+    },
+    {
+      "name": "max-safe-membership-expiry",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "readID": "12345678-1234-1234-1234-123456789abc"
+      },
+      "response": {
+        "schemaVersion": 1,
+        "scope": "reader-membership-read-v1",
+        "request": {
+          "schemaVersion": 1,
+          "expectedUID": "reader_a",
+          "readID": "12345678-1234-1234-1234-123456789abc"
+        },
+        "membership": {
+          "schemaVersion": 1,
+          "ownerUID": "reader_a",
+          "epoch": 9007199254740991,
+          "state": "active"
+        },
+        "validUntilMs": 9007199254740991
+      }
+    },
+    {
+      "name": "max-ascii-owner",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "readID": "12345678-1234-1234-1234-123456789abc"
+      },
+      "response": {
+        "schemaVersion": 1,
+        "scope": "reader-membership-read-v1",
+        "request": {
+          "schemaVersion": 1,
+          "expectedUID": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "readID": "12345678-1234-1234-1234-123456789abc"
+        },
+        "membership": {
+          "schemaVersion": 1,
+          "ownerUID": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "epoch": 1,
+          "state": "active"
+        },
+        "validUntilMs": 1792756860000
+      }
+    }
+  ],
+  "resourceVectors": [
+    {
+      "name": "missing-favorite",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "readID": "12345678-1234-1234-1234-123456789abc",
+        "membershipEpoch": 1,
+        "target": {
+          "kind": "favorite",
+          "id": "article-1"
+        }
+      },
+      "response": {
+        "schemaVersion": 1,
+        "scope": "reader-resource-read-v1",
+        "request": {
+          "schemaVersion": 1,
+          "expectedUID": "reader_a",
+          "readID": "12345678-1234-1234-1234-123456789abc",
+          "membershipEpoch": 1,
+          "target": {
+            "kind": "favorite",
+            "id": "article-1"
+          }
+        },
+        "membership": {
+          "schemaVersion": 1,
+          "ownerUID": "reader_a",
+          "epoch": 1,
+          "state": "active"
+        },
+        "boundary": {
+          "readerSchemaVersion": 1,
+          "writerFenceRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "migrationRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "resource": {
+          "revision": 0,
+          "exists": false,
+          "payload": null
+        },
+        "validUntilMs": 1792756860000
+      }
+    },
+    {
+      "name": "removed-favorite-tombstone",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "readID": "12345678-1234-1234-1234-123456789abc",
+        "membershipEpoch": 1,
+        "target": {
+          "kind": "favorite",
+          "id": "article-1"
+        }
+      },
+      "response": {
+        "schemaVersion": 1,
+        "scope": "reader-resource-read-v1",
+        "request": {
+          "schemaVersion": 1,
+          "expectedUID": "reader_a",
+          "readID": "12345678-1234-1234-1234-123456789abc",
+          "membershipEpoch": 1,
+          "target": {
+            "kind": "favorite",
+            "id": "article-1"
+          }
+        },
+        "membership": {
+          "schemaVersion": 1,
+          "ownerUID": "reader_a",
+          "epoch": 1,
+          "state": "active"
+        },
+        "boundary": {
+          "readerSchemaVersion": 1,
+          "writerFenceRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "migrationRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "resource": {
+          "revision": 9,
+          "exists": false,
+          "payload": null
+        },
+        "validUntilMs": 1792756860000
+      }
+    },
+    {
+      "name": "max-safe-tombstone",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "readID": "12345678-1234-1234-1234-123456789abc",
+        "membershipEpoch": 1,
+        "target": {
+          "kind": "favorite",
+          "id": "article-1"
+        }
+      },
+      "response": {
+        "schemaVersion": 1,
+        "scope": "reader-resource-read-v1",
+        "request": {
+          "schemaVersion": 1,
+          "expectedUID": "reader_a",
+          "readID": "12345678-1234-1234-1234-123456789abc",
+          "membershipEpoch": 1,
+          "target": {
+            "kind": "favorite",
+            "id": "article-1"
+          }
+        },
+        "membership": {
+          "schemaVersion": 1,
+          "ownerUID": "reader_a",
+          "epoch": 1,
+          "state": "active"
+        },
+        "boundary": {
+          "readerSchemaVersion": 1,
+          "writerFenceRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "migrationRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "resource": {
+          "revision": 9007199254740991,
+          "exists": false,
+          "payload": null
+        },
+        "validUntilMs": 9007199254740991
+      }
+    },
+    {
+      "name": "favorite-unicode-metadata",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "readID": "12345678-1234-1234-1234-123456789abc",
+        "membershipEpoch": 1,
+        "target": {
+          "kind": "favorite",
+          "id": "café-🎵"
+        }
+      },
+      "response": {
+        "schemaVersion": 1,
+        "scope": "reader-resource-read-v1",
+        "request": {
+          "schemaVersion": 1,
+          "expectedUID": "reader_a",
+          "readID": "12345678-1234-1234-1234-123456789abc",
+          "membershipEpoch": 1,
+          "target": {
+            "kind": "favorite",
+            "id": "café-🎵"
+          }
+        },
+        "membership": {
+          "schemaVersion": 1,
+          "ownerUID": "reader_a",
+          "epoch": 1,
+          "state": "active"
+        },
+        "boundary": {
+          "readerSchemaVersion": 1,
+          "writerFenceRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "migrationRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "resource": {
+          "revision": 42,
+          "exists": true,
+          "payload": {
+            "id": "café-🎵",
+            "pressAccreditation": false,
+            "name": "Kultur / café + café 🎵",
+            "coverURL": "https://example.invalid/a/b?img=ø",
+            "topicsIDs": [
+              "café",
+              "café"
+            ]
+          }
+        },
+        "validUntilMs": 1792756860000
+      }
+    },
+    {
+      "name": "missing-preferences",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "readID": "12345678-1234-1234-1234-123456789abc",
+        "membershipEpoch": 1,
+        "target": {
+          "kind": "preferences",
+          "id": "reader"
+        }
+      },
+      "response": {
+        "schemaVersion": 1,
+        "scope": "reader-resource-read-v1",
+        "request": {
+          "schemaVersion": 1,
+          "expectedUID": "reader_a",
+          "readID": "12345678-1234-1234-1234-123456789abc",
+          "membershipEpoch": 1,
+          "target": {
+            "kind": "preferences",
+            "id": "reader"
+          }
+        },
+        "membership": {
+          "schemaVersion": 1,
+          "ownerUID": "reader_a",
+          "epoch": 1,
+          "state": "active"
+        },
+        "boundary": {
+          "readerSchemaVersion": 1,
+          "writerFenceRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "migrationRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "resource": {
+          "revision": 0,
+          "exists": false,
+          "payload": null
+        },
+        "validUntilMs": 1792756860000
+      }
+    },
+    {
+      "name": "preferences-ordered-unicode",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "readID": "12345678-1234-1234-1234-123456789abc",
+        "membershipEpoch": 1,
+        "target": {
+          "kind": "preferences",
+          "id": "reader"
+        }
+      },
+      "response": {
+        "schemaVersion": 1,
+        "scope": "reader-resource-read-v1",
+        "request": {
+          "schemaVersion": 1,
+          "expectedUID": "reader_a",
+          "readID": "12345678-1234-1234-1234-123456789abc",
+          "membershipEpoch": 1,
+          "target": {
+            "kind": "preferences",
+            "id": "reader"
+          }
+        },
+        "membership": {
+          "schemaVersion": 1,
+          "ownerUID": "reader_a",
+          "epoch": 1,
+          "state": "active"
+        },
+        "boundary": {
+          "readerSchemaVersion": 1,
+          "writerFenceRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "migrationRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "resource": {
+          "revision": 9007199254740991,
+          "exists": true,
+          "payload": {
+            "interestTopicIDs": [
+              "café",
+              "café",
+              "a/b",
+              "film 🎬"
+            ],
+            "onboardingCompleted": false
+          }
+        },
+        "validUntilMs": 1792756860000
+      }
+    }
+  ],
+  "invalidRequests": [
+    {
+      "name": "unknown",
+      "kind": "membership",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "readID": "12345678-1234-1234-1234-123456789abc",
+        "unknown": true
+      }
+    },
+    {
+      "name": "uppercase-id",
+      "kind": "membership",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "readID": "12345678-1234-1234-1234-123456789ABC"
+      }
+    },
+    {
+      "name": "wrong-owner",
+      "kind": "membership",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader/a",
+        "readID": "12345678-1234-1234-1234-123456789abc"
+      }
+    },
+    {
+      "name": "missing-epoch",
+      "kind": "resource",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "readID": "12345678-1234-1234-1234-123456789abc",
+        "membershipEpoch": null,
+        "target": {
+          "kind": "favorite",
+          "id": "article-1"
+        }
+      }
+    },
+    {
+      "name": "unsafe-epoch",
+      "kind": "resource",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "readID": "12345678-1234-1234-1234-123456789abc",
+        "membershipEpoch": 9007199254740992,
+        "target": {
+          "kind": "favorite",
+          "id": "article-1"
+        }
+      }
+    },
+    {
+      "name": "other-preferences",
+      "kind": "resource",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "readID": "12345678-1234-1234-1234-123456789abc",
+        "membershipEpoch": 1,
+        "target": {
+          "kind": "preferences",
+          "id": "other"
+        }
+      }
+    },
+    {
+      "name": "slash-target",
+      "kind": "resource",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "readID": "12345678-1234-1234-1234-123456789abc",
+        "membershipEpoch": 1,
+        "target": {
+          "kind": "favorite",
+          "id": "a/b"
+        }
+      }
+    },
+    {
+      "name": "reserved-target",
+      "kind": "resource",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "readID": "12345678-1234-1234-1234-123456789abc",
+        "membershipEpoch": 1,
+        "target": {
+          "kind": "favorite",
+          "id": "__internal__"
+        }
+      }
+    }
+  ],
+  "invalidResponses": [
+    {
+      "name": "wrong-read-id",
+      "kind": "membership",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "readID": "12345678-1234-1234-1234-123456789abc"
+      },
+      "response": {
+        "schemaVersion": 1,
+        "scope": "reader-membership-read-v1",
+        "request": {
+          "schemaVersion": 1,
+          "expectedUID": "reader_a",
+          "readID": "22345678-1234-1234-1234-123456789abc"
+        },
+        "membership": {
+          "schemaVersion": 1,
+          "ownerUID": "reader_a",
+          "epoch": 1,
+          "state": "active"
+        },
+        "validUntilMs": 1792756860000
+      }
+    },
+    {
+      "name": "zero-expiry",
+      "kind": "membership",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "readID": "12345678-1234-1234-1234-123456789abc"
+      },
+      "response": {
+        "schemaVersion": 1,
+        "scope": "reader-membership-read-v1",
+        "request": {
+          "schemaVersion": 1,
+          "expectedUID": "reader_a",
+          "readID": "12345678-1234-1234-1234-123456789abc"
+        },
+        "membership": {
+          "schemaVersion": 1,
+          "ownerUID": "reader_a",
+          "epoch": 1,
+          "state": "active"
+        },
+        "validUntilMs": 0
+      }
+    },
+    {
+      "name": "unsafe-expiry",
+      "kind": "membership",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "readID": "12345678-1234-1234-1234-123456789abc"
+      },
+      "response": {
+        "schemaVersion": 1,
+        "scope": "reader-membership-read-v1",
+        "request": {
+          "schemaVersion": 1,
+          "expectedUID": "reader_a",
+          "readID": "12345678-1234-1234-1234-123456789abc"
+        },
+        "membership": {
+          "schemaVersion": 1,
+          "ownerUID": "reader_a",
+          "epoch": 1,
+          "state": "active"
+        },
+        "validUntilMs": 9007199254740992
+      }
+    },
+    {
+      "name": "null-active-id",
+      "kind": "membership",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "readID": "12345678-1234-1234-1234-123456789abc"
+      },
+      "response": {
+        "schemaVersion": 1,
+        "scope": "reader-membership-read-v1",
+        "request": {
+          "schemaVersion": 1,
+          "expectedUID": "reader_a",
+          "readID": "12345678-1234-1234-1234-123456789abc"
+        },
+        "membership": {
+          "schemaVersion": 1,
+          "ownerUID": "reader_a",
+          "epoch": 1,
+          "state": "active",
+          "deletionRequestID": null
+        },
+        "validUntilMs": 1792756860000
+      }
+    },
+    {
+      "name": "wrong-frozen-id",
+      "kind": "membership",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "readID": "12345678-1234-1234-1234-123456789abc"
+      },
+      "response": {
+        "schemaVersion": 1,
+        "scope": "reader-membership-read-v1",
+        "request": {
+          "schemaVersion": 1,
+          "expectedUID": "reader_a",
+          "readID": "12345678-1234-1234-1234-123456789abc"
+        },
+        "membership": {
+          "schemaVersion": 1,
+          "ownerUID": "reader_a",
+          "epoch": 1,
+          "state": "deletion_frozen",
+          "deletionRequestID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "validUntilMs": 1792756860000
+      }
+    },
+    {
+      "name": "unknown-authority",
+      "kind": "resource",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "readID": "12345678-1234-1234-1234-123456789abc",
+        "membershipEpoch": 1,
+        "target": {
+          "kind": "favorite",
+          "id": "article-1"
+        }
+      },
+      "response": {
+        "schemaVersion": 1,
+        "scope": "reader-resource-read-v1",
+        "request": {
+          "schemaVersion": 1,
+          "expectedUID": "reader_a",
+          "readID": "12345678-1234-1234-1234-123456789abc",
+          "membershipEpoch": 1,
+          "target": {
+            "kind": "favorite",
+            "id": "article-1"
+          }
+        },
+        "membership": {
+          "schemaVersion": 1,
+          "ownerUID": "reader_a",
+          "epoch": 1,
+          "state": "active"
+        },
+        "boundary": {
+          "readerSchemaVersion": 1,
+          "writerFenceRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "migrationRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "resource": {
+          "revision": 0,
+          "exists": false,
+          "payload": null
+        },
+        "validUntilMs": 1792756860000,
+        "sdkStartAllowed": true
+      }
+    },
+    {
+      "name": "frozen-resource",
+      "kind": "resource",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "readID": "12345678-1234-1234-1234-123456789abc",
+        "membershipEpoch": 1,
+        "target": {
+          "kind": "favorite",
+          "id": "article-1"
+        }
+      },
+      "response": {
+        "schemaVersion": 1,
+        "scope": "reader-resource-read-v1",
+        "request": {
+          "schemaVersion": 1,
+          "expectedUID": "reader_a",
+          "readID": "12345678-1234-1234-1234-123456789abc",
+          "membershipEpoch": 1,
+          "target": {
+            "kind": "favorite",
+            "id": "article-1"
+          }
+        },
+        "membership": {
+          "schemaVersion": 1,
+          "ownerUID": "reader_a",
+          "epoch": 1,
+          "state": "deletion_frozen",
+          "deletionRequestID": "f23dd3ec75303188c3abf96af36221d6aa420da842267fe9bba149eae07d0e0d"
+        },
+        "boundary": {
+          "readerSchemaVersion": 1,
+          "writerFenceRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "migrationRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "resource": {
+          "revision": 0,
+          "exists": false,
+          "payload": null
+        },
+        "validUntilMs": 1792756860000
+      }
+    },
+    {
+      "name": "different-epoch",
+      "kind": "resource",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "readID": "12345678-1234-1234-1234-123456789abc",
+        "membershipEpoch": 1,
+        "target": {
+          "kind": "favorite",
+          "id": "article-1"
+        }
+      },
+      "response": {
+        "schemaVersion": 1,
+        "scope": "reader-resource-read-v1",
+        "request": {
+          "schemaVersion": 1,
+          "expectedUID": "reader_a",
+          "readID": "12345678-1234-1234-1234-123456789abc",
+          "membershipEpoch": 1,
+          "target": {
+            "kind": "favorite",
+            "id": "article-1"
+          }
+        },
+        "membership": {
+          "schemaVersion": 1,
+          "ownerUID": "reader_a",
+          "epoch": 2,
+          "state": "active"
+        },
+        "boundary": {
+          "readerSchemaVersion": 1,
+          "writerFenceRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "migrationRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "resource": {
+          "revision": 0,
+          "exists": false,
+          "payload": null
+        },
+        "validUntilMs": 1792756860000
+      }
+    },
+    {
+      "name": "unsafe-revision",
+      "kind": "resource",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "readID": "12345678-1234-1234-1234-123456789abc",
+        "membershipEpoch": 1,
+        "target": {
+          "kind": "favorite",
+          "id": "article-1"
+        }
+      },
+      "response": {
+        "schemaVersion": 1,
+        "scope": "reader-resource-read-v1",
+        "request": {
+          "schemaVersion": 1,
+          "expectedUID": "reader_a",
+          "readID": "12345678-1234-1234-1234-123456789abc",
+          "membershipEpoch": 1,
+          "target": {
+            "kind": "favorite",
+            "id": "article-1"
+          }
+        },
+        "membership": {
+          "schemaVersion": 1,
+          "ownerUID": "reader_a",
+          "epoch": 1,
+          "state": "active"
+        },
+        "boundary": {
+          "readerSchemaVersion": 1,
+          "writerFenceRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "migrationRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "resource": {
+          "revision": 9007199254740992,
+          "exists": false,
+          "payload": null
+        },
+        "validUntilMs": 1792756860000
+      }
+    },
+    {
+      "name": "positive-missing-preferences",
+      "kind": "resource",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "readID": "12345678-1234-1234-1234-123456789abc",
+        "membershipEpoch": 1,
+        "target": {
+          "kind": "preferences",
+          "id": "reader"
+        }
+      },
+      "response": {
+        "schemaVersion": 1,
+        "scope": "reader-resource-read-v1",
+        "request": {
+          "schemaVersion": 1,
+          "expectedUID": "reader_a",
+          "readID": "12345678-1234-1234-1234-123456789abc",
+          "membershipEpoch": 1,
+          "target": {
+            "kind": "preferences",
+            "id": "reader"
+          }
+        },
+        "membership": {
+          "schemaVersion": 1,
+          "ownerUID": "reader_a",
+          "epoch": 1,
+          "state": "active"
+        },
+        "boundary": {
+          "readerSchemaVersion": 1,
+          "writerFenceRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "migrationRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "resource": {
+          "revision": 1,
+          "exists": false,
+          "payload": null
+        },
+        "validUntilMs": 1792756860000
+      }
+    },
+    {
+      "name": "nfd-echo-target",
+      "kind": "resource",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "readID": "12345678-1234-1234-1234-123456789abc",
+        "membershipEpoch": 1,
+        "target": {
+          "kind": "favorite",
+          "id": "café-🎵"
+        }
+      },
+      "response": {
+        "schemaVersion": 1,
+        "scope": "reader-resource-read-v1",
+        "request": {
+          "schemaVersion": 1,
+          "expectedUID": "reader_a",
+          "readID": "12345678-1234-1234-1234-123456789abc",
+          "membershipEpoch": 1,
+          "target": {
+            "kind": "favorite",
+            "id": "café-🎵"
+          }
+        },
+        "membership": {
+          "schemaVersion": 1,
+          "ownerUID": "reader_a",
+          "epoch": 1,
+          "state": "active"
+        },
+        "boundary": {
+          "readerSchemaVersion": 1,
+          "writerFenceRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "migrationRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "resource": {
+          "revision": 42,
+          "exists": true,
+          "payload": {
+            "id": "café-🎵",
+            "pressAccreditation": false,
+            "name": "Kultur / café + café 🎵",
+            "coverURL": "https://example.invalid/a/b?img=ø",
+            "topicsIDs": [
+              "café",
+              "café"
+            ]
+          }
+        },
+        "validUntilMs": 1792756860000
+      }
+    },
+    {
+      "name": "nfd-payload-target",
+      "kind": "resource",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "readID": "12345678-1234-1234-1234-123456789abc",
+        "membershipEpoch": 1,
+        "target": {
+          "kind": "favorite",
+          "id": "café-🎵"
+        }
+      },
+      "response": {
+        "schemaVersion": 1,
+        "scope": "reader-resource-read-v1",
+        "request": {
+          "schemaVersion": 1,
+          "expectedUID": "reader_a",
+          "readID": "12345678-1234-1234-1234-123456789abc",
+          "membershipEpoch": 1,
+          "target": {
+            "kind": "favorite",
+            "id": "café-🎵"
+          }
+        },
+        "membership": {
+          "schemaVersion": 1,
+          "ownerUID": "reader_a",
+          "epoch": 1,
+          "state": "active"
+        },
+        "boundary": {
+          "readerSchemaVersion": 1,
+          "writerFenceRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "migrationRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "resource": {
+          "revision": 42,
+          "exists": true,
+          "payload": {
+            "id": "café-🎵",
+            "pressAccreditation": false,
+            "name": "Kultur / café + café 🎵",
+            "coverURL": "https://example.invalid/a/b?img=ø",
+            "topicsIDs": [
+              "café",
+              "café"
+            ]
+          }
+        },
+        "validUntilMs": 1792756860000
+      }
+    },
+    {
+      "name": "optional-null",
+      "kind": "resource",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "readID": "12345678-1234-1234-1234-123456789abc",
+        "membershipEpoch": 1,
+        "target": {
+          "kind": "favorite",
+          "id": "café-🎵"
+        }
+      },
+      "response": {
+        "schemaVersion": 1,
+        "scope": "reader-resource-read-v1",
+        "request": {
+          "schemaVersion": 1,
+          "expectedUID": "reader_a",
+          "readID": "12345678-1234-1234-1234-123456789abc",
+          "membershipEpoch": 1,
+          "target": {
+            "kind": "favorite",
+            "id": "café-🎵"
+          }
+        },
+        "membership": {
+          "schemaVersion": 1,
+          "ownerUID": "reader_a",
+          "epoch": 1,
+          "state": "active"
+        },
+        "boundary": {
+          "readerSchemaVersion": 1,
+          "writerFenceRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "migrationRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "resource": {
+          "revision": 42,
+          "exists": true,
+          "payload": {
+            "id": "café-🎵",
+            "pressAccreditation": false,
+            "name": null,
+            "coverURL": "https://example.invalid/a/b?img=ø",
+            "topicsIDs": [
+              "café",
+              "café"
+            ]
+          }
+        },
+        "validUntilMs": 1792756860000
+      }
+    },
+    {
+      "name": "private-content",
+      "kind": "resource",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "readID": "12345678-1234-1234-1234-123456789abc",
+        "membershipEpoch": 1,
+        "target": {
+          "kind": "favorite",
+          "id": "café-🎵"
+        }
+      },
+      "response": {
+        "schemaVersion": 1,
+        "scope": "reader-resource-read-v1",
+        "request": {
+          "schemaVersion": 1,
+          "expectedUID": "reader_a",
+          "readID": "12345678-1234-1234-1234-123456789abc",
+          "membershipEpoch": 1,
+          "target": {
+            "kind": "favorite",
+            "id": "café-🎵"
+          }
+        },
+        "membership": {
+          "schemaVersion": 1,
+          "ownerUID": "reader_a",
+          "epoch": 1,
+          "state": "active"
+        },
+        "boundary": {
+          "readerSchemaVersion": 1,
+          "writerFenceRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "migrationRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "resource": {
+          "revision": 42,
+          "exists": true,
+          "payload": {
+            "id": "café-🎵",
+            "pressAccreditation": false,
+            "name": "Kultur / café + café 🎵",
+            "coverURL": "https://example.invalid/a/b?img=ø",
+            "topicsIDs": [
+              "café",
+              "café"
+            ],
+            "content": "private"
+          }
+        },
+        "validUntilMs": 1792756860000
+      }
+    },
+    {
+      "name": "uppercase-fence",
+      "kind": "resource",
+      "request": {
+        "schemaVersion": 1,
+        "expectedUID": "reader_a",
+        "readID": "12345678-1234-1234-1234-123456789abc",
+        "membershipEpoch": 1,
+        "target": {
+          "kind": "favorite",
+          "id": "article-1"
+        }
+      },
+      "response": {
+        "schemaVersion": 1,
+        "scope": "reader-resource-read-v1",
+        "request": {
+          "schemaVersion": 1,
+          "expectedUID": "reader_a",
+          "readID": "12345678-1234-1234-1234-123456789abc",
+          "membershipEpoch": 1,
+          "target": {
+            "kind": "favorite",
+            "id": "article-1"
+          }
+        },
+        "membership": {
+          "schemaVersion": 1,
+          "ownerUID": "reader_a",
+          "epoch": 1,
+          "state": "active"
+        },
+        "boundary": {
+          "readerSchemaVersion": 1,
+          "writerFenceRevision": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "migrationRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "resource": {
+          "revision": 0,
+          "exists": false,
+          "payload": null
+        },
+        "validUntilMs": 1792756860000
+      }
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "xcodeVersion": "27.1",
+  "xcodeBuild": "27A9275",
+  "simulatorRuntime": "com.apple.CoreSimulator.SimRuntime.iOS-27-0",
+  "simulatorName": "iPhone 18 Pro",
+  "packageResolvedSHA256": "44b634af3abc1c719951b001cb4733c8f1bac366778e39c14c5ea3d1a4f661cc",
+  "packagePinCount": 20,
+  "minimumTestCount": 3648
+}

@@ -117,8 +117,10 @@ private final class BootloaderVideoModel: ObservableObject {
         self.onComplete = onComplete
         guard player == nil else { return }
 
-        Task { @MainActor in
-            guard let videoURL = await Self.resolveVideoURL() else {
+        Task { @MainActor [weak self] in
+            let videoURL = await Self.resolveVideoURL()
+            guard let self else { return }
+            guard let videoURL else {
                 completeOnce()
                 return
             }
@@ -130,7 +132,7 @@ private final class BootloaderVideoModel: ObservableObject {
             player = newPlayer
 
             statusObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
-                Task { @MainActor in
+                Task { @MainActor [weak self] in
                     guard let self else { return }
                     switch item.status {
                     case .readyToPlay:
@@ -149,7 +151,7 @@ private final class BootloaderVideoModel: ObservableObject {
                 object: item,
                 queue: .main
             ) { [weak self] _ in
-                Task { @MainActor in
+                Task { @MainActor [weak self] in
                     self?.completeOnce()
                 }
             }

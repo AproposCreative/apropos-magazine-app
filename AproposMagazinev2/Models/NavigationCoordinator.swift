@@ -8,7 +8,6 @@
 
 import SwiftUI
 import Foundation
-import OSLog
 
 // MARK: - Navigation Routes
 
@@ -22,55 +21,6 @@ enum AppRoute: Hashable, Codable {
     case author(Author)
     case categoryDetail(String) // category name
     case categoryList(title: String, articles: [Article]) // "Se alle"-liste fra Home
-}
-
-/// A parsed, side-effect-free representation of an incoming deep link or
-/// widget/notification URL. Parsing is intentionally separated from navigation
-/// so it can be unit-tested in isolation (the navigation side effects are what
-/// previously caused articles to open twice).
-enum DeepLink: Equatable {
-    case article(id: String)
-    case category(name: String)
-    case author(id: String)
-
-    /// Parse an `aproposmagazine://` (or `https://aproposmagazine.com`) URL into
-    /// a concrete action. Returns `nil` for unknown schemes/hosts or malformed
-    /// links so callers can ignore them safely.
-    static func parse(_ url: URL) -> DeepLink? {
-        guard url.scheme == "aproposmagazine" || url.host == "aproposmagazine.com" else {
-            return nil
-        }
-
-        let knownTypes = ["article", "category", "author"]
-        let pathComponents = url.pathComponents.filter { $0 != "/" }
-
-        // Resolve a (type, identifier) pair from any of the supported URL shapes:
-        //  - custom-scheme host form:   aproposmagazine://article/{id}
-        //  - universal-link path form:  https://aproposmagazine.com/article/{id}
-        //  - fragment form:             aproposmagazine://home#article/{id}
-        var type: String?
-        var identifier: String?
-
-        if url.scheme == "aproposmagazine", let host = url.host, knownTypes.contains(host) {
-            type = host
-            identifier = pathComponents.first
-        } else if pathComponents.count >= 2 {
-            type = pathComponents[0]
-            identifier = pathComponents[1]
-        } else if let fragment = url.fragment, fragment.hasPrefix("article/") {
-            type = "article"
-            identifier = String(fragment.dropFirst("article/".count))
-        }
-
-        guard let type, let identifier, !identifier.isEmpty else { return nil }
-
-        switch type {
-        case "article": return .article(id: identifier)
-        case "category": return .category(name: identifier)
-        case "author": return .author(id: identifier)
-        default: return nil
-        }
-    }
 }
 
 /// Tab identifiers for the main tab bar
@@ -110,28 +60,24 @@ class NavigationCoordinator: ObservableObject {
     
     // Deep linking support
     @Published private(set) var homeStackID = UUID()
-    private(set) var pendingNotificationPayload: NotificationNavigation.Payload?
 
-    private let logger = Logger(subsystem: "com.aproposmagazine.app", category: "NavigationCoordinator")
     
-    private init() {
+    /// Local navigation fixtures use the actual paths without installing the
+    /// normal app's incoming-link observer or reaching its service runtime.
+    init(observeIncomingArticleLinks: Bool = true) {
+        guard observeIncomingArticleLinks else { return }
         // Listen for article navigation requests
-        // Since this is a singleton, we don't need weak self
         NotificationCenter.default.addObserver(
             forName: NSNotification.Name("NavigateToArticle"),
             object: nil,
             queue: .main
-        ) { [weak self] notification in
-            guard let self = self else { return }
+        ) { notification in
             if let article = notification.userInfo?["article"] as? Article {
-                Task { @MainActor in
-                    self.selectedTab = .home
-                    await AppReadiness.waitUntilUIReady()
-                    await Task.yield()
-                    self.navigateToArticle(article, in: .home)
+                MainActor.assumeIsolated {
+                    _ = IncomingLinkRuntime.shared.accept(.article(id: article.id))
                 }
             } else {
-                self.logger.warning("NavigateToArticle notification mangler Article objekt")
+                AppDiagnostics.recordOperational(.navigationEventInvalid)
             }
         }
     }
@@ -179,6 +125,18 @@ class NavigationCoordinator: ObservableObject {
         selectedTab = tab
     }
 
+    /// A user tap on the active tab returns only that tab to its root.
+    /// This is a user reselection boundary, separate from ordinary navigation.
+    /// Ignore a request for another tab; its existing state must remain intact.
+    func reselect(_ tab: Tab) {
+        guard selectedTab == tab else { return }
+        if tab == .home {
+            navigateToHomeRoot()
+        } else if !path(for: tab).wrappedValue.isEmpty {
+            goToRoot(in: tab)
+        }
+    }
+
     /// Switch to home tab and reset its navigation stack to the root feed.
     func navigateToHomeRoot() {
         selectedTab = .home
@@ -187,6 +145,9 @@ class NavigationCoordinator: ObservableObject {
         transaction.disablesAnimations = true
         withTransaction(transaction) {
             goToRoot(in: .home)
+            // Home also owns view/Boolean destinations outside homePath.
+            // Recreate only its stack so selecting Home closes those routes too.
+            homeStackID = UUID()
         }
 
         NotificationCenter.default.post(name: .scrollHomeToTop, object: nil)
@@ -301,82 +262,22 @@ class NavigationCoordinator: ObservableObject {
     
     // MARK: - Deep Linking
     
-    /// Handle deep link navigation
-    func handleDeepLink(_ url: URL) {
-        logger.info("Håndterer deep link: \(url.absoluteString, privacy: .public)")
+    @discardableResult
+    func handleDeepLink(_ url: URL) -> Bool { IncomingLinkRuntime.shared.accept(url) }
 
-        guard let link = DeepLink.parse(url) else {
-            logger.warning("Ukendt eller ugyldigt deep link: \(url.absoluteString, privacy: .public)")
-            return
-        }
-
-        switch link {
-        case .article(let id):
-            AppDiagnostics.breadcrumb("deeplink_article:\(id.prefix(16))")
-            navigateToArticleFromNotification(articleId: id)
-        case .category(let name):
-            AppDiagnostics.breadcrumb("deeplink_category:\(name.prefix(24))")
-            navigateToCategory(name, in: .categories)
-        case .author(let id):
-            AppDiagnostics.breadcrumb("deeplink_author:\(id.prefix(16))")
-            navigateToAuthorFromDeepLink(authorId: id)
-        }
-    }
-
-    private func navigateToAuthorFromDeepLink(authorId: String) {
-        selectedTab = .home
-        NotificationCenter.default.post(
-            name: NSNotification.Name("OpenAuthorFromDeepLink"),
-            object: nil,
-            userInfo: ["authorId": authorId]
-        )
-    }
-    
-    // MARK: - Notification Navigation
-    
-    /// Navigate to article from notification
     func navigateToArticleFromNotification(articleId: String) {
-        AppDiagnostics.breadcrumb("nav_article_from_notification:\(articleId.prefix(16))")
-        selectedTab = .home
-        homePath = NavigationPath()
-
-        NotificationCenter.default.post(
-            name: NSNotification.Name("FetchArticleForNavigation"),
-            object: nil,
-            userInfo: ["articleId": articleId]
-        )
+        _ = IncomingLinkRuntime.shared.accept(.article(id: articleId))
     }
 
     func scheduleNotificationNavigation(_ payload: NotificationNavigation.Payload) {
-        pendingNotificationPayload = payload
+        guard IncomingLinkRuntime.shared.acceptNotification(payload) else { return }
         UserDefaults.standard.set(true, forKey: NotificationNavigation.skipBootloaderKey)
-
-        NotificationCenter.default.post(
-            name: NSNotification.Name("OpenArticleFromNotification"),
-            object: nil,
-            userInfo: NotificationNavigation.userInfo(for: payload)
-        )
     }
 
-    func flushPendingNotificationNavigationIfNeeded() {
-        guard let payload = pendingNotificationPayload else { return }
+    // Compatibility call on ContentView appearance. Ingress retains the latest
+    // request itself; AppReadiness marks actual readiness immediately afterward.
+    func flushPendingNotificationNavigationIfNeeded() {}
 
-        selectedTab = .home
-
-        NotificationCenter.default.post(
-            name: NSNotification.Name("OpenArticleFromNotification"),
-            object: nil,
-            userInfo: NotificationNavigation.userInfo(for: payload)
-        )
-    }
-
-    func clearPendingNotificationNavigation(for identifier: String) {
-        guard let pending = pendingNotificationPayload else { return }
-        let matchesIdentifier = pending.articleIdentifier == identifier
-        let matchesSlug = pending.articleSlug?.compare(identifier, options: .caseInsensitive) == .orderedSame
-        guard matchesIdentifier || matchesSlug else { return }
-        pendingNotificationPayload = nil
-    }
 }
 
 // MARK: - Environment Key

@@ -1,5 +1,5 @@
 import XCTest
-@testable import Apropos_Magazine
+@testable import Apropos
 
 /// Regression coverage for `DeepLink.parse`. The article/widget/notification
 /// deep-link flow has repeatedly broken (wrong route, double-open), so these
@@ -61,6 +61,8 @@ final class DeepLinkParsingTests: XCTestCase {
     func testUnknownSchemeReturnsNil() {
         XCTAssertNil(parse("https://example.com/article/123"))
         XCTAssertNil(parse("spotify://track/123"))
+        XCTAssertNil(parse("http://aproposmagazine.com/article/123"))
+        XCTAssertNil(parse("untrusted://aproposmagazine.com/article/123"))
     }
 
     func testUnknownTypeReturnsNil() {

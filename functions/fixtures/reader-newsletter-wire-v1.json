@@ -1,0 +1,8 @@
+{
+  "requestID": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  "expectedUserID": "reader_contract",
+  "expectedEmail": "Reader+Contract@Example.invalid",
+  "consent": true,
+  "consentVersion": "apropos-newsletter-v1",
+  "source": "ios-onboarding"
+}

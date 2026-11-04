@@ -1,7 +1,6 @@
 import Foundation
-import FirebaseAuth
 
-struct UserProfile: Codable {
+struct UserProfile: Codable, Equatable {
     let uid: String
     let email: String
     let displayName: String
@@ -19,30 +18,6 @@ struct UserProfile: Codable {
     var readArticles: [String] = [] // Article IDs
     var bookmarkedArticles: [String] = [] // Article IDs
     var readingProgress: [String: Double] = [:] // Article ID -> Progress (0.0-1.0)
-    
-    init(firebaseUser: User) {
-        self.uid = firebaseUser.uid
-        self.email = firebaseUser.email ?? ""
-        self.displayName = firebaseUser.displayName ?? ""
-        self.photoURL = firebaseUser.photoURL?.absoluteString
-        
-        // Validate dates once during initialization to prevent timestamp crashes
-        let now = Date()
-        
-        if let creationDate = firebaseUser.metadata.creationDate,
-           creationDate.timeIntervalSince1970 > 0 {
-            self.createdAt = creationDate
-        } else {
-            self.createdAt = now
-        }
-        
-        if let lastSignInDate = firebaseUser.metadata.lastSignInDate,
-           lastSignInDate.timeIntervalSince1970 > 0 {
-            self.lastLoginAt = lastSignInDate
-        } else {
-            self.lastLoginAt = now
-        }
-    }
     
     // Custom initializer for validated dates
     init(uid: String, email: String, displayName: String, photoURL: String?, createdAt: Date, lastLoginAt: Date, favoriteCategories: [String], favoriteAuthors: [String], notificationPreferences: NotificationPreferences, readingPreferences: ReadingPreferences, readArticles: [String], bookmarkedArticles: [String], readingProgress: [String: Double]) {

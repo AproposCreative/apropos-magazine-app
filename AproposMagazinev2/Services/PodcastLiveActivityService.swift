@@ -124,6 +124,9 @@ final class PodcastLiveActivityService {
         }
 
         let resolvedArticleId = articleId ?? episode.articleId
+        // Artwork lookup is synchronous and may use hydrated metadata only.
+        // Cold cache decoding is owned by the startup/widget async pipeline;
+        // starting a Live Activity must never decode the archive on MainActor.
         if let articles = CacheManager.shared.getCachedArticles() {
             if let article = findArticle(in: articles, episode: episode, articleId: resolvedArticleId) {
                 let url = article.mobileImageURL ?? article.thumbURL ?? article.coverURL

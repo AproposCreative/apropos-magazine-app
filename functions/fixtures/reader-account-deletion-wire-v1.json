@@ -1,0 +1,70 @@
+{
+  "request": {
+    "expectedUID": "reader_a",
+    "membershipEpoch": 1
+  },
+  "receipts": {
+    "pending": {
+      "requestID": "f23dd3ec75303188c3abf96af36221d6aa420da842267fe9bba149eae07d0e0d",
+      "scope": "reader-cloud-slice-v1",
+      "accountDeletionComplete": false,
+      "unresolved": [
+        "shared_profile_fields",
+        "legacy_or_nested_data",
+        "device_and_icloud_data",
+        "push_membership_and_pending_delivery"
+      ],
+      "status": "pending",
+      "removedFavoriteDocuments": 0
+    },
+    "partial": {
+      "requestID": "f23dd3ec75303188c3abf96af36221d6aa420da842267fe9bba149eae07d0e0d",
+      "scope": "reader-cloud-slice-v1",
+      "accountDeletionComplete": false,
+      "unresolved": [
+        "shared_profile_fields",
+        "legacy_or_nested_data",
+        "device_and_icloud_data",
+        "push_membership_and_pending_delivery"
+      ],
+      "status": "scopedCloudDataRemoved",
+      "removedFavoriteDocuments": 2
+    },
+    "paused": {
+      "requestID": "f23dd3ec75303188c3abf96af36221d6aa420da842267fe9bba149eae07d0e0d",
+      "scope": "reader-cloud-slice-v1",
+      "accountDeletionComplete": false,
+      "unresolved": [
+        "shared_profile_fields",
+        "legacy_or_nested_data",
+        "device_and_icloud_data",
+        "push_membership_and_pending_delivery"
+      ],
+      "status": "paused",
+      "code": "transport_unavailable"
+    }
+  },
+  "vectors": [
+    {
+      "request": {
+        "expectedUID": "a",
+        "membershipEpoch": 1
+      },
+      "requestID": "349b0705fc9c3be3cf775cf495c24a7fc41f4f54bd68c8f06eec892939033559"
+    },
+    {
+      "request": {
+        "expectedUID": "reader-Z_9",
+        "membershipEpoch": 42
+      },
+      "requestID": "096d620caff5ee6727833f3701652766ff27e2db07657ecbff01dd83f147b5de"
+    },
+    {
+      "request": {
+        "expectedUID": "reader_a",
+        "membershipEpoch": 9007199254740991
+      },
+      "requestID": "3f33dcb4784a24a1afaa0f7ee5805f20cb2397312ef97c6b3e2a332cbcca488d"
+    }
+  ]
+}

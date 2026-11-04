@@ -5,13 +5,13 @@ enum ArticleHTMLProcessor {
     private static let imgTagPattern = #"<img\b([^>]*?)\bsrc\s*=\s*["']([^"']+)["']([^>]*)>"#
     private static let creditPattern = #"(?is)(<img\b[^>]*>)\s*<p(?:\s[^>]*)?>([^<]{1,80})</p>"#
 
-    static func process(_ html: String) -> String {
-        var result = optimizeInlineImages(in: html)
+    static func process(_ html: String, targetImageWidth: Int? = nil) -> String {
+        var result = optimizeInlineImages(in: html, targetImageWidth: targetImageWidth)
         result = wrapImageCredits(in: result)
         return result
     }
 
-    static func optimizeInlineImages(in html: String) -> String {
+    static func optimizeInlineImages(in html: String, targetImageWidth: Int? = nil) -> String {
         guard let regex = try? NSRegularExpression(pattern: imgTagPattern, options: [.caseInsensitive]) else {
             return html
         }
@@ -27,7 +27,7 @@ enum ArticleHTMLProcessor {
             let beforeSrc = nsHTML.substring(with: match.range(at: 1))
             let src = nsHTML.substring(with: match.range(at: 2))
             let afterSrc = nsHTML.substring(with: match.range(at: 3))
-            let optimizedSrc = optimizedImageURL(from: src)
+            let optimizedSrc = optimizedImageURL(from: src, targetWidth: targetImageWidth)
             let isLazy = index >= eagerImageCount
             let loadingValue = isLazy ? "lazy" : "eager"
             let loadingAttr = beforeSrc.contains("loading=") || afterSrc.contains("loading=") ? "" : " loading=\"\(loadingValue)\""
@@ -104,7 +104,14 @@ enum ArticleHTMLProcessor {
         return true
     }
 
-    static func optimizedImageURL(from src: String) -> String {
+    /// Capture on the UI actor before detached preparation. Legacy non-UI
+    /// callers use the existing maximum rather than touching UIKit off-main.
+    static func capturedImageWidth() -> Int {
+        guard Thread.isMainThread else { return 1200 }
+        return min(1200, Int(UIScreen.main.bounds.width * UIScreen.main.scale))
+    }
+
+    static func optimizedImageURL(from src: String, targetWidth: Int? = nil) -> String {
         let lowercased = src.lowercased()
         let isWebflowAsset = lowercased.contains("website-files.com")
             || lowercased.contains("uploads-ssl.webflow.com")
@@ -113,7 +120,7 @@ enum ArticleHTMLProcessor {
 
         guard var components = URLComponents(string: src) else { return src }
 
-        let targetWidth = min(1200, Int(UIScreen.main.bounds.width * UIScreen.main.scale))
+        let targetWidth = min(1200, max(1, targetWidth ?? capturedImageWidth()))
         var queryItems = components.queryItems ?? []
         queryItems.removeAll { $0.name == "w" || $0.name == "q" || $0.name == "fmt" }
         queryItems.append(URLQueryItem(name: "w", value: "\(targetWidth)"))

@@ -1,6 +1,6 @@
 import Foundation
 
-struct Topic: Identifiable, Codable, Equatable {
+struct Topic: Identifiable, Codable, Equatable, Sendable {
     let id: String
     let name: String
     let description: String?
@@ -108,7 +108,7 @@ struct Topic: Identifiable, Codable, Equatable {
 }
 
 // MARK: - WebflowSection Model for Webflow Sections Collection
-struct WebflowSection: Identifiable, Codable, Equatable {
+struct WebflowSection: Identifiable, Codable, Equatable, Sendable {
     let id: String
     let name: String
     let description: String?
