@@ -25,6 +25,7 @@ final class AuthDeletionTransportIntegrationTests: XCTestCase {
     @MainActor private final class Gate {
         let entered: XCTestExpectation
         private(set) var didEnter = false
+        var onEntry: (() -> Void)?
         private let observation: AuthDeletionTestObservation?
         private var continuation: CheckedContinuation<Void, Never>?
         init(_ entered: XCTestExpectation, observation: AuthDeletionTestObservation?) {
@@ -33,6 +34,7 @@ final class AuthDeletionTransportIntegrationTests: XCTestCase {
         func wait() async {
             await withCheckedContinuation {
                 continuation = $0; didEnter = true
+                onEntry?() // The held physical continuation is installed first.
                 observation?.record("gate.fulfill.enter")
                 entered.fulfill()
                 observation?.record("gate.fulfill.return")
@@ -42,6 +44,49 @@ final class AuthDeletionTransportIntegrationTests: XCTestCase {
             let held = continuation; continuation = nil
             observation?.record(held == nil ? "gate.release.empty" : "gate.release.held")
             held?.resume()
+        }
+    }
+    /// Join the actual held phase, rather than timing unrelated file preparation.
+    /// A failed operation must finish physically before this waiter can throw.
+    @MainActor private final class GateEntryWaiter {
+        enum Failure: Error, Equatable { case beginRejected, finishedBeforeEntry }
+        private let model: Model
+        private let gate: Gate
+        private var changes: AnyCancellable?
+        private var continuation: CheckedContinuation<Void, Error>?
+        private var armed = false
+        private var beginRejected = false
+
+        init(model: Model, gate: Gate) {
+            self.model = model; self.gate = gate
+            changes = model.objectWillChange.sink { [weak self] _ in
+                // objectWillChange precedes the property's committed value.
+                Task { @MainActor [weak self] in self?.inspect() }
+            }
+            gate.onEntry = { [weak self] in self?.inspect() }
+        }
+
+        func wait(started: Bool) async throws {
+            try await withCheckedThrowingContinuation { continuation in
+                self.continuation = continuation; armed = true
+                beginRejected = !started
+                inspect()
+            }
+        }
+
+        private func inspect() {
+            guard armed, continuation != nil else { return }
+            if beginRejected {
+                if !model.hasPhysicalFlight { finish(.beginRejected) }
+            } else if gate.didEnter { finish() }
+            else if !model.hasPhysicalFlight { finish(.finishedBeforeEntry) }
+        }
+
+        private func finish(_ error: Failure? = nil) {
+            let held = continuation; continuation = nil
+            changes = nil; gate.onEntry = nil
+            if let error { held?.resume(throwing: error) }
+            else { held?.resume() }
         }
     }
     @MainActor private final class Fixture {
@@ -460,24 +505,48 @@ final class AuthDeletionTransportIntegrationTests: XCTestCase {
     }
 
     func testAccountRoundTripDuringCredentialWaitCannotSendOldAction() async throws {
+        // A runner hang guard, separate from the held-phase handshake below.
+        executionTimeAllowance = 60
         let observation = AuthDeletionTestObservation()
         let f = try await Fixture(observation: observation); defer { f.close() }; let model = try XCTUnwrap(f.make())
         let gate = f.hold(.credentials, expectation(description: "Old A credentials"))
-        XCTAssertTrue(f.begin(model)); observation.record("credential.wait.begin")
+        let entry = GateEntryWaiter(model: model, gate: gate) // Observe before begin.
+        let started = f.begin(model); XCTAssertTrue(started)
+        observation.record("gate.arrival.wait.begin")
+        try await entry.wait(started: started)
+        observation.record("gate.arrival.wait.return")
+        XCTAssertTrue(gate.didEnter); XCTAssertEqual(f.credentialCalls, 1)
+        XCTAssertTrue(model.hasPhysicalFlight); XCTAssertTrue(f.requests.isEmpty)
+        observation.record("credential.wait.begin")
         await fulfillment(of: [gate.entered], timeout: 3)
         observation.record("credential.wait.return")
         func attach(_ name: String) {
             let attachment = XCTAttachment(string: f.snapshot(model, gate: gate))
             attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
         }
-        // Preserve the original failed-wait/control-flow behavior for diagnosis.
-        // If didEnter is false, later assertions do not prove a credential-held interleaving.
+        // The original handshake follows actual entry; it no longer times the
+        // journal/drain/recovery work that precedes credential acquisition.
         attach("Auth credential wait returned")
         let original = f.context; f.roundTrip(); XCTAssertNotEqual(f.context, original)
         gate.release(); await eventually { !model.hasPhysicalFlight }
         XCTAssertNil(model.receipt); XCTAssertTrue(f.requests.isEmpty); XCTAssertFalse(model.accountDeletionComplete)
         observation.record("roundtrip.physical.wait.return")
         attach("Auth roundtrip returned")
+    }
+
+    func testCredentialEntryAwaitRejectsPhysicalCompletionBeforeCredentialEntry() async throws {
+        executionTimeAllowance = 60
+        let f = try await Fixture(); defer { f.close() }
+        f.sdkError = URLError(.userAuthenticationRequired)
+        let model = try XCTUnwrap(f.make())
+        let gate = f.hold(.credentials, XCTestExpectation(description: "Credentials must never start"))
+        let entry = GateEntryWaiter(model: model, gate: gate)
+        let started = f.begin(model); XCTAssertTrue(started)
+        do { try await entry.wait(started: started); XCTFail("A terminal failure cannot satisfy credential entry") }
+        catch { XCTAssertEqual(error as? GateEntryWaiter.Failure, .finishedBeforeEntry) }
+        XCTAssertFalse(gate.didEnter); XCTAssertFalse(model.hasPhysicalFlight)
+        XCTAssertEqual(f.sdkReauths, 1); XCTAssertEqual(f.credentialCalls, 0)
+        XCTAssertTrue(f.requests.isEmpty); XCTAssertNil(model.receipt)
     }
 
     func testSameUIDReplacementDuringHTTPWaitCannotAcceptOldReceipt() async throws {
