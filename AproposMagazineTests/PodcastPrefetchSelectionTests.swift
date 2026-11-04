@@ -1,37 +1,17 @@
 import XCTest
-@testable import Apropos_Magazine
+@testable import Apropos
 
 final class PodcastPrefetchSelectionTests: XCTestCase {
-    private func episode(id: String, audio: String?) -> PodcastEpisode {
-        PodcastEpisode(
-            id: id,
-            articleId: nil,
-            articleSlug: nil,
-            title: id,
-            subtitle: nil,
-            audioURL: audio.flatMap { URL(string: $0) },
-            productionSourceURL: nil,
-            duration: nil,
-            artworkURL: nil,
-            hosts: [],
-            publishedDate: nil
-        )
-    }
-
-    /// Newest-first order; index 2 is blocked and index 4 has no audio.
-    private var sampleEpisodes: [PodcastEpisode] {
-        [
-            episode(id: "1", audio: "https://example.com/1.mp3"),
-            episode(id: "2", audio: "https://example.com/2.m4a"),
-            episode(id: "3", audio: "https://notebooklm.google.com/3.mp3"),
-            episode(id: "4", audio: "https://example.com/4.mp3"),
-            episode(id: "5", audio: nil)
-        ]
+    private var sampleAssets: [PodcastAudioAsset] {
+        ["1.mp3", "2.m4a", "4.mp3"].enumerated().compactMap { index, file in
+            PodcastAudioAsset(episodeID: "episode-\(index)", canonicalArticleID: "article-\(index)", kind: .human,
+                sourceRevision: "cms-sha256-v1:" + String(repeating: "a", count: 64), remoteURL: URL(string: "https://example.com/" + file)!)
+        }
     }
 
     func testReturnsEmptyWhenDiskCacheDisabled() {
-        let urls = PodcastRepository.episodesToPrefetch(
-            from: sampleEpisodes,
+        let urls = PodcastRepository.assetsToPrefetch(
+            from: sampleAssets,
             diskCacheEnabled: false,
             prefetchEnabled: true,
             wifiOnly: false,
@@ -42,8 +22,8 @@ final class PodcastPrefetchSelectionTests: XCTestCase {
     }
 
     func testReturnsEmptyWhenPrefetchDisabled() {
-        let urls = PodcastRepository.episodesToPrefetch(
-            from: sampleEpisodes,
+        let urls = PodcastRepository.assetsToPrefetch(
+            from: sampleAssets,
             diskCacheEnabled: true,
             prefetchEnabled: false,
             wifiOnly: false,
@@ -54,8 +34,8 @@ final class PodcastPrefetchSelectionTests: XCTestCase {
     }
 
     func testReturnsEmptyWhenWifiOnlyAndNotAllowed() {
-        let urls = PodcastRepository.episodesToPrefetch(
-            from: sampleEpisodes,
+        let urls = PodcastRepository.assetsToPrefetch(
+            from: sampleAssets,
             diskCacheEnabled: true,
             prefetchEnabled: true,
             wifiOnly: true,
@@ -66,8 +46,8 @@ final class PodcastPrefetchSelectionTests: XCTestCase {
     }
 
     func testProceedsWhenWifiOnlyAndAllowed() {
-        let urls = PodcastRepository.episodesToPrefetch(
-            from: sampleEpisodes,
+        let urls = PodcastRepository.assetsToPrefetch(
+            from: sampleAssets,
             diskCacheEnabled: true,
             prefetchEnabled: true,
             wifiOnly: true,
@@ -77,31 +57,31 @@ final class PodcastPrefetchSelectionTests: XCTestCase {
         XCTAssertFalse(urls.isEmpty)
     }
 
-    func testRespectsLimitAfterFiltering() {
-        let urls = PodcastRepository.episodesToPrefetch(
-            from: sampleEpisodes,
+    func testRespectsAcceptedAssetLimit() {
+        let urls = PodcastRepository.assetsToPrefetch(
+            from: sampleAssets,
             diskCacheEnabled: true,
             prefetchEnabled: true,
             wifiOnly: false,
             allowsHeavyDownloads: false,
             limit: 2
         )
-        XCTAssertEqual(urls.map(\.absoluteString), [
+        XCTAssertEqual(urls.map(\.remoteURL.absoluteString), [
             "https://example.com/1.mp3",
             "https://example.com/2.m4a"
         ])
     }
 
-    func testFiltersUnplayableWhenLimitIsLarge() {
-        let urls = PodcastRepository.episodesToPrefetch(
-            from: sampleEpisodes,
+    func testReturnsAllAcceptedAssetsWhenLimitIsLarge() {
+        let urls = PodcastRepository.assetsToPrefetch(
+            from: sampleAssets,
             diskCacheEnabled: true,
             prefetchEnabled: true,
             wifiOnly: false,
             allowsHeavyDownloads: false,
             limit: 10
         )
-        XCTAssertEqual(urls.map(\.absoluteString), [
+        XCTAssertEqual(urls.map(\.remoteURL.absoluteString), [
             "https://example.com/1.mp3",
             "https://example.com/2.m4a",
             "https://example.com/4.mp3"
@@ -109,8 +89,8 @@ final class PodcastPrefetchSelectionTests: XCTestCase {
     }
 
     func testZeroLimitReturnsEmpty() {
-        let urls = PodcastRepository.episodesToPrefetch(
-            from: sampleEpisodes,
+        let urls = PodcastRepository.assetsToPrefetch(
+            from: sampleAssets,
             diskCacheEnabled: true,
             prefetchEnabled: true,
             wifiOnly: false,
@@ -118,5 +98,22 @@ final class PodcastPrefetchSelectionTests: XCTestCase {
             limit: 0
         )
         XCTAssertTrue(urls.isEmpty)
+    }
+}
+
+extension PodcastPrefetchSelectionTests {
+    func testEnglishArticleAssetsDoNotConsumePrefetchSlotsOrBorrowDanishSupport() throws {
+        let id = "0123456789abcdef01234567", revision = "cms-sha256-v1:" + String(repeating: "a", count: 64)
+        func asset(_ episode: String, article: String, kind: PodcastAudioAsset.Kind) throws -> PodcastAudioAsset {
+            try XCTUnwrap(PodcastAudioAsset(episodeID: episode, canonicalArticleID: article, kind: kind,
+                sourceRevision: revision, remoteURL: URL(string: "https://audio.example.test/" + episode + ".m4a")!))
+        }
+        let englishHuman = try asset("en-human", article: "en_" + id, kind: .human)
+        let englishAI = try asset("en-ai", article: "en_" + id, kind: .ai)
+        let danishHuman = try asset("da-human", article: id, kind: .human)
+        let danishAI = try asset("da-ai", article: id, kind: .ai)
+        let result = PodcastRepository.assetsToPrefetch(from: [englishHuman, danishHuman, englishAI, danishAI],
+            diskCacheEnabled: true, prefetchEnabled: true, wifiOnly: false, allowsHeavyDownloads: true, limit: 2)
+        XCTAssertEqual(result, [danishHuman, danishAI])
     }
 }

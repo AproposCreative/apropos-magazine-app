@@ -1,0 +1,216 @@
+{
+  "fixtureVersion": 1,
+  "vectors": [
+    {
+      "name": "first-membership",
+      "binding": {
+        "ownerUID": "reader_a",
+        "epoch": 1
+      },
+      "requestID": "f23dd3ec75303188c3abf96af36221d6aa420da842267fe9bba149eae07d0e0d",
+      "active": {
+        "schemaVersion": 1,
+        "ownerUID": "reader_a",
+        "epoch": 1,
+        "state": "active"
+      },
+      "frozen": {
+        "schemaVersion": 1,
+        "ownerUID": "reader_a",
+        "epoch": 1,
+        "state": "deletion_frozen",
+        "deletionRequestID": "f23dd3ec75303188c3abf96af36221d6aa420da842267fe9bba149eae07d0e0d"
+      }
+    },
+    {
+      "name": "later-membership",
+      "binding": {
+        "ownerUID": "reader-Z_9",
+        "epoch": 42
+      },
+      "requestID": "096d620caff5ee6727833f3701652766ff27e2db07657ecbff01dd83f147b5de",
+      "active": {
+        "schemaVersion": 1,
+        "ownerUID": "reader-Z_9",
+        "epoch": 42,
+        "state": "active"
+      },
+      "frozen": {
+        "schemaVersion": 1,
+        "ownerUID": "reader-Z_9",
+        "epoch": 42,
+        "state": "deletion_frozen",
+        "deletionRequestID": "096d620caff5ee6727833f3701652766ff27e2db07657ecbff01dd83f147b5de"
+      }
+    },
+    {
+      "name": "same-owner-next-epoch",
+      "binding": {
+        "ownerUID": "reader_a",
+        "epoch": 2
+      },
+      "requestID": "46bdefa8ef9bd3872f19fff7f8b3d74b70dcc55559a6893d2199b801afb5db52",
+      "active": {
+        "schemaVersion": 1,
+        "ownerUID": "reader_a",
+        "epoch": 2,
+        "state": "active"
+      },
+      "frozen": {
+        "schemaVersion": 1,
+        "ownerUID": "reader_a",
+        "epoch": 2,
+        "state": "deletion_frozen",
+        "deletionRequestID": "46bdefa8ef9bd3872f19fff7f8b3d74b70dcc55559a6893d2199b801afb5db52"
+      }
+    },
+    {
+      "name": "maximum-safe-epoch",
+      "binding": {
+        "ownerUID": "reader_a",
+        "epoch": 9007199254740991
+      },
+      "requestID": "3f33dcb4784a24a1afaa0f7ee5805f20cb2397312ef97c6b3e2a332cbcca488d",
+      "active": {
+        "schemaVersion": 1,
+        "ownerUID": "reader_a",
+        "epoch": 9007199254740991,
+        "state": "active"
+      },
+      "frozen": {
+        "schemaVersion": 1,
+        "ownerUID": "reader_a",
+        "epoch": 9007199254740991,
+        "state": "deletion_frozen",
+        "deletionRequestID": "3f33dcb4784a24a1afaa0f7ee5805f20cb2397312ef97c6b3e2a332cbcca488d"
+      }
+    },
+    {
+      "name": "maximum-uid",
+      "binding": {
+        "ownerUID": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "epoch": 1
+      },
+      "requestID": "131ff1f8923b6c1a0f0e1899b035680bc1dd1300ec8eefb858be2e2fbdd5cfba",
+      "active": {
+        "schemaVersion": 1,
+        "ownerUID": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "epoch": 1,
+        "state": "active"
+      },
+      "frozen": {
+        "schemaVersion": 1,
+        "ownerUID": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "epoch": 1,
+        "state": "deletion_frozen",
+        "deletionRequestID": "131ff1f8923b6c1a0f0e1899b035680bc1dd1300ec8eefb858be2e2fbdd5cfba"
+      }
+    }
+  ],
+  "invalidAdmissionRows": [
+    {
+      "name": "missing",
+      "row": null
+    },
+    {
+      "name": "wrong-owner",
+      "row": {
+        "schemaVersion": 1,
+        "ownerUID": "reader_b",
+        "epoch": 1,
+        "state": "active"
+      }
+    },
+    {
+      "name": "different-epoch",
+      "row": {
+        "schemaVersion": 1,
+        "ownerUID": "reader_a",
+        "epoch": 2,
+        "state": "active"
+      }
+    },
+    {
+      "name": "unknown-schema",
+      "row": {
+        "schemaVersion": 2,
+        "ownerUID": "reader_a",
+        "epoch": 1,
+        "state": "active"
+      }
+    },
+    {
+      "name": "unknown-state",
+      "row": {
+        "schemaVersion": 1,
+        "ownerUID": "reader_a",
+        "epoch": 1,
+        "state": "deleted"
+      }
+    },
+    {
+      "name": "frozen-without-id",
+      "row": {
+        "schemaVersion": 1,
+        "ownerUID": "reader_a",
+        "epoch": 1,
+        "state": "deletion_frozen"
+      }
+    },
+    {
+      "name": "frozen-wrong-id",
+      "row": {
+        "schemaVersion": 1,
+        "ownerUID": "reader_a",
+        "epoch": 1,
+        "state": "deletion_frozen",
+        "deletionRequestID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "name": "zero-epoch",
+      "row": {
+        "schemaVersion": 1,
+        "ownerUID": "reader_a",
+        "epoch": 0,
+        "state": "active"
+      }
+    },
+    {
+      "name": "fractional-epoch",
+      "row": {
+        "schemaVersion": 1,
+        "ownerUID": "reader_a",
+        "epoch": 1.5,
+        "state": "active"
+      }
+    },
+    {
+      "name": "string-epoch",
+      "row": {
+        "schemaVersion": 1,
+        "ownerUID": "reader_a",
+        "epoch": "1",
+        "state": "active"
+      }
+    },
+    {
+      "name": "boolean-epoch",
+      "row": {
+        "schemaVersion": 1,
+        "ownerUID": "reader_a",
+        "epoch": true,
+        "state": "active"
+      }
+    },
+    {
+      "name": "unsafe-epoch",
+      "row": {
+        "schemaVersion": 1,
+        "ownerUID": "reader_a",
+        "epoch": 9007199254740992,
+        "state": "active"
+      }
+    }
+  ]
+}

@@ -234,8 +234,8 @@ extension View {
             title: "Kategorier",
             showSearchButton: true,
             showMenuButton: true,
-            onSearch: { print("Search tapped") },
-            onMenu: { print("Menu tapped") }
+            onSearch: {},
+            onMenu: {}
         )
         
         // Scrollable top bar
@@ -243,8 +243,8 @@ extension View {
             title: "Alle Artikler",
             showSearchButton: true,
             showMenuButton: true,
-            onSearch: { print("Search tapped") },
-            onMenu: { print("Menu tapped") },
+            onSearch: {},
+            onMenu: {},
             showNavTitle: .constant(true)
         )
         

@@ -1,5 +1,5 @@
 import XCTest
-@testable import Apropos_Magazine
+@testable import Apropos
 
 /// Regression coverage for the article feed ordering + publish gating. The feed
 /// repeatedly mis-ordered after the createdOn/lastPublished changes (bulk CMS

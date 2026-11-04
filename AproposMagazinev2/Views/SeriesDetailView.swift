@@ -37,11 +37,11 @@ struct SeriesDetailView: View {
     }
 }
 
-private struct SeriesArticleRow: View {
+struct SeriesArticleRow: View {
     let article: Article
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(alignment: .bottom, spacing: 12) {
             Group {
                 if let url = article.thumbURL ?? article.coverURL ?? article.mobileImageURL {
                     WebImage(url: url)

@@ -15,6 +15,9 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const {randomUUID} = require("node:crypto");
+const {isVisibleMirrorItem} = require("./webflowCatalog");
+const {runBoundedProcess, assertMediaRuntime} = require("./boundedProcess");
+const {createPodcastManifestPublisher, readNarrationSource, publishBoundNarration} = require("./podcastManifest");
 const {FieldValue, getFirestore} = require("firebase-admin/firestore");
 const {getStorage} = require("firebase-admin/storage");
 const logger = require("firebase-functions/logger");
@@ -25,7 +28,6 @@ const ffprobePath = require("ffprobe-static").path;
 const BUCKET = "apropos-magazine-6004a.firebasestorage.app";
 const NARRATION_PREFIX = "podcasts/narration/";
 const ARTICLES_PREFIX = "podcasts/articles/";
-const MANIFEST_PATH = "podcasts/manifest.json";
 
 const VOICE_NAME = "Ellen";
 const MODEL_ID = "eleven_v3";
@@ -170,6 +172,7 @@ function buildNarrationScript(fieldData, authorName, rating) {
 // ---- ElevenLabs ------------------------------------------------------------
 async function resolveVoiceId(apiKey) {
   const response = await fetch("https://api.elevenlabs.io/v1/voices", {
+    signal: AbortSignal.timeout(30000),
     headers: {"xi-api-key": apiKey},
   });
   if (!response.ok) {
@@ -190,16 +193,18 @@ async function resolveVoiceId(apiKey) {
   return match.voice_id;
 }
 
-async function synthesizeChunk(apiKey, voiceId, text, outPath) {
+async function synthesizeChunk(apiKey, voiceId, text, outPath, assertCurrent) {
   const body = {text, model_id: MODEL_ID};
   const url =
     `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=${OUTPUT_FORMAT}`;
   const maxAttempts = 3;
   let lastError;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    await assertCurrent();
     try {
       const response = await fetch(url, {
         method: "POST",
+        signal: AbortSignal.timeout(60000),
         headers: {
           "xi-api-key": apiKey,
           "Content-Type": "application/json",
@@ -232,6 +237,7 @@ async function synthesizeChunk(apiKey, voiceId, text, outPath) {
 async function elevenLabsUsage(apiKey) {
   try {
     const response = await fetch("https://api.elevenlabs.io/v1/user/subscription", {
+      signal: AbortSignal.timeout(30000),
       headers: {"xi-api-key": apiKey},
     });
     if (!response.ok) return null;
@@ -263,18 +269,7 @@ function voiceFilterChain() {
 }
 
 function runFfmpeg(args) {
-  return new Promise((resolve, reject) => {
-    const ff = spawn(ffmpegPath, args, {stdio: ["ignore", "ignore", "pipe"]});
-    let stderr = "";
-    ff.stderr.on("data", (d) => {
-      stderr += d.toString();
-    });
-    ff.on("error", reject);
-    ff.on("close", (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`ffmpeg exit ${code}: ${stderr.slice(-800)}`));
-    });
-  });
+  return runBoundedProcess({spawn, executable: ffmpegPath, args, timeoutMs: 120000});
 }
 
 function encodeVoiceWav(listPath, outPath) {
@@ -306,7 +301,7 @@ function probeDuration(filePath) {
     "-show_entries", "format=duration",
     "-of", "default=noprint_wrappers=1:nokey=1",
     filePath,
-  ]).toString().trim();
+  ], {timeout: 30000, killSignal: "SIGKILL", maxBuffer: 1024 * 1024}).toString().trim();
   return parseFloat(out) || 0;
 }
 
@@ -460,17 +455,7 @@ async function listAudioObjects(bucket, prefix) {
   return files.filter((f) => isAudioFile(f.name) && !f.name.endsWith("/"));
 }
 
-async function articleHasAudio(bucket, slug) {
-  for (const prefix of [ARTICLES_PREFIX, NARRATION_PREFIX]) {
-    try {
-      const [files] = await bucket.getFiles({prefix: `${prefix}${slug}/`});
-      if (files.some((f) => isAudioFile(f.name))) return true;
-    } catch (e) { /* best effort */ }
-  }
-  return false;
-}
-
-async function uploadObject(bucket, localPath, storagePath, token) {
+async function uploadObject(bucket, localPath, storagePath, token, source = {}) {
   await bucket.upload(localPath, {
     destination: storagePath,
     metadata: {
@@ -479,9 +464,11 @@ async function uploadObject(bucket, localPath, storagePath, token) {
       metadata: {
         firebaseStorageDownloadTokens: token,
         podcastOptimized: "true",
+        ...source,
       },
     },
     resumable: true,
+    preconditionOpts: {ifGenerationMatch: 0},
   });
 }
 
@@ -491,6 +478,8 @@ async function writeNarrationMetadata(bucket, slug, metadata) {
     title: metadata.title,
     hosts: metadata.hosts,
     kind: "ai",
+    sourceArticleId: metadata.sourceArticleId,
+    sourceContentRevision: metadata.sourceContentRevision,
     updatedAt: new Date().toISOString(),
   };
   await bucket.file(metadataPath).save(JSON.stringify(payload, null, 2), {
@@ -499,100 +488,13 @@ async function writeNarrationMetadata(bucket, slug, metadata) {
   });
 }
 
-async function readJsonMetadata(bucket, metadataPath) {
-  try {
-    const [buffer] = await bucket.file(metadataPath).download();
-    const parsed = JSON.parse(buffer.toString("utf8"));
-    return {
-      title: String(parsed.title || "").trim(),
-      hosts: Array.isArray(parsed.hosts) ? parsed.hosts.map(String) : [],
-    };
-  } catch (e) {
-    return {title: "", hosts: []};
-  }
-}
-
 // Regenererer podcasts/manifest.json (port af syncManifest fra podcast-auto-publish.mjs).
-async function syncManifest(bucket) {
-  const episodes = [];
-  const humanSlugs = new Set();
-
-  const humanFiles = await listAudioObjects(bucket, ARTICLES_PREFIX);
-  for (const file of humanFiles) {
-    const parts = file.name.split("/").filter(Boolean);
-    const slug = parts[parts.length - 2];
-    if (!slug) continue;
-    const [metadata] = await file.getMetadata();
-    const token = extractToken(metadata);
-    if (!token) continue;
-    const meta = await readJsonMetadata(bucket, `${ARTICLES_PREFIX}${slug}/podcast.json`);
-    humanSlugs.add(slug);
-    episodes.push({
-      id: slugToId(slug),
-      articleSlug: slug,
-      title: meta.title || titleFromSlug(slug),
-      subtitle: "Lyt til artiklen",
-      audioURL: publicURL(file.name, token),
-      hosts: meta.hosts.length ? meta.hosts : ["Apropos Magazine"],
-      publishedAt: metadata.updated || metadata.timeCreated || new Date().toISOString(),
-    });
-  }
-
-  const narrationFiles = await listAudioObjects(bucket, NARRATION_PREFIX);
-  for (const file of narrationFiles) {
-    const parts = file.name.split("/").filter(Boolean);
-    const slug = parts[parts.length - 2];
-    if (!slug || humanSlugs.has(slug)) continue;
-    const [metadata] = await file.getMetadata();
-    const token = extractToken(metadata);
-    if (!token) continue;
-    const meta = await readJsonMetadata(bucket, `${NARRATION_PREFIX}${slug}/narration.json`);
-    episodes.push({
-      id: `ai-${slugToId(slug)}`,
-      articleSlug: slug,
-      title: meta.title || titleFromSlug(slug),
-      subtitle: "Lyt til artiklen",
-      audioURL: publicURL(file.name, token),
-      hosts: meta.hosts.length ? meta.hosts : ["Apropos Magazine"],
-      publishedAt: metadata.updated || metadata.timeCreated || new Date().toISOString(),
-      kind: "ai",
-    });
-  }
-
-  episodes.sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt));
-
-  let manifestToken = null;
-  try {
-    const [existing] = await bucket.file(MANIFEST_PATH).getMetadata();
-    manifestToken = extractToken(existing);
-  } catch (e) {
-    manifestToken = null;
-  }
-  if (!manifestToken) manifestToken = randomUUID();
-
-  const manifest = {version: 1, updatedAt: new Date().toISOString(), episodes};
-  await bucket.file(MANIFEST_PATH).save(JSON.stringify(manifest, null, 2), {
-    resumable: false,
-    metadata: {
-      contentType: "application/json",
-      cacheControl: "public, max-age=300",
-      metadata: {firebaseStorageDownloadTokens: manifestToken},
-    },
-  });
-  logger.info(`narration manifest synced (${episodes.length} episodes)`);
-}
-
-async function loadArticle(db, articleId, slug) {
-  if (articleId) {
-    const doc = await db.collection("articles").doc(String(articleId)).get();
-    if (doc.exists) return doc.data();
-  }
-  const query = await db.collection("articles")
-      .where("fieldData.slug", "==", slug)
-      .limit(1)
-      .get();
-  if (!query.empty) return query.docs[0].data();
-  return null;
+async function syncManifest(bucket, {assertCurrent = async () => {}, preview = false} = {}) {
+  const result = await createPodcastManifestPublisher({
+    db: getFirestore(), bucket, collectionId: "67dbf17ba540975b5b21c2a6", publicURL, beforeCommit: assertCurrent,
+  })({preview});
+  logger.info(`narration manifest ${preview ? "previewed" : "synced"} (${result.manifest.episodes.length} episodes)`);
+  return result;
 }
 
 async function resolveAuthorName(db, authorId) {
@@ -630,20 +532,28 @@ async function recordAdminAlert(db, type, details) {
  * Hovedfunktion: generér og udgiv en AI-oplæsning for én artikel.
  * Returnerer et statusobjekt; kaster kun ved uventede fejl.
  */
-async function generateAndPublishNarration({slug, articleId, name, apiKey}) {
+async function generateAndPublishNarration({slug, articleId, name, apiKey, expectedRevision, assertCurrent}) {
+  if (typeof assertCurrent !== "function" || !expectedRevision) throw new Error("Claimed source job required");
+  await assertCurrent();
   const db = getFirestore();
   const bucket = getStorage().bucket(BUCKET);
 
-  if (await articleHasAudio(bucket, slug)) {
-    logger.info(`narration: ${slug} har allerede lyd — springer over`);
-    return {status: "exists"};
-  }
-
-  const article = await loadArticle(db, articleId, slug);
-  if (!article || !article.fieldData) {
-    logger.warn(`narration: ingen artikel fundet for ${slug} (${articleId})`);
+  const {article, source} = await readNarrationSource(db, "67dbf17ba540975b5b21c2a6", slug, articleId);
+  if (!isVisibleMirrorItem(article) || !article.fieldData) {
+    logger.warn(`narration: no live article for ${slug} (${articleId})`);
     return {status: "no_article"};
   }
+  if (source.sourceContentRevision !== expectedRevision) throw new Error("Narration job revision changed");
+  const preview = await syncManifest(bucket, {preview: true, assertCurrent});
+  await assertCurrent();
+  if (preview.manifest.episodes.some((episode) => episode.articleId === articleId)) {
+    const accepted = await syncManifest(bucket, {assertCurrent});
+    const existing = accepted.manifest.episodes.find((episode) => episode.articleId === articleId);
+    if (!existing) throw new Error("Existing audio was not accepted into manifest");
+    return {status: "exists", audioKind: existing.kind === "ai" ? "ai" : "human", title: existing.title, audioURL: existing.audioURL, ...source};
+  }
+
+  assertMediaRuntime([ffmpegPath, ffprobePath], fs.existsSync);
   const fieldData = article.fieldData;
 
   const authorName = await resolveAuthorName(db, fieldData.author);
@@ -658,7 +568,9 @@ async function generateAndPublishNarration({slug, articleId, name, apiKey}) {
   }
 
   // Kredit-cap: stop før ElevenLabs-kvoten brændes.
+  await assertCurrent();
   const usage = await elevenLabsUsage(apiKey);
+  await assertCurrent();
   if (usage) {
     const projected = usage.count + fullText.length;
     if (usage.ratio >= QUOTA_THRESHOLD || projected > usage.limit) {
@@ -684,6 +596,7 @@ async function generateAndPublishNarration({slug, articleId, name, apiKey}) {
 
   const workDir = fs.mkdtempSync(path.join(os.tmpdir(), `narr-${slugToId(slug)}-`));
   try {
+    await assertCurrent();
     const voiceId = await resolveVoiceId(apiKey);
     const bodyChunks = chunkText(bodyText, MAX_CHARS_PER_CHUNK);
     const closingParts = [ratingLine, outroLine].filter(Boolean);
@@ -695,16 +608,16 @@ async function generateAndPublishNarration({slug, articleId, name, apiKey}) {
     const voicePaths = [];
     for (let i = 0; i < bodyChunks.length; i++) {
       const chunkPath = path.join(workDir, `chunk-${String(i).padStart(3, "0")}.mp3`);
-      await synthesizeChunk(apiKey, voiceId, bodyChunks[i], chunkPath);
+      await synthesizeChunk(apiKey, voiceId, bodyChunks[i], chunkPath, assertCurrent);
       voicePaths.push(chunkPath);
     }
     if (ratingLine) {
       const ratingPath = path.join(workDir, "rating.mp3");
-      await synthesizeChunk(apiKey, voiceId, ratingLine, ratingPath);
+      await synthesizeChunk(apiKey, voiceId, ratingLine, ratingPath, assertCurrent);
       voicePaths.push(ratingPath);
     }
     const outroPath = path.join(workDir, "outro.mp3");
-    await synthesizeChunk(apiKey, voiceId, outroLine, outroPath);
+    await synthesizeChunk(apiKey, voiceId, outroLine, outroPath, assertCurrent);
     voicePaths.push(outroPath);
 
     const silencePath = path.join(workDir, "silence.mp3");
@@ -718,20 +631,24 @@ async function generateAndPublishNarration({slug, articleId, name, apiKey}) {
     );
 
     const outPath = path.join(workDir, `${slugToId(slug)}.m4a`);
+    await assertCurrent();
     await produceFinal(listPath, outPath, workDir, breakerWindows);
+    await assertCurrent();
 
-    const destPath = `${NARRATION_PREFIX}${slug}/${slug}.m4a`;
-    const token = await resolveDownloadToken(bucket, destPath);
-    await uploadObject(bucket, outPath, destPath, token);
-
+    // Immutable render object. A different render never overwrites a cached URL.
+    const destPath = `${NARRATION_PREFIX}${slug}/${randomUUID()}.m4a`;
+    const token = randomUUID();
     const title = String(fieldData.name || "").trim() || titleFromSlug(slug);
     const hosts = authorName ? [authorName] : ["Apropos Magazine"];
-    await writeNarrationMetadata(bucket, slug, {title, hosts});
-
-    await syncManifest(bucket);
+    await publishBoundNarration({source, assertCurrent, audioURL: publicURL(destPath, token),
+      readSource: async () => (await readNarrationSource(db, "67dbf17ba540975b5b21c2a6", slug, source.sourceArticleId)).source,
+      upload: () => uploadObject(bucket, outPath, destPath, token, {...source, narrationHosts: JSON.stringify(hosts)}),
+      writeMetadata: () => writeNarrationMetadata(bucket, slug, {title, hosts, ...source}),
+      publishManifest: () => syncManifest(bucket, {assertCurrent}),
+    });
 
     logger.info(`narration: udgivet ${slug} → ${publicURL(destPath, token)}`);
-    return {status: "published", title};
+    return {status: "published", title, audioKind: "ai", audioURL: publicURL(destPath, token), ...source};
   } finally {
     try {
       fs.rmSync(workDir, {recursive: true, force: true});

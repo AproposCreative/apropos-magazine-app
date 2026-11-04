@@ -1,6 +1,5 @@
 import FirebaseFirestore
 import Foundation
-import OSLog
 
 enum FirestoreMetadataError: LocalizedError {
     case empty
@@ -21,27 +20,29 @@ enum FirestoreMetadataError: LocalizedError {
 /// The Cloud Functions `syncMetadata`/`syncMetadataScheduled` jobs store each
 /// Webflow item as a raw `{ id, fieldData }` document, so we can reconstruct the
 /// exact JSON shape the existing models expect via their `init(from:)`.
+@MainActor
 final class FirestoreMetadataService {
     static let shared = FirestoreMetadataService()
 
-    private let logger = Logger(
-        subsystem: "com.aproposmagazine.app",
-        category: "FirestoreMetadataService"
-    )
     private lazy var db = Firestore.firestore()
 
     private init() {}
 
-    func fetchTopics(completion: @escaping (Result<[Topic], Error>) -> Void) {
-        fetchItems(collection: "topics", as: Topic.self, completion: completion)
+    typealias CurrentGuard = @MainActor () -> Bool
+
+    func fetchTopics(stillCurrent: @escaping CurrentGuard = { true },
+                     completion: @escaping (Result<[Topic], Error>) -> Void) {
+        fetchItems(collection: "topics", as: Topic.self, stillCurrent: stillCurrent, completion: completion)
     }
 
-    func fetchSections(completion: @escaping (Result<[WebflowSection], Error>) -> Void) {
-        fetchItems(collection: "sections", as: WebflowSection.self, completion: completion)
+    func fetchSections(stillCurrent: @escaping CurrentGuard = { true },
+                       completion: @escaping (Result<[WebflowSection], Error>) -> Void) {
+        fetchItems(collection: "sections", as: WebflowSection.self, stillCurrent: stillCurrent, completion: completion)
     }
 
-    func fetchAuthors(completion: @escaping (Result<[Author], Error>) -> Void) {
-        fetchItems(collection: "authors", as: AuthorWrapper.self) { result in
+    func fetchAuthors(stillCurrent: @escaping CurrentGuard = { true },
+                      completion: @escaping (Result<[Author], Error>) -> Void) {
+        fetchItems(collection: "authors", as: AuthorWrapper.self, stillCurrent: stillCurrent) { result in
             switch result {
             case .success(let wrappers):
                 completion(.success(wrappers.map { $0.toAuthor() }))
@@ -51,24 +52,37 @@ final class FirestoreMetadataService {
         }
     }
 
-    /// Returns `nil` when the mapping has not been synced yet, so callers can
-    /// decide whether to fall back to Webflow or to bundled defaults.
-    func fetchStarsMapping(completion: @escaping ([String: String]?) -> Void) {
-        db.collection("metadata").document("starsMapping").getDocument { [weak self] snapshot, error in
-            if let error {
-                self?.logger.error("Failed to read stars mapping from Firestore: \(error.localizedDescription, privacy: .public)")
-                completion(nil)
-                return
+    /// `nil` preserves the existing optional-result API. A guarded caller must
+    /// recheck its original authority before treating nil as a CMS fallback;
+    /// cancellation also completes with nil rather than stranding its waiter.
+    func fetchStarsMapping(stillCurrent: @escaping CurrentGuard = { true },
+                           completion: @escaping ([String: String]?) -> Void) {
+        Task { @MainActor in
+            guard stillCurrent() else { completion(nil); return }
+            let client = self.db
+            guard stillCurrent() else { completion(nil); return }
+            let collection = client.collection("metadata")
+            guard stillCurrent() else { completion(nil); return }
+            let reference = collection.document("starsMapping")
+            guard stillCurrent() else { completion(nil); return }
+            reference.getDocument { snapshot, error in
+                Task { @MainActor in
+                    guard stillCurrent() else { completion(nil); return }
+                    if error != nil {
+                        AppDiagnostics.recordOperational(.metadataFetchFailed)
+                        completion(nil)
+                        return
+                    }
+                    guard let data = snapshot?.data(),
+                          let mapping = data["mapping"] as? [String: String],
+                          !mapping.isEmpty else {
+                        completion(nil)
+                        return
+                    }
+                    guard stillCurrent() else { completion(nil); return }
+                    completion(mapping)
+                }
             }
-
-            guard let data = snapshot?.data(),
-                  let mapping = data["mapping"] as? [String: String],
-                  !mapping.isEmpty else {
-                completion(nil)
-                return
-            }
-
-            completion(mapping)
         }
     }
 
@@ -77,42 +91,43 @@ final class FirestoreMetadataService {
     private func fetchItems<T: Decodable>(
         collection: String,
         as type: T.Type,
+        stillCurrent: @escaping CurrentGuard,
         completion: @escaping (Result<[T], Error>) -> Void
     ) {
-        db.collection(collection).getDocuments { [weak self] snapshot, error in
-            guard let self else { return }
-
-            if let error {
-                completion(.failure(error))
-                return
-            }
-
-            guard let snapshot, !snapshot.documents.isEmpty else {
-                completion(.failure(FirestoreMetadataError.empty))
-                return
-            }
-
-            var items: [T] = []
-            var decodeErrors: [String] = []
-
-            for document in snapshot.documents {
-                do {
-                    items.append(try self.decodeItem(from: document.data(), as: T.self))
-                } catch {
-                    decodeErrors.append("\(document.documentID): \(error.localizedDescription)")
+        Task { @MainActor in
+            guard stillCurrent() else { completion(.failure(CancellationError())); return }
+            let client = self.db
+            guard stillCurrent() else { completion(.failure(CancellationError())); return }
+            let reference = client.collection(collection)
+            guard stillCurrent() else { completion(.failure(CancellationError())); return }
+            reference.getDocuments { snapshot, error in
+                Task { @MainActor in
+                    guard stillCurrent() else { completion(.failure(CancellationError())); return }
+                    if let error { completion(.failure(error)); return }
+                    guard let snapshot, !snapshot.documents.isEmpty else {
+                        completion(.failure(FirestoreMetadataError.empty)); return
+                    }
+                    var items: [T] = []
+                    var decodeErrors: [String] = []
+                    for document in snapshot.documents {
+                        if CMSMirrorDocumentPolicy.isWithdrawn(document.data()) { continue }
+                        do {
+                            items.append(try self.decodeItem(from: document.data(), as: T.self))
+                        } catch {
+                            decodeErrors.append("\(document.documentID): \(error.localizedDescription)")
+                        }
+                    }
+                    guard stillCurrent() else { completion(.failure(CancellationError())); return }
+                    if !decodeErrors.isEmpty {
+                        AppDiagnostics.recordOperational(.metadataDecodeFailed)
+                    }
+                    if items.isEmpty, !decodeErrors.isEmpty {
+                        completion(.failure(FirestoreMetadataError.decodeFailed(decodeErrors.joined(separator: "; "))))
+                        return
+                    }
+                    completion(.success(items))
                 }
             }
-
-            if !decodeErrors.isEmpty {
-                self.logger.error("Firestore \(collection, privacy: .public) decode failures: \(decodeErrors.joined(separator: "; "), privacy: .public)")
-            }
-
-            if items.isEmpty {
-                completion(.failure(FirestoreMetadataError.empty))
-                return
-            }
-
-            completion(.success(items))
         }
     }
 

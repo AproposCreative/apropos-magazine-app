@@ -1,5 +1,4 @@
 import Foundation
-import OSLog
 import SwiftUI
 
 private var webflowAPIToken: String {
@@ -12,8 +11,7 @@ private var webflowAPIToken: String {
 class WebflowService {
     static let shared = WebflowService()
     private init() {}
-    
-    private let logger = Logger(subsystem: "com.aproposmagazine.app", category: "WebflowService")
+
     
     // API Token property for direct access
     var apiToken: String {
@@ -73,13 +71,13 @@ class WebflowService {
     func fetchStarsMapping(completion: @escaping ([String: String]) -> Void) {
            
            guard !apiToken.isEmpty else {
-               self.logger.error("Kan ikke hente stjerner – Webflow API nøgle mangler.")
+               AppDiagnostics.recordOperational(.metadataConfigurationMissing)
                completion(Self.defaultStarsMapping)
                return
            }
            
            guard let url = URL(string: "https://api.webflow.com/v2/collections/67dbf17ba540975b5b21c294") else {
-               self.logger.error("Ugyldig URL til stjernemapping.")
+               AppDiagnostics.recordOperational(.metadataURLInvalid)
                completion([:])
                return
            }
@@ -92,15 +90,15 @@ class WebflowService {
            
            let task = URLSession.shared.dataTask(with: request) { data, response, error in
                
-               if let error = error {
-                   self.logger.error("Fejl ved hentning af stjernemapping: \(error.localizedDescription, privacy: .public)")
+               if error != nil {
+                   AppDiagnostics.recordOperational(.metadataFetchFailed)
                    completion(Self.defaultStarsMapping)
                    return
                }
                
                if let httpResponse = response as? HTTPURLResponse {
                    if httpResponse.statusCode != 200 {
-                       self.logger.error("Fejlstatus fra Webflow-stjerner: \(httpResponse.statusCode, privacy: .public)")
+                       AppDiagnostics.recordOperational(.metadataRequestRejected)
                        completion(Self.defaultStarsMapping)
                        return
                    }
@@ -110,11 +108,6 @@ class WebflowService {
                    completion(Self.defaultStarsMapping)
                    return
                }
-               
-               // Print hele JSON-svaret for at debugge stars data
-               // if let jsonString = String(data: data, encoding: .utf8) {
-               //     print("[DEBUG] RAW STARS JSON:\n" + jsonString)
-               // }
                
                do {
                    let decoded = try JSONDecoder().decode(WebflowCollectionResponse.self, from: data)
@@ -130,7 +123,7 @@ class WebflowService {
                    }
                    
                } catch {
-                  self.logger.error("Fejl ved dekodning af stjernemapping: \(error.localizedDescription, privacy: .public)")
+                  AppDiagnostics.recordOperational(.metadataDecodeFailed)
                    completion(Self.defaultStarsMapping)
                }
                
@@ -138,223 +131,41 @@ class WebflowService {
         task.resume()
        }
     
+    /// The same validated live-only pagination is used for all local CMS fallbacks.
+    private func fetchLiveItems<T: Decodable>(collectionID: String, as type: T.Type,
+                                             completion: @escaping (Result<[T], Error>) -> Void) {
+        let token = apiToken
+        guard !token.isEmpty else {
+            DispatchQueue.main.async { completion(.failure(WebflowError.missingAPIToken)) }
+            return
+        }
+        Task {
+            do {
+                let rows = try await WebflowLiveCatalogLoader().load(collectionID: collectionID, token: token)
+                let decoder = JSONDecoder()
+                let values = try rows.map { try decoder.decode(T.self, from: $0) }
+                DispatchQueue.main.async { completion(.success(values)) }
+            } catch {
+                DispatchQueue.main.async { completion(.failure(error)) }
+            }
+        }
+    }
+
     func fetchArticles(completion: @escaping (Result<[Article], Error>) -> Void) {
-        guard !apiToken.isEmpty else {
-            self.logger.error("Kan ikke hente artikler – Webflow API nøgle mangler.")
-            DispatchQueue.main.async {
-                completion(.failure(WebflowError.missingAPIToken))
-            }
-            return
-        }
-
-        let collectionId = "67dbf17ba540975b5b21c2a6"
-        let pageLimit = 100
-
-        func fetchPage(offset: Int, accumulatedArticles: [Article]) {
-            let urlString = "https://api.webflow.com/v2/collections/\(collectionId)/items?live=true&limit=\(pageLimit)&offset=\(offset)&sortBy=lastPublished&sortOrder=desc"
-
-            guard let url = URL(string: urlString) else {
-                let error = NSError(domain: "WebflowService", code: 0, userInfo: [NSLocalizedDescriptionKey: "Invalid URL"])
-                DispatchQueue.main.async { completion(.failure(error)) }
-                return
-            }
-
-            var request = URLRequest(url: url)
-            request.httpMethod = "GET"
-            request.setValue("Bearer \(webflowAPIToken)", forHTTPHeaderField: "Authorization")
-            request.setValue("1.0.0", forHTTPHeaderField: "accept-version")
-
-            let task = URLSession.shared.dataTask(with: request) { data, response, error in
-            if let error = error {
-                self.logger.error("Netværksfejl ved hentning af artikler: \(error.localizedDescription, privacy: .public)")
-                
-                if let urlError = error as? URLError {
-                    switch urlError.code {
-                    case .timedOut:
-                        self.logger.error("Webflow forespørgsel timed out.")
-                    case .notConnectedToInternet:
-                        self.logger.error("Ingen internetforbindelse.")
-                    case .cannotConnectToHost:
-                        self.logger.error("Kan ikke forbinde til Webflow-host.")
-                    default:
-                        self.logger.error("URL-fejl: \(urlError.localizedDescription, privacy: .public)")
-                    }
-                }
-                
-                DispatchQueue.main.async { completion(.failure(error)) }
-                return
-            }
-            
-            if let httpResponse = response as? HTTPURLResponse {
-                if httpResponse.statusCode != 200 {
-                    self.logger.error("HTTP-fejl ved artikler: \(httpResponse.statusCode, privacy: .public)")
-                }
-            }
-            
-            guard let data = data else {
-                let error = NSError(domain: "WebflowService", code: 1, userInfo: [NSLocalizedDescriptionKey: "No data received from server."])
-                self.logger.error("Ingen data modtaget fra Webflow (artikler).")
-                DispatchQueue.main.async { completion(.failure(error)) }
-                return
-            }
-            
-            // Print hele JSON-svaret for at debugge publiceringsfelt
-            // if let jsonString = String(data: data, encoding: .utf8) {
-            //     print("[DEBUG] RAW ARTICLE JSON:\n" + jsonString)
-            // }
-            
-            do {
-                let webflowData = try JSONDecoder().decode(WebflowResponse.self, from: data)
-                let publishedArticles = webflowData.items.filter(\.isPubliclyPublished)
-
-                let allArticles = accumulatedArticles + publishedArticles
-                if webflowData.items.count == pageLimit {
-                    fetchPage(offset: offset + pageLimit, accumulatedArticles: allArticles)
-                } else {
-                    DispatchQueue.main.async {
-                        completion(.success(allArticles))
-                    }
-                }
-            } catch {
-                self.logger.error("Fejl ved dekodning af artikler: \(error.localizedDescription, privacy: .public)")
-                DispatchQueue.main.async { completion(.failure(error)) }
-            }
-            }
-            task.resume()
-        }
-
-        fetchPage(offset: 0, accumulatedArticles: [])
+        fetchLiveItems(collectionID: "67dbf17ba540975b5b21c2a6", as: Article.self, completion: completion)
     }
-    
+
     func fetchTopics(completion: @escaping (Result<[Topic], Error>) -> Void) {
-        guard !apiToken.isEmpty else {
-            self.logger.error("Kan ikke hente emner – Webflow API nøgle mangler.")
-            DispatchQueue.main.async {
-                completion(.failure(WebflowError.missingAPIToken))
-            }
-            return
-        }
-        let urlString = "https://api.webflow.com/v2/collections/67dbf17ba540975b5b21c2af/items"
-        guard let url = URL(string: urlString) else {
-            let error = NSError(domain: "WebflowService", code: 0, userInfo: [NSLocalizedDescriptionKey: "Invalid URL"])
-            DispatchQueue.main.async { completion(.failure(error)) }
-            return
-        }
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("Bearer \(webflowAPIToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("1.0.0", forHTTPHeaderField: "accept-version")
-        let task = URLSession.shared.dataTask(with: request) { data, response, error in
-            if let error = error {
-                self.logger.error("Netværksfejl ved hentning af emner: \(error.localizedDescription, privacy: .public)")
-                DispatchQueue.main.async { completion(.failure(error)) }
-                return
-            }
-            guard let data = data else {
-                let error = NSError(domain: "WebflowService", code: 1, userInfo: [NSLocalizedDescriptionKey: "No data received from server."])
-                self.logger.error("Ingen data modtaget fra Webflow (emner).")
-                DispatchQueue.main.async { completion(.failure(error)) }
-                return
-            }
-            do {
-                let webflowData = try JSONDecoder().decode(WebflowTopicsResponse.self, from: data)
-                DispatchQueue.main.async {
-                    completion(.success(webflowData.items))
-                }
-            } catch {
-                self.logger.error("Fejl ved dekodning af emner: \(error.localizedDescription, privacy: .public)")
-                DispatchQueue.main.async { completion(.failure(error)) }
-            }
-        }
-        task.resume()
+        fetchLiveItems(collectionID: "67dbf17ba540975b5b21c2af", as: Topic.self, completion: completion)
     }
-    
+
     func fetchAuthors(completion: @escaping (Result<[Author], Error>) -> Void) {
-        guard !apiToken.isEmpty else {
-            self.logger.error("Kan ikke hente forfattere – Webflow API nøgle mangler.")
-            DispatchQueue.main.async {
-                completion(.failure(WebflowError.missingAPIToken))
-            }
-            return
+        fetchLiveItems(collectionID: "67dbf17ba540975b5b21c294", as: AuthorWrapper.self) { result in
+            completion(result.map { $0.map { $0.toAuthor() } })
         }
-        let collectionId = "67dbf17ba540975b5b21c294"
-        guard let url = URL(string: "https://api.webflow.com/v2/collections/\(collectionId)/items?live=true") else {
-            DispatchQueue.main.async {
-                completion(.failure(NSError(domain: "WebflowService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Ugyldig URL"])))
-            }
-            return
-        }
-        var request = URLRequest(url: url)
-        request.setValue("Bearer \(webflowAPIToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("1.0.0", forHTTPHeaderField: "accept-version")
-        let task = URLSession.shared.dataTask(with: request) { data, response, error in
-            if let error = error {
-                DispatchQueue.main.async {
-                    completion(.failure(error))
-                }
-                return
-            }
-            guard let data = data else {
-                DispatchQueue.main.async {
-                    completion(.failure(NSError(domain: "WebflowService", code: -2, userInfo: [NSLocalizedDescriptionKey: "Ingen data"])))
-                }
-                return
-            }
-            do {
-                let decoded = try JSONDecoder().decode(WebflowAuthorsResponse.self, from: data)
-                let authors = decoded.items.map { $0.toAuthor() }
-                DispatchQueue.main.async {
-                    completion(.success(authors))
-                }
-            } catch {
-                DispatchQueue.main.async {
-                    completion(.failure(error))
-                }
-            }
-        }
-        task.resume()
     }
-    
+
     func fetchSections(completion: @escaping (Result<[WebflowSection], Error>) -> Void) {
-        guard !apiToken.isEmpty else {
-            self.logger.error("Kan ikke hente sektioner – Webflow API nøgle mangler.")
-            DispatchQueue.main.async {
-                completion(.failure(WebflowError.missingAPIToken))
-            }
-            return
-        }
-        let urlString = "https://api.webflow.com/v2/collections/67dbf17ba540975b5b21c2ae/items"
-        guard let url = URL(string: urlString) else {
-            let error = NSError(domain: "WebflowService", code: 0, userInfo: [NSLocalizedDescriptionKey: "Invalid URL"])
-            DispatchQueue.main.async { completion(Result<[WebflowSection], Error>.failure(error)) }
-            return
-        }
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("Bearer \(webflowAPIToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("1.0.0", forHTTPHeaderField: "accept-version")
-        let task = URLSession.shared.dataTask(with: request) { data, response, error in
-            if let error = error {
-                self.logger.error("Netværksfejl ved hentning af sektioner: \(error.localizedDescription, privacy: .public)")
-                DispatchQueue.main.async { completion(.failure(error)) }
-                return
-            }
-            guard let data = data else {
-                let error = NSError(domain: "WebflowService", code: 1, userInfo: [NSLocalizedDescriptionKey: "No data received from server."])
-                self.logger.error("Ingen data modtaget fra Webflow (sektioner).")
-                DispatchQueue.main.async { completion(.failure(error)) }
-                return
-            }
-            do {
-                let webflowData = try JSONDecoder().decode(WebflowSectionsResponse.self, from: data)
-                DispatchQueue.main.async {
-                    completion(.success(webflowData.items))
-                }
-            } catch {
-                self.logger.error("Fejl ved dekodning af sektioner: \(error.localizedDescription, privacy: .public)")
-                DispatchQueue.main.async { completion(.failure(error)) }
-            }
-        }
-        task.resume()
+        fetchLiveItems(collectionID: "67dbf17ba540975b5b21c2ae", as: WebflowSection.self, completion: completion)
     }
 }

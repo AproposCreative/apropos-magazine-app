@@ -20,8 +20,10 @@
  *   node scripts/narration-poc.mjs --text-only   (spring TTS over, vis kun teksten)
  */
 
-import { spawn } from 'node:child_process';
-import { execSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import catalog from '../functions/webflowCatalog.js';
+import { findArticleBySlug as findLiveArticleBySlug } from './lib/webflow.mjs';
+import { execFileSync, spawn } from 'node:child_process';
 import { mkdirSync, writeFileSync, readFileSync, rmSync, statSync, existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -205,21 +207,7 @@ async function webflowGet(url) {
   return response.json();
 }
 
-async function findArticleBySlug(slug) {
-  let offset = 0;
-  while (true) {
-    const url =
-      `https://api.webflow.com/v2/collections/${ARTICLES_COLLECTION_ID}/items` +
-      `?live=true&limit=${WEBFLOW_PAGE_LIMIT}&offset=${offset}` +
-      `&sortBy=lastPublished&sortOrder=desc`;
-    const payload = await webflowGet(url);
-    const items = Array.isArray(payload.items) ? payload.items : [];
-    const match = items.find((it) => (it.fieldData?.slug || '') === slug);
-    if (match) return match;
-    if (items.length < WEBFLOW_PAGE_LIMIT) return null;
-    offset += WEBFLOW_PAGE_LIMIT;
-  }
-}
+async function findArticleBySlug(slug) { return findLiveArticleBySlug(slug); }
 
 async function resolveAuthorName(authorId) {
   if (!authorId) return '';
@@ -311,7 +299,7 @@ async function synthesizeChunk(apiKey, voiceId, text, outPath) {
 
 function requireFfmpeg() {
   try {
-    execSync('ffmpeg -version', { stdio: 'ignore' });
+    execFileSync('ffmpeg', ['-version'], { stdio: 'ignore' });
   } catch {
     console.error('ffmpeg ikke fundet. Installer: brew install ffmpeg');
     process.exit(1);
@@ -363,8 +351,9 @@ function encodeFromList(listPath, outPath, { wav = false } = {}) {
 }
 
 function probeDuration(path) {
-  const out = execSync(
-    `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${path}"`,
+  const out = execFileSync(
+    'ffprobe',
+    ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', path],
   ).toString().trim();
   return parseFloat(out) || 0;
 }
@@ -543,6 +532,7 @@ async function main() {
   // Hurtig vej: gen-kode kun lyden (fart/EQ) fra cachede chunks uden at kalde ElevenLabs igen.
   if (REENCODE) {
     requireFfmpeg();
+    const source = JSON.parse(readFileSync(join(chunkDir, "source.json"), "utf8"));
     if (!existsSync(listPath)) {
       console.error(`\n--reencode kræver cachede chunks, men ${listPath} findes ikke. Kør uden --reencode først.`);
       process.exit(1);
@@ -551,6 +541,8 @@ async function main() {
     const breakerWindows = breakerWindowsFromConcatPaths(concatPaths);
     console.log(`\nGen-koder fra cache (speed=${SPEED}, treble=${TREBLE_GAIN}dB${JINGLE_PATH ? `, jingle=${JINGLE_GAIN}dB` : ''}) — ingen ElevenLabs-kald...`);
     await produceFinal(listPath, outPath, breakerWindows);
+    writeFileSync(outPath + ".provenance.json", JSON.stringify({...source,
+      audioSHA256: createHash("sha256").update(readFileSync(outPath)).digest("hex")}, null, 2));
     const size = statSync(outPath).size;
     console.log('output m4a:', formatBytes(size));
     console.log('fil:', outPath);
@@ -564,6 +556,7 @@ async function main() {
     console.error(`Fandt ingen artikel med slug "${SLUG}".`);
     process.exit(1);
   }
+  const source = {sourceArticleId: item.id, sourceContentRevision: catalog.contentRevision(item)};
   const fd = item.fieldData || {};
   const title = String(fd.name || '').trim();
   const subtitle = String(fd.subtitle || '').trim();
@@ -609,6 +602,7 @@ async function main() {
   requireFfmpeg();
   rmSync(chunkDir, { recursive: true, force: true });
   mkdirSync(chunkDir, { recursive: true });
+  writeFileSync(join(chunkDir, "source.json"), JSON.stringify(source, null, 2));
 
   console.log('\nFinder voice_id for', VOICE_NAME, '...');
   const voiceId = await resolveVoiceId(apiKey);
@@ -651,6 +645,12 @@ async function main() {
   console.log('\nSamler + koder i ét pass med ffmpeg...');
   await produceFinal(listPath, outPath, breakerWindows);
 
+  const latest = await findArticleBySlug(SLUG);
+  if (!latest || latest.id !== source.sourceArticleId || catalog.contentRevision(latest) !== source.sourceContentRevision) {
+    throw new Error("Article changed during local narration generation; regenerate before publishing");
+  }
+  writeFileSync(outPath + ".provenance.json", JSON.stringify({...source,
+    audioSHA256: createHash("sha256").update(readFileSync(outPath)).digest("hex")}, null, 2));
   const finalSize = statSync(outPath).size;
   console.log('\n=== Færdig ===');
   console.log(`indstillinger: model=${MODEL_ID}, speed=${SPEED}, treble=${TREBLE_GAIN}dB, ${TARGET_SAMPLE_RATE}Hz`);

@@ -301,6 +301,7 @@ enum SharePlatform: CaseIterable {
 // MARK: - Share Sheet
 
 struct ShareSheet: UIViewControllerRepresentable {
+    @Environment(\.locale) private var interfaceLocale
     var article: Article
     let platform: SharePlatform
     let customMessage: String
@@ -343,13 +344,13 @@ struct ShareSheet: UIViewControllerRepresentable {
             text += "\(customMessage)\n\n"
         }
         
-        text += "📰 \(article.name ?? "Artikel")\n"
+        text += "📰 \(article.name ?? AppLocalization.string("Artikel", language: AppLocalization.language(for: interfaceLocale)))\n"
         
         if let intro = article.intro {
             text += "\(intro)\n\n"
         }
         
-        text += "Læs mere på Apropos Magazine"
+        text += AppLocalization.string("Læs mere på Apropos Magazine", language: AppLocalization.language(for: interfaceLocale))
         
         return text
     }

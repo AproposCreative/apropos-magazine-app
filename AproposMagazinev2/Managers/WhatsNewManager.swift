@@ -1,11 +1,10 @@
 import Foundation
-import OSLog
 
 final class WhatsNewManager {
     static let shared = WhatsNewManager()
 
     private let storageKey = "com.aproposmagazine.whatsnew.lastSeenVersion"
-    private let logger = Logger(subsystem: "com.aproposmagazine.app", category: "WhatsNewManager")
+
     private let entries: [WhatsNewEntry]
     private let currentVersion: String
 
@@ -117,20 +116,8 @@ final class WhatsNewManager {
         }
         
         guard let fileURL = url else {
-            let logger = Logger(subsystem: "com.aproposmagazine.app", category: "WhatsNewManager")
-            logger.warning("Kunne ikke finde WhatsNew datafilen.")
-            logger.debug("Tried paths: Resources/WhatsNew/whatsnew.json, WhatsNew/whatsnew.json, whatsnew.json")
-            
-            // Debug: List all JSON files in bundle
-            if let bundlePath = Bundle.main.resourcePath {
-                logger.debug("Bundle resource path: \(bundlePath, privacy: .public)")
-                if let enumerator = FileManager.default.enumerator(atPath: bundlePath) {
-                    let jsonFiles = enumerator.compactMap { $0 as? String }.filter { $0.contains("whatsnew") || $0.contains("WhatsNew") }
-                    if !jsonFiles.isEmpty {
-                        logger.debug("Found related files in bundle: \(jsonFiles.joined(separator: ", "), privacy: .public)")
-                    }
-                }
-            }
+
+            AppDiagnostics.recordOperational(.whatsNewMissing)
             return []
         }
 
@@ -148,8 +135,8 @@ final class WhatsNewManager {
 
             return entries
         } catch {
-            let logger = Logger(subsystem: "com.aproposmagazine.app", category: "WhatsNewManager")
-            logger.error("Kunne ikke loade WhatsNew data: \(error.localizedDescription, privacy: .public)")
+
+            AppDiagnostics.recordOperational(.whatsNewDecodeFailed)
             return []
         }
     }

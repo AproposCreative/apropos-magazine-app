@@ -1,6 +1,16 @@
 import SwiftUI
 
 enum AppMotion {
+    /// Gesture tracking remains direct; decorative player springs are absent
+    /// when Reduce Motion is enabled, including animations inherited by children.
+    static func playerSpring(response: Double, damping: Double, reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : .spring(response: response, dampingFraction: damping)
+    }
+
+    static func playerTransition(reduceMotion: Bool) -> AnyTransition {
+        reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity)
+    }
+
     static func spring(response: Double = 0.5, damping: Double = 0.84, reduceMotion: Bool) -> Animation {
         reduceMotion ? .linear(duration: 0.01) : .spring(response: response, dampingFraction: damping)
     }

@@ -263,7 +263,7 @@ private struct FlowTopicChips: View {
                 Button {
                     onToggle(topic)
                 } label: {
-                    Text(topic.name)
+                    LocalizedArticleTaxonomy(topic.name)
                         .font(.system(.body, weight: .semibold))
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)

@@ -1,3 +1,4 @@
+import catalog from '../../functions/webflowCatalog.js';
 /**
  * Minimal Webflow CMS helpers shared by the narration scripts.
  * Caller is responsible for loading the API key into the environment
@@ -31,20 +32,12 @@ export async function webflowGet(url) {
   return response.json();
 }
 
-export async function findArticleBySlug(slug) {
-  let offset = 0;
-  while (true) {
-    const url =
-      `https://api.webflow.com/v2/collections/${ARTICLES_COLLECTION_ID}/items` +
-      `?live=true&limit=${WEBFLOW_PAGE_LIMIT}&offset=${offset}` +
-      `&sortBy=lastPublished&sortOrder=desc`;
-    const payload = await webflowGet(url);
-    const items = Array.isArray(payload.items) ? payload.items : [];
-    const match = items.find((it) => (it.fieldData?.slug || '') === slug);
-    if (match) return match;
-    if (items.length < WEBFLOW_PAGE_LIMIT) return null;
-    offset += WEBFLOW_PAGE_LIMIT;
-  }
+export async function findArticleBySlug(slug, {apiKey, transport} = {}) {
+  const items = await catalog.fetchLiveCatalog({collectionId: ARTICLES_COLLECTION_ID,
+    apiKey: apiKey ?? apiKeyOrThrow(), ...(transport ? {transport} : {})});
+  const matches = items.filter((item) => item.fieldData.slug === slug);
+  if (matches.length > 1) throw new Error('Ambiguous live article slug');
+  return matches[0] || null;
 }
 
 export async function resolveAuthorName(authorId) {

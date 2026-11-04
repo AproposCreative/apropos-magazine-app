@@ -4,7 +4,33 @@ import WebKit
 struct HTMLTextView: UIViewRepresentable {
     var html: String
     var articleId: String? = nil
+    var articleRevision: String? = nil
     @Binding var dynamicHeight: CGFloat
+    var readingMotion: ArticleReadingMotionController? = nil
+    var suppressMotion: Bool = false
+    var onReadingProgress: ((Double) -> Void)? = nil
+    var historyBinding: ReaderHistoryBinding? = nil
+    var historySession: ReaderHistoryBinding.Session? = nil
+    var resumeController: ReaderResumeController? = nil
+    var resumeOwner: String? = nil
+    var onHorizontalOverflow: ((Bool) -> Void)? = nil
+    // Local fixture can use the same renderer without starting OfflineManager/services.
+    var prepareHTML: ((String, String?) -> PreparedHTML)? = nil
+    var offlineImageCache: OfflineArticleImageCache? = nil
+    var loadState: ArticleHTMLLoadState? = nil
+    // Value snapshot makes an explicit retry observable to SwiftUI's
+    // representable diff while preserving the same WebKit/worker instance.
+    var loadRequestID: UUID? = nil
+    #if DEBUG && targetEnvironment(simulator)
+    var loadTesting: ArticleHTMLLoadTesting? = nil
+    #endif
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ScaledMetric(relativeTo: .body) private var bodyFontSize: CGFloat = 18
+
+    struct PreparedHTML {
+        var html: String
+        var baseURL: URL?
+    }
 
     func makeUIView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
@@ -12,7 +38,7 @@ struct HTMLTextView: UIViewRepresentable {
         configuration.allowsInlineMediaPlayback = true
         configuration.mediaTypesRequiringUserActionForPlayback = []
         
-        let webView = WKWebView(frame: .zero, configuration: configuration)
+        let webView = ArticleMotionWebView(frame: .zero, configuration: configuration)
         webView.isOpaque = false
         webView.backgroundColor = .clear
         webView.scrollView.backgroundColor = .clear
@@ -21,258 +47,93 @@ struct HTMLTextView: UIViewRepresentable {
         webView.navigationDelegate = context.coordinator
         webView.configuration.userContentController.add(context.coordinator, name: "heightHandler")
         
+        context.coordinator.bindMotion(to: webView)
+        context.coordinator.observeLocalGeometry(webView)
+        #if DEBUG && targetEnvironment(simulator)
+        loadTesting?.onWebViewReady?(webView, context.coordinator)
+        #endif
         return webView
     }
 
     func updateUIView(_ uiView: WKWebView, context: Context) {
-        // Safety check: ensure html is not empty
+        context.coordinator.parent = self
+        context.coordinator.bindMotion(to: uiView)
+        readingMotion?.updateAccessibility(reduceMotion: reduceMotion || suppressMotion)
+        let coordinator = context.coordinator
         guard !html.isEmpty else {
+            coordinator.invalidateLoad()
+            coordinator.preparation.invalidate()
+            coordinator.lastPreparation = nil
+            coordinator.invalidateDocument()
+            uiView.stopLoading(); uiView.isHidden = true
             dynamicHeight = 100
             return
         }
-
-        // Guard BEFORE expensive HTML processing — parent body updates are frequent.
-        let cacheKey = "\(articleId ?? "")|\(html.count)|\(html.hashValue)"
-        if FeatureFlags.htmlDiffGuardEnabled && context.coordinator.lastLoadedHTML == cacheKey {
-            return
+        let imageWidth = ArticleHTMLProcessor.capturedImageWidth()
+        let cache: OfflineArticleImageCache? = prepareHTML == nil ? (offlineImageCache ?? .shared) : nil
+        let access = cache?.capturePreparationAccess(articleID: articleId, revision: articleRevision) ?? .remote
+        let identity = PreparationIdentity(html: html, articleID: articleId, revision: articleRevision,
+            fontSize: bodyFontSize, imageWidth: imageWidth, sessionID: historySession?.id,
+            accessGeneration: access.generation, resumeOwner: resumeOwner,
+            historyIdentity: historyBinding.map(ObjectIdentifier.init),
+            loadStateIdentity: loadState.map(ObjectIdentifier.init), retryID: loadRequestID ?? loadState?.retryID)
+        if coordinator.lastPreparation == identity { return }
+        coordinator.lastPreparation = identity
+        coordinator.invalidateDocument()
+        uiView.stopLoading(); uiView.isHidden = true
+        let documentID = UUID().uuidString
+        let input = ArticleHTMLPreparation.Input(html: html, targetImageWidth: imageWidth,
+            bodyFontSize: Double(bodyFontSize), documentID: documentID, contentKey: access.contentKey)
+        let originalHistory = historyBinding, originalSession = historySession
+        let originalFixturePreparation = prepareHTML, originalArticleID = articleId
+        let ownerIsCurrent: @MainActor () -> Bool = {
+            if let originalSession {
+                guard originalHistory?.isCurrent(originalSession) == true else { return false }
+            }
+            guard access.isCurrent() else { return false }
+            if let originalSession { return originalHistory?.isCurrent(originalSession) == true }
+            return true
         }
-        
-        // Fjern alle <style>...</style> tags fra HTML
-        let cleanedHTML = html.replacingOccurrences(of: "<style[\\s\\S]*?</style>", with: "", options: .regularExpression)
-        let sanitizedHTML = ArticleHTMLProcessor.process(cleanedHTML)
-        let offlinePrepared = OfflineArticleImageCache.shared.prepareHTMLForOfflineDisplay(
-            sanitizedHTML,
-            articleId: articleId
-        )
-        let displayHTML = offlinePrepared.html
-        let offlineBaseURL = offlinePrepared.baseURL
-
-        let css = """
-          <style>
-              body {
-                  font-family: -apple-system, BlinkMacSystemFont, 'San Francisco', Arial, sans-serif !important;
-                  font-size: 18px !important;
-                  font-weight: 400 !important;
-                  color: black !important;
-                  background-color: transparent !important;
-                  line-height: 1.7 !important;
-                  margin: 0 !important;
-                  padding: 0 16px !important;
-              }
-              div, span {
-                  font-family: -apple-system, BlinkMacSystemFont, 'San Francisco', Arial, sans-serif !important;
-                  font-size: 18px !important;
-                  font-weight: 400 !important;
-                  color: black !important;
-                  background-color: transparent !important;
-                  line-height: 1.7 !important;
-                  margin: 0 !important;
-                  padding: 0 !important;
-              }
-              p {
-                  font-family: -apple-system, BlinkMacSystemFont, 'San Francisco', Arial, sans-serif !important;
-                  font-size: 18px !important;
-                  font-weight: 400 !important;
-                  color: black !important;
-                  background-color: transparent !important;
-                  line-height: 1.7 !important;
-                  margin: 0 0 1.25em 0 !important;
-                  padding: 0 !important;
-              }
-              p:last-child,
-              p:last-of-type {
-                  margin-bottom: 0 !important;
-              }
-              .apropos-image-credit:last-child,
-              .apropos-image-credit:last-of-type,
-              figcaption:last-child,
-              figcaption:last-of-type {
-                  margin-bottom: 0 !important;
-              }
-              img {
-                  width: 100vw !important;
-                  max-width: 100vw !important;
-                  height: 360px !important;
-                  min-height: 360px !important;
-                  object-fit: cover !important;
-                  object-position: center center !important;
-                  display: block;
-                  margin: 0 0 0.35em 0 !important;
-                  margin-left: calc(-50vw + 50%) !important;
-                  margin-right: calc(-50vw + 50%) !important;
-                  border-radius: 0 !important;
-                  padding: 0 !important;
-                  box-shadow: none !important;
-                  background-color: #0a0a0a !important;
-              }
-              img.apropos-lazy {
-                  min-height: 360px !important;
-                  background-color: #f0f0f0 !important;
-              }
-              .apropos-offline-media {
-                  width: 100vw !important;
-                  max-width: 100vw !important;
-                  min-height: 200px !important;
-                  margin: 0 0 0.35em 0 !important;
-                  margin-left: calc(-50vw + 50%) !important;
-                  margin-right: calc(-50vw + 50%) !important;
-                  padding: 36px 24px !important;
-                  box-sizing: border-box !important;
-                  display: flex !important;
-                  flex-direction: column !important;
-                  align-items: center !important;
-                  justify-content: center !important;
-                  gap: 8px !important;
-                  background: #0a0a0a !important;
-                  border: 1px solid rgba(255, 255, 255, 0.14) !important;
-                  box-shadow: 0 0 24px rgba(255, 255, 255, 0.04) inset !important;
-              }
-              .apropos-offline-media__title {
-                  font-size: 13px !important;
-                  font-weight: 600 !important;
-                  line-height: 1.35 !important;
-                  color: rgba(255, 255, 255, 0.72) !important;
-                  text-align: center !important;
-                  text-shadow: 0 0 12px rgba(255, 255, 255, 0.28) !important;
-                  margin: 0 !important;
-              }
-              .apropos-offline-media__subtitle {
-                  font-size: 12px !important;
-                  font-weight: 400 !important;
-                  line-height: 1.4 !important;
-                  color: rgba(255, 255, 255, 0.42) !important;
-                  text-align: center !important;
-                  text-shadow: 0 0 10px rgba(255, 255, 255, 0.16) !important;
-                  margin: 0 !important;
-              }
-              h1, h2, h3 {
-                  font-weight: bold;
-                  margin-top: 1.5em;
-                  margin-bottom: 0.5em;
-                  padding: 0 !important;
-              }
-              .apropos-image-credit {
-                  text-align: center !important;
-                  margin: 0.5em auto 1.5em auto !important;
-                  padding: 0 !important;
-              }
-              img + .apropos-image-credit,
-              .apropos-offline-media + .apropos-image-credit {
-                  margin-top: 0.65em !important;
-              }
-              .apropos-image-credit span {
-                  display: inline-block !important;
-                  font-size: 12px !important;
-                  line-height: 1.3 !important;
-                  color: #666666 !important;
-                  background: rgba(0, 0, 0, 0.06) !important;
-                  padding: 4px 12px !important;
-                  border-radius: 999px !important;
-              }
-              figcaption {
-                  text-align: center !important;
-                  margin: 0.5em auto 1.5em auto !important;
-                  font-size: 12px !important;
-                  color: #666666 !important;
-              }
-              img + figcaption,
-              .apropos-offline-media + figcaption {
-                  margin-top: 0.65em !important;
-              }
-              ul, ol, blockquote {
-                  padding: 0 !important;
-                  margin-left: 0 !important;
-                  margin-right: 0 !important;
-              }
-              /* Spotify link styling */
-              a[href*="spotify.com"], a[href*="open.spotify.com"] {
-                  display: block !important;
-                  margin: 2em 0 !important;
-                  padding: 0 !important;
-                  text-decoration: none !important;
-                  border-radius: 12px !important;
-                  overflow: hidden !important;
-                  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
-                  transition: transform 0.2s ease, box-shadow 0.2s ease !important;
-                  cursor: pointer !important;
-                  position: relative !important;
-                  z-index: 10 !important;
-              }
-              a[href*="spotify.com"]:hover, a[href*="open.spotify.com"]:hover {
-                  transform: translateY(-2px) !important;
-                  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2) !important;
-              }
-              a[href*="spotify.com"]:active, a[href*="open.spotify.com"]:active {
-                  transform: translateY(0) !important;
-                  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
-              }
-              /* Any embedded iframe or div that looks like a Spotify player */
-              iframe[src*="spotify.com"], div[class*="spotify"], div[id*="spotify"] {
-                  margin: 2em 0 !important;
-                  border-radius: 12px !important;
-                  overflow: hidden !important;
-                  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
-                  display: block !important;
-                  position: relative !important;
-                  z-index: 10 !important;
-              }
-              /* Ensure all links are visible and clickable */
-              a {
-                  color: inherit !important;
-                  text-decoration: none !important;
-                  cursor: pointer !important;
-              }
-              /* Make sure embedded content is visible */
-              embed, object, iframe {
-                  display: block !important;
-                  max-width: 100% !important;
-                  margin: 1em 0 !important;
-              }
-              @media (prefers-color-scheme: dark) {
-                  body, p, div, span {
-                      color: white !important;
-                      background-color: transparent !important;
-                  }
-                  img {
-                      background-color: #0a0a0a !important;
-                  }
-                  img.apropos-lazy {
-                      background-color: #1a1a1a !important;
-                  }
-                  .apropos-offline-media {
-                      background: #0a0a0a !important;
-                      border-color: rgba(255, 255, 255, 0.14) !important;
-                  }
-                  .apropos-image-credit span {
-                      color: #aaaaaa !important;
-                      background: rgba(255, 255, 255, 0.1) !important;
-                  }
-                  figcaption {
-                      color: #aaaaaa !important;
-                  }
-              }
-          </style>
-        """
-
-        let htmlString = """
-        <html>
-        <head>
-            <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
-            \(css)
-        </head>
-        <body>\(displayHTML)</body>
-        </html>
-        """
-
-        // Safety check: ensure the HTML string is valid
-        guard !htmlString.isEmpty else {
-            dynamicHeight = 100
-            return
+        let attempt = coordinator.beginLoad(webView: uiView, state: loadState, ownership: ownerIsCurrent)
+        guard coordinator.ownsLoad(attempt) else { return }
+        var operation: @Sendable (ArticleHTMLPreparation.Input, @escaping @Sendable () -> Bool) async -> ArticleHTMLPreparation.Output? = { input, isCancelled in
+            ArticleHTMLPreparation.prepare(input, cache: cache, isCancelled: isCancelled)
         }
-
-        context.coordinator.lastLoadedHTML = cacheKey
-        context.coordinator.resetHeightTracking()
-        uiView.loadHTMLString(htmlString, baseURL: offlineBaseURL)
+        #if DEBUG && targetEnvironment(simulator)
+        if let injected = loadTesting?.prepare { operation = injected }
+        #endif
+        coordinator.preparation.submit(input, work: operation, isCurrent: { [weak coordinator] in
+            coordinator?.ownsLoad(attempt) ?? false
+        }, discard: { [weak coordinator] in
+            coordinator?.failLoad(attempt)
+        }, commit: { [weak coordinator, weak uiView] output, stillCurrent in
+            guard let coordinator, let uiView, coordinator.ownsLoad(attempt) else { return }
+            let document: String, baseURL: URL?
+            if let originalFixturePreparation {
+                // Existing hermetic renderer fixtures may supply a tiny local
+                // transform. Actual offline preparation always uses the worker.
+                let local = originalFixturePreparation(output.html, originalArticleID)
+                document = ArticleHTMLPreparation.document(html: local.html,
+                    bodyFontSize: input.bodyFontSize, documentID: documentID)
+                baseURL = local.baseURL
+            } else { document = output.document; baseURL = output.baseURL }
+            guard stillCurrent() else {
+                return
+            }
+            coordinator.resetHeightTracking()
+            coordinator.acceptDocument(documentID)
+            coordinator.loadDocumentID = documentID
+            coordinator.motion?.contentWillLoad(documentID: documentID)
+            coordinator.motion?.whenDocumentReady(documentID) { [weak coordinator] in
+                coordinator?.documentBecameReady(documentID)
+            }
+            guard stillCurrent(), coordinator.documentID == documentID else {
+                coordinator.invalidateDocument()
+                return
+            }
+            uiView.isHidden = false
+            coordinator.expectedNavigation = uiView.loadHTMLString(document, baseURL: baseURL)
+        })
     }
 
     func makeCoordinator() -> Coordinator {
@@ -284,6 +145,11 @@ struct HTMLTextView: UIViewRepresentable {
     /// Without this teardown each opened article leaks a WKWebView, so memory climbs
     /// until the OS jetsams the app. Tear everything down when the view is dismantled.
     static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
+        coordinator.invalidateLoad()
+        coordinator.preparation.invalidate()
+        coordinator.invalidateDocument()
+        coordinator.motion?.detach(uiView)
+        uiView.evaluateJavaScript("window.aproposHeightCleanup?.()", completionHandler: nil)
         uiView.stopLoading()
         uiView.navigationDelegate = nil
         uiView.configuration.userContentController.removeScriptMessageHandler(forName: "heightHandler")
@@ -291,9 +157,239 @@ struct HTMLTextView: UIViewRepresentable {
         coordinator.resetHeightTracking()
     }
 
+    struct PreparationIdentity: Equatable {
+        let html: String
+        let articleID: String?
+        let revision: String?
+        let fontSize: CGFloat
+        let imageWidth: Int
+        let sessionID: UUID?
+        let accessGeneration: UUID?
+        let resumeOwner: String?
+        let historyIdentity: ObjectIdentifier?
+        var loadStateIdentity: ObjectIdentifier? = nil
+        var retryID: UUID? = nil
+        static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.articleID == rhs.articleID && lhs.revision == rhs.revision && lhs.fontSize == rhs.fontSize
+                && lhs.imageWidth == rhs.imageWidth && lhs.sessionID == rhs.sessionID
+                && lhs.accessGeneration == rhs.accessGeneration && lhs.resumeOwner == rhs.resumeOwner
+                && lhs.historyIdentity == rhs.historyIdentity && lhs.loadStateIdentity == rhs.loadStateIdentity
+                && lhs.retryID == rhs.retryID && lhs.html.utf8.elementsEqual(rhs.html.utf8)
+        }
+    }
+
     class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var parent: HTMLTextView
-        var lastLoadedHTML: String?
+        let preparation = ArticleHTMLPreparationWorker<ArticleHTMLPreparation.Input, ArticleHTMLPreparation.Output>()
+        var lastPreparation: PreparationIdentity?
+        var documentID = ""
+        var expectedNavigation: WKNavigation?
+        weak var motion: ArticleReadingMotionController?
+        private var loadAttemptID: UUID?
+        private weak var loadController: ArticleHTMLLoadState?
+        private var loadTicket: ArticleHTMLLoadState.Attempt?
+        private var loadOwnership: (@MainActor () -> Bool)?
+        private var loadFailed = false
+        private var loadReady = false
+        private var loadHeightBinding: Binding<CGFloat>?
+        private var cancelLoadDeadline: (@MainActor () -> Void)?
+        private weak var loadWebView: WKWebView?
+        var loadDocumentID: String?
+        private var localMeasuredHeight: CGFloat?
+        private var geometryObservation: NSKeyValueObservation?
+
+        func beginLoad(webView: WKWebView, state: ArticleHTMLLoadState?, ownership: @escaping @MainActor () -> Bool) -> UUID {
+            let oldController = loadController, oldTicket = loadTicket, cancel = cancelLoadDeadline
+            let id = UUID()
+            loadAttemptID = id; loadController = state; loadTicket = nil
+            loadOwnership = ownership; loadFailed = false; loadReady = false; loadWebView = webView
+            loadHeightBinding = parent.$dynamicHeight
+            loadTicket = state?.begin { [weak self] phase in
+                guard let self else { return false }
+                // A generic failure can terminate a revoked attempt; successful
+                // content always needs its original account/access authority.
+                if phase == .ready, !self.ownsLoad(id) {
+                    self.failLoad(id)
+                    return false
+                }
+                return self.identifiesLoad(id)
+            }
+            observeLocalGeometry(webView)
+            loadDocumentID = nil; localMeasuredHeight = nil; cancelLoadDeadline = nil
+            if let oldTicket { oldController?.invalidate(oldTicket) }
+            cancel?()
+            guard ownsLoad(id) else { failLoad(id); return id }
+            var schedule: ArticleHTMLLoadState.Schedule = ArticleHTMLLoadState.scheduleDeadline
+            var timeout: UInt64 = 20_000_000_000
+            #if DEBUG && targetEnvironment(simulator)
+            schedule = parent.loadTesting?.schedule ?? schedule
+            timeout = parent.loadTesting?.timeoutNanoseconds ?? timeout
+            #endif
+            let cancellation = schedule(timeout) { [weak self] in self?.failLoad(id) }
+            if ownsLoad(id) { cancelLoadDeadline = cancellation } else { failLoad(id); cancellation() }
+            return id
+        }
+
+        private func identifiesLoad(_ id: UUID) -> Bool {
+            guard loadAttemptID == id else { return false }
+            if let ticket = loadTicket { return loadController?.owns(ticket) == true }
+            return true
+        }
+
+        func ownsLoad(_ id: UUID) -> Bool {
+            guard identifiesLoad(id), !loadFailed, let ownership = loadOwnership else { return false }
+            guard ownership() else { return false }
+            return identifiesLoad(id) && !loadFailed
+        }
+
+        private func ownsDocument(_ id: String) -> Bool {
+            guard !isDismantled, documentID == id else { return false }
+            if let attempt = loadAttemptID, !ownsLoad(attempt) { return false }
+            return !isDismantled && documentID == id
+        }
+
+        func failLoad(_ id: UUID) {
+            guard identifiesLoad(id), !loadFailed else { return }
+            loadFailed = true
+            let state = loadController, ticket = loadTicket, cancel = cancelLoadDeadline
+            cancelLoadDeadline = nil
+            preparation.invalidate(); invalidateDocument()
+            loadWebView?.stopLoading(); loadWebView?.isHidden = true
+            localMeasuredHeight = nil; loadDocumentID = nil
+            let originalHeight = loadHeightBinding
+            Task { @MainActor [weak self] in
+                guard let self, self.identifiesLoad(id), self.loadFailed else { return }
+                originalHeight?.wrappedValue = 240
+            }
+            if let ticket { state?.fail(ticket) }
+            cancel?()
+        }
+
+        func invalidateLoad() {
+            let state = loadController, ticket = loadTicket, cancel = cancelLoadDeadline
+            loadAttemptID = nil; loadTicket = nil; loadController = nil; loadOwnership = nil; loadHeightBinding = nil
+            cancelLoadDeadline = nil; loadDocumentID = nil; localMeasuredHeight = nil
+            geometryObservation = nil
+            (loadWebView as? ArticleMotionWebView)?.localGeometryDidChange = nil
+            if let ticket { state?.invalidate(ticket) }
+            cancel?()
+        }
+
+        func observeLocalGeometry(_ webView: WKWebView) {
+            (webView as? ArticleMotionWebView)?.localGeometryDidChange = { [weak self, weak webView] in
+                guard let webView else { return }; self?.checkLocalReadiness(webView)
+            }
+            geometryObservation = webView.observe(\.bounds, options: [.new]) { [weak self, weak webView] _, _ in
+                MainActor.assumeIsolated {
+                    guard let webView else { return }; self?.checkLocalReadiness(webView)
+                }
+            }
+        }
+
+        private func checkLocalReadiness(_ webView: WKWebView) {
+            guard parent.readingMotion == nil, let id = loadAttemptID, ownsLoad(id),
+                  let document = loadDocumentID, document == documentID, !isDismantled,
+                  let height = localMeasuredHeight, height > 0, webView.window != nil,
+                  !webView.isHidden, webView.bounds.width > 0, webView.bounds.height + 1 >= height else { return }
+            documentBecameReady(document)
+        }
+
+        private var progressDelivery: ((Double) -> Void)?
+        private weak var documentHistoryBinding: ReaderHistoryBinding?
+        private var historyDocument: ReaderHistoryBinding.Document?
+        private var pendingResumeBinding: (id: String, bind: @MainActor () -> Void)?
+        private weak var documentResumeController: ReaderResumeController?
+        private var resumeDelivery: ((ReaderResumeAnchor, Bool, String) -> Void)?
+        private var isDismantled = false
+        func bindMotion(to view: WKWebView) {
+            if motion !== parent.readingMotion {
+                motion?.detach(view)
+                motion = parent.readingMotion
+            }
+            (view as? ArticleMotionWebView)?.readingMotion = motion
+            motion?.attach(view)
+            // Reuse only the closure captured when this document was accepted.
+            // Frequent parent updates must not lend an old scroll a new owner.
+            motion?.onProgress = progressDelivery
+            motion?.onResumeSample = resumeDelivery
+        }
+
+        func acceptDocument(_ id: String) {
+            invalidateDocument()
+            isDismantled = false
+            documentID = id
+            documentHistoryBinding = parent.historyBinding
+            if let session = parent.historySession {
+                historyDocument = parent.historyBinding?.beginDocument(session, documentID: id)
+            }
+            let originalHistory = historyDocument.flatMap { document in
+                documentHistoryBinding?.progressHandler(for: document)
+            }
+            let originalCallback = parent.onReadingProgress
+            progressDelivery = { [weak self] value in
+                guard let self, !self.isDismantled, self.documentID == id else { return }
+                originalHistory?(value)
+                originalCallback?(value)
+            }
+            motion?.onProgress = progressDelivery
+            // Capture the original owner, source, session and controller now.
+            // Readiness can arrive after parent updates; it must never adopt them.
+            if let controller = parent.resumeController, let owner = parent.resumeOwner,
+               let session = parent.historySession, let history = parent.historyBinding,
+               parent.articleId == session.articleID,
+               let source = ReaderResumeIdentity(articleID: session.articleID, sourceRevision: parent.articleRevision, html: parent.html) {
+                pendingResumeBinding = (id, { [weak self, weak controller, weak history] in
+                    guard let self, let controller, let history,
+                          !self.isDismantled, self.documentID == id, history.isCurrent(session) else { return }
+                    self.documentResumeController = controller
+                    controller.bind(owner: owner, source: source, sessionID: session.id, documentID: id) { [weak self, weak history] in
+                        guard let self, !self.isDismantled, self.documentID == id else { return false }
+                        return history?.isCurrent(session) ?? false
+                    }
+                    guard !self.isDismantled, self.documentID == id, history.isCurrent(session) else { return }
+                    self.resumeDelivery = { [weak self, weak controller] anchor, completed, documentID in
+                        guard let self, !self.isDismantled, self.documentID == id, documentID == id else { return }
+                        controller?.record(anchor, completed: completed, documentID: id)
+                    }
+                    self.motion?.onResumeSample = self.resumeDelivery
+                })
+            }
+        }
+
+        /// Called by the original motion bridge only after script and native
+        /// scroll geometry are ready; loading must not expose an unusable offer.
+        func documentBecameReady(_ id: String) {
+            guard !isDismantled, documentID == id else { return }
+            if let attempt = loadAttemptID {
+                guard !loadReady, loadDocumentID == id, ownsLoad(attempt) else { return }
+                let state = loadController, ticket = loadTicket, cancel = cancelLoadDeadline
+                cancelLoadDeadline = nil
+                cancel?()
+                guard ownsLoad(attempt), documentID == id else { failLoad(attempt); return }
+                loadReady = true
+                if let ticket { state?.ready(ticket) }
+            }
+            guard let original = pendingResumeBinding, original.id == id else { return }
+            pendingResumeBinding = nil
+            original.bind()
+        }
+
+        func invalidateDocument() {
+            pendingResumeBinding = nil
+            documentResumeController?.invalidate(documentID: documentID)
+            documentResumeController = nil
+            resumeDelivery = nil
+            motion?.onResumeSample = nil
+            if let historyDocument { documentHistoryBinding?.endDocument(historyDocument) }
+            historyDocument = nil
+            documentHistoryBinding = nil
+            isDismantled = true
+            documentID = ""
+            expectedNavigation = nil
+            progressDelivery = nil
+            motion?.onProgress = nil
+            resetHeightTracking()
+        }
         private var lastReportedHeight: CGFloat = 0
         private var pendingHeightTask: Task<Void, Never>?
 
@@ -307,17 +403,25 @@ struct HTMLTextView: UIViewRepresentable {
             pendingHeightTask = nil
         }
 
-        private func deliverHeight(_ height: CGFloat) {
-            guard height > 0 else { return }
+        private func deliverHeight(_ height: CGFloat, documentID: String) {
+            guard height.isFinite, height > 0, ownsDocument(documentID) else { return }
             guard abs(height - lastReportedHeight) >= 10 else { return }
 
             pendingHeightTask?.cancel()
             pendingHeightTask = Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 180_000_000)
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, self.ownsDocument(documentID) else { return }
                 guard abs(height - self.lastReportedHeight) >= 10 else { return }
                 self.lastReportedHeight = height
                 self.parent.dynamicHeight = height
+                guard self.ownsDocument(documentID) else { return }
+                guard !self.isDismantled, self.documentID == documentID else { return }
+                if let historyDocument = self.historyDocument {
+                    self.documentHistoryBinding?.markDocumentReady(historyDocument)
+                }
+                self.localMeasuredHeight = height
+                self.motion?.measuredContent(height: height)
+                if let webView = self.loadWebView { self.checkLocalReadiness(webView) }
             }
         }
         
@@ -338,121 +442,152 @@ struct HTMLTextView: UIViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            guard navigation === expectedNavigation, ownsDocument(documentID) else { return }
             let js = """
-            var heightTimer = null;
-            function sendHeight() {
-                try {
-                    var body = document.body;
-                    var height = body ? body.scrollHeight : document.documentElement.scrollHeight;
-                    if (body && body.lastElementChild) {
-                        var lastRect = body.lastElementChild.getBoundingClientRect();
-                        var bodyRect = body.getBoundingClientRect();
-                        var contentBottom = lastRect.bottom - bodyRect.top;
-                        if (contentBottom > 0) {
-                            height = Math.ceil(contentBottom);
+            (function() {
+                const heightDocumentID = "\(documentID)";
+                if (document.querySelector('meta[name="apropos-document"]')?.content !== heightDocumentID) return;
+                if (window.aproposHeightCleanup) window.aproposHeightCleanup();
+                let disposed = false;
+                let heightTimer = null;
+                let heightResizeObserver = null;
+                let lazyObserver = null;
+                const listeners = [];
+                function active() {
+                    return !disposed && document.querySelector('meta[name="apropos-document"]')?.content === heightDocumentID;
+                }
+                function listen(target, type, callback) {
+                    target.addEventListener(type, callback);
+                    listeners.push([target, type, callback]);
+                }
+                function cleanup() {
+                    disposed = true;
+                    if (heightTimer) clearTimeout(heightTimer);
+                    if (heightResizeObserver) heightResizeObserver.disconnect();
+                    if (lazyObserver) lazyObserver.disconnect();
+                    listeners.forEach(function(item) { item[0].removeEventListener(item[1], item[2]); });
+                    listeners.length = 0;
+                    if (window.aproposHeightCleanup === cleanup) delete window.aproposHeightCleanup;
+                }
+                window.aproposHeightCleanup = cleanup;
+                function sendHeight() {
+                    if (!active()) return;
+                    try {
+                        const body = document.body;
+                        let height = body ? body.scrollHeight : document.documentElement.scrollHeight;
+                        if (body && body.lastElementChild) {
+                            const last = body.lastElementChild;
+                            const contentBottom = last.offsetTop + last.offsetHeight;
+                            if (contentBottom > 0) height = Math.ceil(contentBottom);
                         }
-                    }
-                    if (height && height > 0) {
-                        window.webkit.messageHandlers.heightHandler.postMessage(height);
-                    }
-                } catch (e) {
-                    console.error('Error getting height:', e);
+                        if (height && height > 0) {
+                            window.webkit.messageHandlers.heightHandler.postMessage({documentID: heightDocumentID, height: height, contentWidth: Math.max(body?.scrollWidth || 0, document.documentElement.scrollWidth), viewportWidth: document.documentElement.clientWidth});
+                        }
+                    } catch (e) {}
                 }
-            }
-            function ready(fn) {
-                if (document.readyState != 'loading'){
-                    fn();
-                } else {
-                    document.addEventListener('DOMContentLoaded', fn);
+                function sendHeightDebounced() {
+                    if (!active()) return;
+                    if (heightTimer) clearTimeout(heightTimer);
+                    heightTimer = setTimeout(sendHeight, 220);
                 }
-            }
-            function replaceBrokenImage(img) {
-                if (!img || img.dataset.approposOfflineHandled === '1') return;
-                img.dataset.approposOfflineHandled = '1';
-                var box = document.createElement('div');
-                box.className = 'apropos-offline-media';
-                box.innerHTML = '<p class="apropos-offline-media__title">Medie offline</p><p class="apropos-offline-media__subtitle">Tjek din internetforbindelse</p>';
-                if (img.parentNode) {
+                function ownsImage(img) {
+                    return active() && img && img.ownerDocument === document && img.isConnected;
+                }
+                function pendingLazyImage(img) {
+                    return img.matches('img.apropos-lazy[data-src]');
+                }
+                function replaceBrokenImage(img) {
+                    // A pending transparent placeholder is not the article image. Also
+                    // inspect already-failed eager images: their event may precede didFinish.
+                    if (!ownsImage(img) || pendingLazyImage(img) || !img.complete || img.naturalWidth !== 0) return;
+                    if (!(img.currentSrc || img.getAttribute('src') || img.getAttribute('srcset') || '').trim()) return;
+                    const box = document.createElement('div');
+                    box.className = 'apropos-offline-media';
+                    const label = document.createElement('p');
+                    label.className = 'apropos-offline-media__title';
+                    label.textContent = 'Billedet kunne ikke indlæses';
+                    box.appendChild(label);
+                    // Replace only the image; its link, figure and editorial credit survive.
                     img.parentNode.replaceChild(box, img);
+                    sendHeightDebounced();
                 }
-                sendHeightDebounced();
-            }
-            function sendHeightDebounced() {
-                if (heightTimer) {
-                    clearTimeout(heightTimer);
+                function activateImage(img) {
+                    if (!ownsImage(img) || !pendingLazyImage(img)) return;
+                    const src = img.getAttribute('data-src');
+                    if (!src || !src.trim()) return;
+                    img.removeAttribute('data-src');
+                    img.classList.remove('apropos-lazy');
+                    img.src = src;
+                    replaceBrokenImage(img);
                 }
-                heightTimer = setTimeout(sendHeight, 220);
-            }
-            function attachOfflineFallbacks() {
-                try {
-                    var imgs = Array.from(document.images);
-                    imgs.forEach(function(img) {
-                        if (img.dataset.approposOfflineHandled === '1') return;
-                        img.addEventListener('error', function() {
-                            replaceBrokenImage(img);
-                        }, { once: true });
+                function setupImages() {
+                    Array.from(document.images).forEach(function(img) {
+                        listen(img, 'load', sendHeightDebounced);
+                        listen(img, 'error', function() { replaceBrokenImage(img); });
+                        replaceBrokenImage(img);
                     });
-                } catch (e) {
-                    console.error('Error attaching offline fallbacks:', e);
-                }
-            }
-            function setupLazyImages() {
-                try {
-                    var lazyImages = Array.from(document.querySelectorAll('img.apropos-lazy[data-src]'));
+                    const lazyImages = Array.from(document.querySelectorAll('img.apropos-lazy[data-src]'));
                     if (!lazyImages.length) return;
-                    var observer = new IntersectionObserver(function(entries) {
+                    if (!window.IntersectionObserver) {
+                        lazyImages.forEach(activateImage);
+                        return;
+                    }
+                    lazyObserver = new IntersectionObserver(function(entries) {
+                        if (!active()) return;
                         entries.forEach(function(entry) {
-                            if (!entry.isIntersecting) return;
-                            var img = entry.target;
-                            var src = img.getAttribute('data-src');
-                            if (!src) return;
-                            img.src = src;
-                            img.removeAttribute('data-src');
-                            img.classList.remove('apropos-lazy');
-                            observer.unobserve(img);
+                            if (!entry.isIntersecting || !ownsImage(entry.target)) return;
+                            activateImage(entry.target);
+                            lazyObserver.unobserve(entry.target);
                         });
                     }, { rootMargin: '240px 0px', threshold: 0.01 });
-                    lazyImages.forEach(function(img) { observer.observe(img); });
-                } catch (e) {
-                    console.error('Error setting up lazy images:', e);
+                    lazyImages.forEach(function(img) { lazyObserver.observe(img); });
                 }
-            }
-            ready(function() {
-                try {
-                    attachOfflineFallbacks();
-                    setupLazyImages();
+                function ready() {
+                    if (!active()) return;
+                    setupImages();
                     sendHeightDebounced();
-                    Array.from(document.images).forEach(function(img) {
-                        if (img.dataset.aproposOfflineHandled === '1') return;
-                        if (img.complete) return;
-                        img.addEventListener('load', sendHeightDebounced, { once: true });
-                        img.addEventListener('error', sendHeightDebounced, { once: true });
-                    });
-                } catch (e) {
-                    console.error('Error in ready function:', e);
+                    listen(window, 'resize', sendHeightDebounced);
+                    if (window.ResizeObserver && document.body) {
+                        heightResizeObserver = new ResizeObserver(sendHeightDebounced);
+                        heightResizeObserver.observe(document.body);
+                    }
                 }
-            });
+                if (document.readyState !== 'loading') ready();
+                else listen(document, 'DOMContentLoaded', ready);
+            })();
             """
             webView.evaluateJavaScript(js, completionHandler: nil)
+            motion?.contentDidFinish(webView)
         }
         
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-            // Set a default height if navigation fails
-            DispatchQueue.main.async {
-                self.parent.dynamicHeight = 100
-            }
+            guard !isDismantled, let navigation, navigation === expectedNavigation,
+                  webView === loadWebView, let attempt = loadAttemptID else { return }
+            failLoad(attempt)
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            self.webView(webView, didFail: navigation, withError: error)
+        }
+
+        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+            guard webView === loadWebView, let attempt = loadAttemptID else { return }
+            failLoad(attempt)
         }
 
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-            if message.name == "heightHandler" {
-                if let height = message.body as? CGFloat, height > 0 {
-                    deliverHeight(height)
-                } else if let heightString = message.body as? String, let height = Double(heightString), height > 0 {
-                    deliverHeight(CGFloat(height))
-                } else if let heightNumber = message.body as? NSNumber {
-                    deliverHeight(CGFloat(truncating: heightNumber))
-                }
+            guard !isDismantled, message.name == "heightHandler", message.frameInfo.isMainFrame,
+                  let payload = message.body as? [String: Any],
+                  payload["documentID"] as? String == documentID,
+                  let number = payload["height"] as? NSNumber else { return }
+            let originalDocumentID = documentID
+            guard ownsDocument(originalDocumentID) else { return }
+            if let width = payload["contentWidth"] as? NSNumber,
+               let viewport = payload["viewportWidth"] as? NSNumber,
+               viewport.doubleValue > 0 {
+                parent.onHorizontalOverflow?(width.doubleValue > viewport.doubleValue + 1)
             }
+            deliverHeight(CGFloat(truncating: number), documentID: originalDocumentID)
         }
     }
 }

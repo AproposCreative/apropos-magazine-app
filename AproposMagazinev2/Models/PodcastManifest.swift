@@ -21,6 +21,7 @@ struct PodcastManifest: Decodable {
 
 struct PodcastManifestEntry: Decodable {
     let id: String
+    let articleId: String?
     let articleSlug: String
     let title: String
     let subtitle: String?
@@ -28,11 +29,13 @@ struct PodcastManifestEntry: Decodable {
     let hosts: [String]
     let publishedAt: Date?
     /// "ai" for AI-genereret oplæsning, ellers menneske/NotebookLM-podcast.
+    let sourceContentRevision: String?
     let isAINarration: Bool
 
     enum CodingKeys: String, CodingKey {
         case id
         case articleSlug
+        case articleId
         case slug
         case title
         case subtitle
@@ -41,6 +44,7 @@ struct PodcastManifestEntry: Decodable {
         case hosts
         case publishedAt
         case kind
+        case sourceContentRevision
     }
 
     init(from decoder: Decoder) throws {
@@ -54,8 +58,12 @@ struct PodcastManifestEntry: Decodable {
 
         let decodedId = try container.decodeIfPresent(String.self, forKey: .id)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        id = Self.firstNonEmpty(decodedId, resolvedSlug) ?? UUID().uuidString
+        guard let identity = Self.firstNonEmpty(decodedId, resolvedSlug) else {
+            throw DecodingError.dataCorruptedError(forKey: .id, in: container, debugDescription: "Stable episode identity required")
+        }
+        id = identity
 
+        articleId = try container.decodeIfPresent(String.self, forKey: .articleId)
         articleSlug = resolvedSlug.isEmpty ? id : resolvedSlug
         title = try container.decode(String.self, forKey: .title)
         subtitle = try container.decodeIfPresent(String.self, forKey: .subtitle)
@@ -73,6 +81,7 @@ struct PodcastManifestEntry: Decodable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
         isAINarration = (kind == "ai")
+        sourceContentRevision = try container.decodeIfPresent(String.self, forKey: .sourceContentRevision)
     }
 
     func toEpisode() -> PodcastEpisode? {
@@ -82,7 +91,7 @@ struct PodcastManifestEntry: Decodable {
 
         return PodcastEpisode(
             id: id,
-            articleId: nil,
+            articleId: articleId,
             articleSlug: articleSlug,
             title: title,
             subtitle: subtitle ?? "Lyt til artiklen",
@@ -92,7 +101,8 @@ struct PodcastManifestEntry: Decodable {
             artworkURL: nil,
             hosts: hosts.isEmpty ? ["Apropos Magazine"] : hosts,
             publishedDate: publishedAt,
-            isAINarration: isAINarration
+            isAINarration: isAINarration,
+            sourceContentRevision: sourceContentRevision
         )
     }
 

@@ -120,10 +120,10 @@ struct GlassTopBar: View {
         VStack {
             GlassTopBar(
                 title: "Søg",
-                onBack: { print("Back tapped") },
-                onPlus: { print("Plus tapped") },
-                onDownload: { print("Download tapped") },
-                onShare: { print("Share tapped") }
+                onBack: {},
+                onPlus: {},
+                onDownload: {},
+                onShare: {}
             )
             
             Spacer()

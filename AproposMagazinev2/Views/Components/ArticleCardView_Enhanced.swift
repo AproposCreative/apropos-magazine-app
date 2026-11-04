@@ -6,29 +6,33 @@ struct ArticleCardView_Enhanced: View {
     // MARK: - Properties
     let showTopic: Bool
     var article: Article
-    let onFavorite: ((Article) -> Void)?
-    let isFavorite: Bool
     let cardHeight: CGFloat
     let showStars: Bool
     let recommendationReason: String?
+    let categories: [String]
+    let imageURL: URL?
+    let onOpen: ((Article) -> Void)?
+    let openAccessibilityID: String?
+    let deferImageUntilVisible: Bool
+    private let editorialDateTexts: [ArticleContentLanguage: String]
+    @Environment(\.locale) private var locale
     var bottom = Int()
     @State private var isLoaded = false
     @State private var loadFailed = false
-    @EnvironmentObject var viewModel: ArticleViewModel
+    @State private var coverEnteredViewport = false
+    @Environment(\.homeImagePolicy) private var imagePolicy
+#if DEBUG && targetEnvironment(simulator)
+    @Environment(\.homeCoverAdmissionProbe) private var coverAdmissionProbe
+#endif
     @Environment(\.colorScheme) var colorScheme
-    
-    // Add a computed property to safely check if article is favorite
-    private var isArticleFavorite: Bool {
-        return viewModel.isFavorite(article)
+    @ScaledMetric(relativeTo: .body) private var titleFontSize: CGFloat = 16
+    @ScaledMetric(relativeTo: .caption) private var detailFontSize: CGFloat = 12
+    @ScaledMetric(relativeTo: .subheadline) private var dateFontSize: CGFloat = 15
+
+    private var accessibilityPrefix: String {
+        openAccessibilityID ?? "article.open.\(article.id)"
     }
-    
-    // Safe action to toggle favorite
-    private func safeToggleFavorite() {
-        // Add haptic feedback
-        HapticManager.shared.lightImpact()
-        viewModel.toggleFavorite(for: article)
-        onFavorite?(article)
-    }
+    private var coverImageAdmitted: Bool { !deferImageUntilVisible || coverEnteredViewport }
 
     private func starImageName(isFilled: Bool) -> String {
         let filledAsset = "DarkStar"
@@ -42,39 +46,47 @@ struct ArticleCardView_Enhanced: View {
     
     init(
         article: Article,
-        isFavorite: Bool = false,
         cardHeight: CGFloat = 200,
         showStars: Bool = false,
         showTopic: Bool = true,
         recommendationReason: String? = nil,
-        onFavorite: ((Article) -> Void)? = nil
+        categories: [String] = ["Generelt"],
+        imageURL: URL? = nil,
+        onOpen: ((Article) -> Void)? = nil,
+        openAccessibilityID: String? = nil,
+        deferImageUntilVisible: Bool = false
     ) {
         self.article = article
-        self.isFavorite = isFavorite
         self.cardHeight = cardHeight
-        self.onFavorite = onFavorite
         self.showStars = showStars
         self.showTopic = showTopic
         self.recommendationReason = recommendationReason
+        self.categories = categories.isEmpty ? ["Generelt"] : categories
+        self.imageURL = imageURL ?? article.mobileImageURL ?? article.thumbURL ?? article.coverURL
+        self.onOpen = onOpen
+        self.openAccessibilityID = openAccessibilityID
+        self.deferImageUntilVisible = deferImageUntilVisible
+        self.editorialDateTexts = Dictionary(uniqueKeysWithValues: ArticleContentLanguage.allCases.compactMap { language in
+            ArticleDisplayDateFormatter.shared.string(from: article.date, language: language).map { (language, $0) }
+        })
     }
 
     
     // MARK: - View
     
     var body: some View {
+        if let onOpen {
+            Button { onOpen(article) } label: { cardContent }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier(openAccessibilityID ?? "article.open.\(article.id)")
+        } else { cardContent }
+    }
+
+    private var cardContent: some View {
         VStack(alignment: .leading, spacing: 5) {
-//            if showStars{
-////                MusickimageSection
-//            }else{
-                imageSection
-//               
-//            }
-                
-            contentSection
-                .padding(.top , 6)
-                
+            imageSection
+            contentSection.padding(.top, 6)
         }
-       // .aproposCardStyle()
     }
 }
 
@@ -83,11 +95,10 @@ private extension ArticleCardView_Enhanced {
     
     var imageSection: some View {
         GeometryReader { geometry in
-            let cardImageURL = article.mobileImageURL ?? article.thumbURL ?? article.coverURL
             ZStack {
-                ArticleImagePlaceholder(mode: loadFailed ? .offline : .loading, cornerRadius: 8)
+                ArticleImagePlaceholder(mode: imagePolicy.allowsRemoteImages && coverImageAdmitted ? (loadFailed ? .offline : (isLoaded ? .idle : .loading)) : .idle, cornerRadius: 8)
 
-                if !loadFailed, let cardImageURL {
+                if imagePolicy.allowsRemoteImages, coverImageAdmitted, !loadFailed, let cardImageURL = imageURL {
                     WebImage(url: cardImageURL, options: [.retryFailed, .continueInBackground])
                         .resizable()
                         .onSuccess { _, _, _ in
@@ -100,9 +111,8 @@ private extension ArticleCardView_Enhanced {
                                 loadFailed = true
                             }
                         }
-                        .transition(.fade(duration: 0.3))
+                        .transition(.identity)
                         .aspectRatio(contentMode: .fill)
-                        .opacity(isLoaded ? 1 : 0)
                 }
             }
             .frame(width: geometry.size.width, height: cardHeight)
@@ -115,6 +125,17 @@ private extension ArticleCardView_Enhanced {
             }
         }
         .frame(height: cardHeight)
+        .onScrollVisibilityChange(threshold: 0.01) { visible in
+            // Text is measured eagerly for the rail's natural height. Only the
+            // cover waits for its first viewport entry; keep it admitted when
+            // scrolling back so the existing image/cache lifecycle continues.
+            if deferImageUntilVisible, visible, !coverEnteredViewport { coverEnteredViewport = true }
+        }
+#if DEBUG && targetEnvironment(simulator)
+        .onChange(of: coverImageAdmitted, initial: true) { _, admitted in
+            coverAdmissionProbe?(accessibilityPrefix, admitted)
+        }
+#endif
     }
 //    var MusickimageSection: some View {
 //        
@@ -125,7 +146,6 @@ private extension ArticleCardView_Enhanced {
 ////                        isLoaded = true
 //                    }
 //                    .onFailure { error in
-//                        print("Image failed: \(error.localizedDescription)")
 //                    }
 //                
 //                    .resizable()
@@ -142,6 +162,20 @@ private extension ArticleCardView_Enhanced {
 //        .frame(height: cardHeight)
 //    }
 }
+
+#if DEBUG && targetEnvironment(simulator)
+/// Installed only by the local Home fixture. It observes the actual native
+/// visibility admission without starting image requests or adding product UI.
+private struct HomeCoverAdmissionProbeKey: EnvironmentKey {
+    static let defaultValue: ((String, Bool) -> Void)? = nil
+}
+extension EnvironmentValues {
+    var homeCoverAdmissionProbe: ((String, Bool) -> Void)? {
+        get { self[HomeCoverAdmissionProbeKey.self] }
+        set { self[HomeCoverAdmissionProbeKey.self] = newValue }
+    }
+}
+#endif
 
 struct StarsFromText: View {
     let starText: String
@@ -182,39 +216,17 @@ struct StarsFromText: View {
 private extension ArticleCardView_Enhanced {
     
 
-    // Get categories for this article
-    private var articleCategories: [String] {
-        var categories: [String] = []
-        
-        // Add main topic category
-        if let topicID = article.topicID,
-           let topic = viewModel.topics.first(where: { $0.id == topicID }) {
-            categories.append(topic.name)
-        }
-        
-        // Add multi-topic categories if available
-        if let topicsIDs = article.topicsIDs {
-            for topicID in topicsIDs {
-                if let topic = viewModel.topics.first(where: { $0.id == topicID }),
-                   !categories.contains(topic.name) {
-                    categories.append(topic.name)
-                }
-            }
-        }
-        
-        return categories.isEmpty ? ["Generelt"] : categories
-    }
-    
     var contentSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             
             if showTopic {
-                Text(articleCategories.first ?? "Generelt")
-                    .font(.system(size: 12, weight: .semibold))
+                LocalizedArticleTaxonomy(categories.first ?? "Generelt")
+                    .font(.system(size: detailFontSize, weight: .semibold))
                     .textCase(.uppercase)
                     .foregroundColor(.primary)
                     .lineLimit(2)
-                    .fixedSize(horizontal: true, vertical: false)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier(accessibilityPrefix + ".category")
                     .frame(alignment: .leading)
                     // Underline that "hugs" the text width
                     .background(
@@ -232,11 +244,12 @@ private extension ArticleCardView_Enhanced {
             
             // Title
             Text(article.name ?? "Titel")
-                .font(.system(size: 16, weight: .regular))
+                .font(.system(size: titleFontSize, weight: .regular))
                 .lineLimit(showTopic ? 3 : 2) // 3 lines for large cards (Musik section), 2 for small cards
                 .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
                 .clipped()
+                .accessibilityIdentifier(accessibilityPrefix + ".title")
             
             // Intro
             if showTopic {
@@ -244,27 +257,28 @@ private extension ArticleCardView_Enhanced {
                 if let intro = article.intro, !intro.isEmpty {
                     Text(intro)
                         .aproposArticleSubtitle()
-                        .font(.system(size: 12, weight: .regular))
                         .lineLimit(3) // 3 lines for large cards (Musik section)
+                        .fixedSize(horizontal: false, vertical: true)
                         .clipped()
+                        .accessibilityIdentifier(accessibilityPrefix + ".intro")
                         
                 }
             }
             if !showTopic {
                 if let recommendationReason, !recommendationReason.isEmpty {
-                    Text(recommendationReason)
+                    Text(LocalizedStringKey(recommendationReason))
                         .aproposArticleSubtitle()
-                        .font(.system(size: 12, weight: .regular))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                         .lineLimit(2)
+                        .accessibilityIdentifier(accessibilityPrefix + ".intro")
                 } else if let intro = article.intro, !intro.isEmpty {
                     Text(intro)
                         .aproposArticleSubtitle()
-                        .font(.system(size: 12, weight: .regular))
                         .fixedSize(horizontal: false, vertical: true) // allow full height
                         .padding(.bottom, intro.count >= 20 ? 10 : 5)
                         .lineLimit(2)
+                        .accessibilityIdentifier(accessibilityPrefix + ".intro")
                 }
             }
 
@@ -278,13 +292,18 @@ private extension ArticleCardView_Enhanced {
                             .frame(width: 16, height: 16)
                     }
                 }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(min(6, max(0, rating))) ud af 6 stjerner")
+                .accessibilityIdentifier(accessibilityPrefix + ".rating")
             }
             
             // Date
-            if let date = article.date {
+            if let date = editorialDateTexts[AppLocalization.language(for: locale)] {
                 Text(date)
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.system(size: dateFontSize, weight: .bold))
                     .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier(accessibilityPrefix + ".date")
             }
         }
         .padding(2)
@@ -306,9 +325,7 @@ private extension ArticleCardView_Enhanced {
                 topicID: "topic1",
                 date: "2024-01-15"
             ),
-            isFavorite: true,
-            cardHeight: 500,
-            onFavorite: { _ in }
+            cardHeight: 500
         )
         
         ArticleCardView_Enhanced(

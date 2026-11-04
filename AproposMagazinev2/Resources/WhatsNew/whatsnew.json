@@ -1,5 +1,2136 @@
 [
   {
+    "version": "1.155.0",
+    "title": "Stabil indlæsning",
+    "subtitle": "Mere pålidelig opdatering af artikler.",
+    "items": [
+      {
+        "icon": "globe",
+        "title": "Dansk og engelsk",
+        "description": "Et midlertidigt problem i ét sprog fjerner ikke artiklerne på det andet."
+      },
+      {
+        "icon": "arrow.clockwise",
+        "title": "Afbrudte opslag",
+        "description": "Et afsluttet opslag kan ikke fortsætte med at påvirke en nyere indlæsning."
+      }
+    ]
+  },
+  {
+    "version": "1.154.0",
+    "title": "Bedre meddelelser",
+    "subtitle": "Fra beskeden til den rigtige artikel.",
+    "items": [
+      {
+        "icon": "doc.text",
+        "title": "Åbn fra banneret",
+        "description": "En artikelbesked åbner artiklen, også når appen starter."
+      },
+      {
+        "icon": "photo",
+        "title": "Artikelbilleder",
+        "description": "Meddelelser om artikler viser det tilhørende cover."
+      },
+      {
+        "icon": "bell.badge",
+        "title": "Nye meddelelser",
+        "description": "Se ved Min side, når der er ulæste meddelelser."
+      }
+    ]
+  },
+  {
+    "version": "1.153.0",
+    "title": "Bedre artikelbetjening",
+    "subtitle": "En rettelse til artikelbilleder og knapper.",
+    "items": [
+      {
+        "icon": "headphones",
+        "title": "Lytteknappen",
+        "description": "Lytteknappen reagerer også ved høje artikelbilleder."
+      }
+    ]
+  },
+  {
+    "version": "1.152.0",
+    "title": "Tættere på fortællingen",
+    "subtitle": "Et roligere layout i artiklerne.",
+    "items": [
+      {
+        "icon": "headphones",
+        "title": "Mindre mellemrum",
+        "description": "Lytteknappen og artikelbilledet er rykket tættere sammen."
+      }
+    ]
+  },
+  {
+    "version": "1.151.0",
+    "title": "Tættere på fortællingen",
+    "subtitle": "Et roligere layout i artiklerne.",
+    "items": [
+      {
+        "icon": "headphones",
+        "title": "Mindre mellemrum",
+        "description": "Lytteknappen og artikelbilledet er rykket tættere sammen."
+      }
+    ]
+  },
+  {
+    "version": "1.150.0",
+    "title": "Oprydning når du fjerner",
+    "subtitle": "Gemte offlinekopier følger dit valg.",
+    "items": [
+      {
+        "icon": "trash",
+        "title": "Automatisk oprydning",
+        "description": "Når du fjerner en gemt artikel fra Min side eller med gemknappen, ryddes dens hentede tekst, billeder og lyd."
+      }
+    ]
+  },
+  {
+    "version": "1.149.0",
+    "title": "Velkommen til Apropos",
+    "subtitle": "En ny start med sprogvalg, login og oprettelse.",
+    "items": [
+      {
+        "icon": "globe",
+        "title": "En ny velkomst",
+        "description": "Vælg dansk eller engelsk, og log ind eller opret en konto fra den nye velkomstskærm."
+      }
+    ]
+  },
+  {
+    "version": "1.148.0",
+    "title": "Tilbage til oversigten",
+    "subtitle": "Vend tilbage til en oversigt med et nyt tryk på dens fane.",
+    "items": [
+      {
+        "icon": "arrow.uturn.backward",
+        "title": "Tilbage til oversigten",
+        "description": "Tryk igen på den aktive fane for at vende tilbage fra artikler og andre sider."
+      }
+    ]
+  },
+  {
+    "version": "1.147.0",
+    "title": "Samme billedlayout i listerne",
+    "subtitle": "Lydindhold får billeder, der følger hele rækkens højde.",
+    "items": [
+      {
+        "icon": "rectangle.leadinghalf.inset.filled",
+        "title": "Mere plads til coveret",
+        "description": "Billeder følger tekstens højde i lydlisten og på lydkortene, også ved lange titler og stor tekst."
+      },
+      {
+        "icon": "rectangle.grid.1x2",
+        "title": "Et fælles layout",
+        "description": "Lyd, gemte artikler, kategorier og forfattersider bruger samme grundlayout til billeder i hele højden."
+      }
+    ]
+  },
+  {
+    "version": "1.146.0",
+    "title": "Læs Apropos på engelsk",
+    "subtitle": "Engelske artikler med tekst, også når du gemmer dem offline.",
+    "items": [
+      {
+        "icon": "globe",
+        "title": "Engelsk indhold",
+        "description": "Vælg English i Indstillinger for at læse de publicerede engelske artikler."
+      },
+      {
+        "icon": "arrow.down.circle",
+        "title": "Gem den engelske tekst",
+        "description": "Engelske artikler gemmes til læsning offline. Der er endnu ingen engelske lydversioner."
+      }
+    ]
+  },
+  {
+    "version": "1.145.0",
+    "title": "En roligere Min side",
+    "subtitle": "Senest gemte artikler først og meddelelser om nye udgivelser.",
+    "items": [
+      {
+        "icon": "bookmark",
+        "title": "Senest gemt øverst",
+        "description": "Nye gemninger placeres øverst på Min side. Dit valgte sorteringsprincip huskes."
+      },
+      {
+        "icon": "bell.badge",
+        "title": "Meddelelser ved nye udgivelser",
+        "description": "Indbakken fyldes ikke med gamle artikler. Nye ulæste meddelelser tælles på appikonet."
+      },
+      {
+        "icon": "photo",
+        "title": "Billeder uden gentagen fade",
+        "description": "Allerede indlæste billeder vises direkte, når du vender tilbage."
+      },
+      {
+        "icon": "headphones",
+        "title": "Stabilt tryk på Lyt",
+        "description": "Lydknappen bevarer den valgte optagelse, når titel eller cover opdateres."
+      }
+    ]
+  },
+  {
+    "version": "1.144.0",
+    "title": "Nye artikler i Meddelelser",
+    "subtitle": "Find udgivelserne, også når en pushbesked ikke når frem.",
+    "items": [
+      {
+        "icon": "bell",
+        "title": "Artiklen venter i din indbakke",
+        "description": "Nye artikler føjes til Meddelelser, når appen henter de publicerede udgivelser. Tryk på beskeden for at læse artiklen."
+      }
+    ]
+  },
+  {
+    "version": "1.143.0",
+    "title": "Artikler med lyd offline",
+    "subtitle": "Gem den eksisterende optagelse sammen med artiklen.",
+    "items": [
+      {
+        "icon": "arrow.down.circle",
+        "title": "Den lydversion, du kender",
+        "description": "Gem artikeltekst og den eksisterende lyd på din enhed, så du kan læse og lytte uden forbindelse."
+      }
+    ]
+  },
+  {
+    "version": "1.142.0",
+    "title": "Dine gemte artikler",
+    "subtitle": "Mere sikker lagring af downloadet indhold.",
+    "items": [
+      {
+        "icon": "arrow.down.doc",
+        "title": "Tekst og lyd på enheden",
+        "description": "Downloadet indhold gemmes varigt og kontrolleres, før det vises som klar til offlinebrug."
+      }
+    ]
+  },
+  {
+    "version": "1.141.0",
+    "title": "Tydelig status for gemte artikler",
+    "subtitle": "Se, hvad der er hentet til offlinebrug.",
+    "items": [
+      {
+        "icon": "arrow.down.circle",
+        "title": "Tekst og lyd, hver for sig",
+        "description": "Gemte tekster vises tydeligt, også når lyden endnu ikke er hentet. Genforsøg vises ved en mislykket hentning."
+      }
+    ]
+  },
+  {
+    "version": "1.140.0",
+    "title": "Følg din hentning",
+    "subtitle": "Procent under hentning. GEMT, når tekst og lyd er klar.",
+    "items": [
+      {
+        "icon": "arrow.down.circle",
+        "title": "Se fremskridtet",
+        "description": "Pillen viser den målte procent, mens lyden hentes. GEMT vises først, når både tekst og lyd er gemt på enheden."
+      }
+    ]
+  },
+  {
+    "version": "1.139.0",
+    "title": "Tekst og lyd til turen",
+    "subtitle": "En samlet status for dine gemte artikler.",
+    "items": [
+      {
+        "icon": "arrow.down.circle",
+        "title": "Følg hentningen",
+        "description": "Se, når både artikelteksten og lyden er klar offline. Ventende hentninger fortsætter, når der bliver plads i køen."
+      }
+    ]
+  },
+  {
+    "version": "1.138.0",
+    "title": "Gemte artikler, klar til turen",
+    "subtitle": "Mere stabil hentning af artikeltekst.",
+    "items": [
+      {
+        "icon": "arrow.down.doc",
+        "title": "Gemte tekster følger med",
+        "description": "Dine gemte artikler opdateres og hentes, når du er online. Du behøver ikke fjerne dem og gemme dem igen."
+      }
+    ]
+  },
+  {
+    "version": "1.137.0",
+    "title": "Din side, dit sprog",
+    "subtitle": "Gem med en konto og vælg dansk eller engelsk.",
+    "items": [
+      {
+        "icon": "person.crop.circle",
+        "title": "Gem med din konto",
+        "description": "Log ind eller opret en gratis konto, når du vil gemme en artikel til Min side og offlinebrug."
+      },
+      {
+        "icon": "globe",
+        "title": "Appens sprog",
+        "description": "Vælg dansk eller engelsk i Indstillinger. Brugerfladen og artikeloversigterne følger dit valg."
+      }
+    ]
+  },
+  {
+    "version": "1.136.0",
+    "title": "Mere om skribenten",
+    "subtitle": "Artikler og anmeldelser.",
+    "items": [
+      {
+        "icon": "star",
+        "title": "Vurderinger på forfattersiden",
+        "description": "Se anmeldelsernes stjerner i listen over skribentens artikler. Billederne fylder kortenes højde og følger tekstens størrelse."
+      }
+    ]
+  },
+  {
+    "version": "1.135.0",
+    "title": "Velkommen tilbage",
+    "subtitle": "Nyhedsbrev med dit samtykke.",
+    "items": [
+      {
+        "icon": "envelope.badge",
+        "title": "Tilmeld dig igen",
+        "description": "Har du tidligere afmeldt nyhedsbrevet, kan du tilmelde dig igen i appen med et nyt aktivt samtykke. En senere afmelding bliver fortsat respekteret."
+      }
+    ]
+  },
+  {
+    "version": "1.134.0",
+    "title": "Dine valg, på ny",
+    "subtitle": "Introduktion og konto.",
+    "items": [
+      {
+        "icon": "arrow.counterclockwise",
+        "title": "Se introduktionen igen",
+        "description": "Når du vælger Vis introduktionen, kan du gennemgå opsætningen igen med din eksisterende konto. Dine gemte interesser og dit valg om nyhedsbrev respekteres."
+      },
+      {
+        "icon": "person.crop.circle",
+        "title": "En tydelig kontostatus",
+        "description": "Profilen hentes igen, hvis et nyt login afløser en igangværende hentning. Du kan også prøve igen fra Indstillinger, hvis profilen mangler."
+      }
+    ]
+  },
+  {
+    "version": "1.133.0",
+    "title": "Nyhedsbrev fra Apropos",
+    "subtitle": "Med dit samtykke.",
+    "items": [
+      {
+        "icon": "envelope",
+        "title": "Tilmeld dig i appen",
+        "description": "Vælg nyhedsbrevet ved kontooprettelse eller på Min side. Tilmeldingen følger din bekræftede e-mail og vises først som gennemført, når serveren har bekræftet den."
+      }
+    ]
+  },
+  {
+    "version": "1.132.0",
+    "title": "Vælg dit artikelsprog",
+    "subtitle": "Dansk eller English.",
+    "items": [
+      {
+        "icon": "globe",
+        "title": "Artikler på dit sprog",
+        "description": "Vælg artikelsprog i Indstillinger. Oversigter, søgning og gemte artikler følger dit valg og bevarer dine gemte udgaver."
+      }
+    ]
+  },
+  {
+    "version": "1.131.0",
+    "title": "Ryd op i Meddelelser",
+    "subtitle": "Et enkelt swipe.",
+    "items": [
+      {
+        "icon": "trash",
+        "title": "Swipe for at slette",
+        "description": "Swipe mod venstre på en meddelelse for at vise Slet, eller swipe hele vejen for at fjerne den. Både artikelbeskeder og almindelige beskeder kan fjernes."
+      }
+    ]
+  },
+  {
+    "version": "1.130.0",
+    "title": "Stabile filtre på Min side",
+    "subtitle": "Et roligere overblik.",
+    "items": [
+      {
+        "icon": "magnifyingglass",
+        "title": "Søgning bliver på plads",
+        "description": "Filterrækken har fået et samlet layout, så søgning og antal artikler har en stabil placering. Lange emnenavne og stor tekst har fortsat plads."
+      }
+    ]
+  },
+  {
+    "version": "1.129.0",
+    "title": "Min side og Meddelelser",
+    "subtitle": "Skift side fra overskriften.",
+    "items": [
+      {
+        "icon": "text.alignleft",
+        "title": "Et tydeligt sideskift",
+        "description": "Tryk eller træk i overskrifterne for at skifte mellem Min side og Meddelelser. Swipe på en gemt artikel bruges fortsat til at fjerne den."
+      },
+      {
+        "icon": "doc.text",
+        "title": "Åbn artiklen direkte",
+        "description": "Artikelbeskeder åbner læsningen. Beskeder om en ny lydepisode åbner afspilleren."
+      }
+    ]
+  },
+  {
+    "version": "1.128.0",
+    "title": "Roligere Min side",
+    "subtitle": "Dine gemte artikler bliver på plads.",
+    "items": [
+      {
+        "icon": "bookmark",
+        "title": "Stabilt overblik",
+        "description": "Kortvarige gemmekvitteringer får ikke længere statuskortet til at blinke på Min side. Fejl og behov for at prøve igen vises fortsat med det samme."
+      }
+    ]
+  },
+  {
+    "version": "1.127.0",
+    "title": "Meddelelser på Min side",
+    "subtitle": "Alt samlet ét sted.",
+    "items": [
+      {
+        "icon": "bell",
+        "title": "Swipe til dine meddelelser",
+        "description": "Åbn klokken ved siden af indstillinger, eller swipe mellem gemte artikler og meddelelser. Tryk på en artikel eller lydepisode for at åbne den direkte."
+      }
+    ]
+  },
+  {
+    "version": "1.126.0",
+    "title": "Artikelcovers i Meddelelser",
+    "subtitle": "Et enkelt overblik på Min side.",
+    "items": [
+      {
+        "icon": "photo",
+        "title": "Genkend artiklen",
+        "description": "Artikelbeskeder viser coveret til højre, når et billede er tilgængeligt. Andre beskeder vises som tekst."
+      }
+    ]
+  },
+  {
+    "version": "1.125.0",
+    "title": "Tilbage og overblik",
+    "subtitle": "Enklere navigation og meddelelser på Min side.",
+    "items": [
+      {
+        "icon": "chevron.backward",
+        "title": "Tilbage fra artikler",
+        "description": "Brug skærmkanten til at gå tilbage, mens du læser."
+      },
+      {
+        "icon": "bell",
+        "title": "Meddelelser på Min side",
+        "description": "Se beskeder på denne enhed, åbn dem og markér dem som læst."
+      }
+    ]
+  },
+  {
+    "version": "1.124.0",
+    "title": "Farver til hele lytteoplevelsen",
+    "subtitle": "Coveret sætter stemningen.",
+    "items": [
+      {
+        "icon": "play.rectangle",
+        "title": "En mere levende afspiller",
+        "description": "Coverets farver fylder baggrunden, hjørnerne er blødt afrundede, og lange titler ruller roligt med udtoning ved kanterne."
+      }
+    ]
+  },
+  {
+    "version": "1.123.0",
+    "title": "Coveret sætter stemningen",
+    "subtitle": "Mere plads til billedet og musikken.",
+    "items": [
+      {
+        "icon": "waveform",
+        "title": "En roligere afspiller",
+        "description": "Coverets farver giver et blødt lys omkring billedet. Større covers med skarpe hjørner og lydstyrke via enhedens knapper."
+      }
+    ]
+  },
+  {
+    "version": "1.122.0",
+    "title": "Mere plads på iPad",
+    "subtitle": "Et fast overblik over dit magasin.",
+    "items": [
+      {
+        "icon": "sidebar.left",
+        "title": "Navigation til iPad",
+        "description": "Find Hjem, Artikler, Kategorier og Min side i sidepanelet. Din afspiller følger indholdskolonnen."
+      }
+    ]
+  },
+  {
+    "version": "1.121.0",
+    "title": "Plads til at lytte",
+    "subtitle": "Afspilleren følger din skærm.",
+    "items": [
+      {
+        "icon": "play.rectangle",
+        "title": "Læsbar afspiller",
+        "description": "Titel og lydkontroller får plads, også når du vender skærmen eller bruger stor tekst."
+      }
+    ]
+  },
+  {
+    "version": "1.120.0",
+    "title": "Bliv ved dit afsnit",
+    "subtitle": "Læs videre, når du vender skærmen.",
+    "items": [
+      {
+        "icon": "text.alignleft",
+        "title": "Bevar stedet i teksten",
+        "description": "Ved rotation af skærmen bevarer læseren dit afsnit i den åbne artikel."
+      }
+    ]
+  },
+  {
+    "version": "1.119.0",
+    "title": "Gemte artikler holder fast",
+    "subtitle": "Mere pålidelig synk efter genforbindelse.",
+    "items": [
+      {
+        "icon": "bookmark",
+        "title": "Bevar dine ændringer",
+        "description": "En ældre lokal liste kan ikke længere få en gemt artikel til at forsvinde eller en fjernet artikel til at vende tilbage efter genlogin."
+      }
+    ]
+  },
+  {
+    "version": "1.118.0",
+    "title": "Tryk frit på artiklerne",
+    "subtitle": "Hele kategorirækken åbner artiklen.",
+    "items": [
+      {
+        "icon": "hand.tap",
+        "title": "En mere sikker trykflade",
+        "description": "På kategorisiden kan du trykke overalt i artiklens række, også ved siden af en kort titel."
+      }
+    ]
+  },
+  {
+    "version": "1.117.0",
+    "title": "En roligere start på lyden",
+    "subtitle": "Indlæsningen følger nu lydens tidslinje.",
+    "items": [
+      {
+        "icon": "waveform",
+        "title": "Diskret indlæsning",
+        "description": "Når lyden indlæses, tegner et blødt lys sig langs tidslinjen. Du kan stadig sætte indlæsningen på pause."
+      }
+    ]
+  },
+  {
+    "version": "1.116.0",
+    "title": "Mere pålidelig artikellyd",
+    "subtitle": "Bedre genforsøg og et mere robust lydkatalog.",
+    "items": [
+      {
+        "icon": "arrow.clockwise",
+        "title": "Prøv lyden igen",
+        "description": "Efter en afspilningsfejl oprettes lyden på ny, når du prøver igen."
+      },
+      {
+        "icon": "waveform",
+        "title": "Artiklernes lyd hænger bedre sammen",
+        "description": "En fejl i en enkelt lydpost spærrer ikke længere for de øvrige gyldige poster i kataloget."
+      }
+    ]
+  },
+  {
+    "version": "1.115.0",
+    "title": "Find tilbage til artiklerne",
+    "subtitle": "Flere emner, tydelig søgning og plads til afspilleren.",
+    "items": [
+      {
+        "icon": "tag",
+        "title": "Artikler i alle deres emner",
+        "description": "En artikel kan nu findes i både sit hovedemne og de ekstra emner, redaktionen har valgt."
+      },
+      {
+        "icon": "list.bullet",
+        "title": "Plads til at læse videre",
+        "description": "De sidste artikler og Indlæs flere får plads over miniafspilleren. Listen holder sin placering, når du går tilbage fra en artikel."
+      },
+      {
+        "icon": "magnifyingglass",
+        "title": "Tydelige søgeknapper",
+        "description": "Åbn, luk og ryd søgningen med større knapper. Sorteringen viser og fortæller dit aktuelle valg."
+      }
+    ]
+  },
+  {
+    "version": "1.114.0",
+    "title": "Bedre overblik i appen",
+    "subtitle": "Tydelige mærker og lister, der bevarer din plads.",
+    "items": [
+      {
+        "icon": "arrow.uturn.backward",
+        "title": "Fortsæt i listen",
+        "description": "Når du går tilbage fra en artikel, bevares de ekstra artikler, du har indlæst. Nye eller ændrede artikler opdaterer stadig listen."
+      },
+      {
+        "icon": "textformat.size",
+        "title": "Filtre med plads til teksten",
+        "description": "På Min side tilpasser sortering og kategorier sig pladsen og din tekststørrelse. Lange valg kan gå over flere linjer."
+      },
+      {
+        "icon": "house",
+        "title": "Hjem fører til overblikket",
+        "description": "Hjem lukker nu også en åben Se alle-liste, når du vender tilbage fra en anden fane. De øvrige faner bevarer deres placering."
+      },
+      {
+        "icon": "textformat",
+        "title": "Læsbare mærker på forsiden",
+        "description": "Forfatter og emner får plads til at ombrydes på de fremhævede historier. Sideindikatoren holder afstand til læse- og gemmeknapperne, også med stor tekst."
+      }
+    ]
+  },
+  {
+    "version": "1.113.0",
+    "title": "Samlede artikelmærker",
+    "subtitle": "GEMT følger artiklens øvrige piller.",
+    "items": [
+      {
+        "icon": "checkmark",
+        "title": "GEMT på rette plads",
+        "description": "GEMT vises sammen med forfatter og emner, centreret og med samme afstande. Pillerne fordeler sig over flere linjer, når der er brug for det."
+      }
+    ]
+  },
+  {
+    "version": "1.112.0",
+    "title": "Tydeligere gemte artikler",
+    "subtitle": "Billeder i fuld højde og synlige vurderinger på Min side.",
+    "items": [
+      {
+        "icon": "star",
+        "title": "Mere overblik på Min side",
+        "description": "Billeder følger nu hele rækkens teksthøjde, og anmeldelser viser deres stjerner."
+      },
+      {
+        "icon": "checkmark",
+        "title": "Kort besked ved gemning",
+        "description": "Når artikelteksten er gemt, står der nu GEMT i den eksisterende boks."
+      }
+    ]
+  },
+  {
+    "version": "1.111.0",
+    "title": "Lyd kan hentes igen",
+    "subtitle": "Nyt forsøg efter et fejlet lyddownload.",
+    "items": [
+      {
+        "icon": "arrow.clockwise",
+        "title": "Mere pålidelig offline-lyd",
+        "description": "En opdatering kan nu forsøge et fejlet lyddownload igen for dine gemte artikler. Igangværende downloads og allerede hentet lyd genbruges."
+      }
+    ]
+  },
+  {
+    "version": "1.110.0",
+    "title": "Mere pålidelig favoritsynk",
+    "subtitle": "Gemte artikler genopretter forbindelsen.",
+    "items": [
+      {
+        "icon": "arrow.triangle.2.circlepath",
+        "title": "Automatisk nyt forsøg",
+        "description": "Hvis favoritsynk er stoppet med en fejl, prøver appen igen, når du vender tilbage eller får forbindelse. Dine lokale valg bevares."
+      }
+    ]
+  },
+  {
+    "version": "1.109.0",
+    "title": "Tydeligere artikelliste",
+    "subtitle": "Billeder i fuld rækkehøjde og synlige vurderinger.",
+    "items": [
+      {
+        "icon": "photo",
+        "title": "Billeder følger teksten",
+        "description": "Billedet fylder nu artikelrækkens højde fra overskrift til emne."
+      },
+      {
+        "icon": "star.fill",
+        "title": "Stjerner i oversigten",
+        "description": "Artikler med en vurdering viser den direkte i listen."
+      }
+    ]
+  },
+  {
+    "version": "1.108.0",
+    "title": "Genoptagelse af pushoprydning",
+    "subtitle": "Samme anmodning efter genstart.",
+    "items": [
+      {
+        "icon": "checkmark.shield",
+        "title": "Ny bekræftelse før genoptagelse",
+        "description": "Det forberedte kontoforløb kan bevare en bekræftet pushoprydning og genprøve den efter ny bekræftelse. Samlet kontosletning er fortsat ikke aktiveret."
+      }
+    ]
+  },
+  {
+    "version": "1.107.0",
+    "title": "Særskilt bekræftelse af pushoprydning",
+    "subtitle": "Én registrering ad gangen.",
+    "items": [
+      {
+        "icon": "checkmark.shield",
+        "title": "Tydelig afgrænsning",
+        "description": "Det forberedte kontoforløb skelner mellem kontrol og bekræftelse af én pushregistrering. Samlet kontosletning er fortsat ikke aktiveret."
+      }
+    ]
+  },
+  {
+    "version": "1.106.0",
+    "title": "Sikker binding af pushregistrering",
+    "subtitle": "Forberedt til det separate kontoforløb.",
+    "items": [
+      {
+        "icon": "checkmark.shield",
+        "title": "Bekræftet registrering",
+        "description": "Pushregistreringens bekræftede ejerskab kan nu bevares på enheden. Samlet kontosletning og den nye pushregistrering er fortsat ikke aktiveret."
+      }
+    ]
+  },
+  {
+    "version": "1.105.0",
+    "title": "Kontrolleret oprydning af læsehistorik",
+    "subtitle": "Lokal kontrol og iCloud holdes adskilt.",
+    "items": [
+      {
+        "icon": "book.closed",
+        "title": "Forberedt kontoforløb",
+        "description": "Kontoforløbet er forberedt til særskilt oprydning af læsehistorik med bekræftelse og nyt forsøg ved fejl. Fjernelse fra iCloud og samlet kontosletning er fortsat ikke aktiveret eller bekræftet."
+      }
+    ]
+  },
+  {
+    "version": "1.104.0",
+    "title": "Kontrolleret oprydning af introduktionsudkast",
+    "subtitle": "Særskilt bekræftelse for kontoens udkast på enheden.",
+    "items": [
+      {
+        "icon": "person.crop.circle",
+        "title": "Lokalt introduktionsudkast",
+        "description": "Sletteforløbet får særskilt oprydning af kontoens introduktionsudkast med kontrol og nyt forsøg ved fejl. Andre konti, gæstevalg og enhedens gennemførte introduktion bevares. Samlet kontosletning er fortsat ikke aktiveret."
+      }
+    ]
+  },
+  {
+    "version": "1.103.0",
+    "title": "Kontrolleret oprydning af lyttepositioner",
+    "subtitle": "Særskilt bekræftelse for lyttepositioner på enheden.",
+    "items": [
+      {
+        "icon": "headphones",
+        "title": "Lokale lyttepositioner",
+        "description": "Sletteforløbet får særskilt oprydning med kontrol og genoptagelse ved fejl. Andre konti, gæstedata og downloadet lyd bevares. Samlet kontosletning er fortsat ikke aktiveret."
+      }
+    ]
+  },
+  {
+    "version": "1.102.0",
+    "title": "Kontrolleret oprydning af læsepositioner",
+    "subtitle": "Særskilt bekræftelse for læsepositioner på enheden.",
+    "items": [
+      {
+        "icon": "book",
+        "title": "Lokale læsepositioner",
+        "description": "Sletteforløbet får særskilt oprydning med kontrol og genoptagelse ved fejl. Andre konti og gæstedata bevares. Samlet kontosletning er fortsat ikke aktiveret."
+      }
+    ]
+  },
+  {
+    "version": "1.101.0",
+    "title": "Kontrolleret lokal oprydning",
+    "subtitle": "Tydelig bekræftelse for gemte artikelvalg på enheden.",
+    "items": [
+      {
+        "icon": "bookmark",
+        "title": "Gemte artikelvalg",
+        "description": "Sletteforløbet får særskilt lokal oprydning med genoptagelse ved fejl. Andre konti og gæstedata bevares. Samlet kontosletning er fortsat ikke aktiveret."
+      }
+    ]
+  },
+  {
+    "version": "1.100.0",
+    "title": "Beskyttede introduktionsvalg",
+    "subtitle": "Mere sikker håndtering af afbrudte kontoforløb.",
+    "items": [
+      {
+        "icon": "person.crop.circle",
+        "title": "Introduktion",
+        "description": "Gamle introduktionshandlinger afvises efter et kontostop. Dine gemte valg bevares. Kontosletning er fortsat ikke aktiveret."
+      }
+    ]
+  },
+  {
+    "version": "1.99.0",
+    "title": "Beskyttet lytteposition",
+    "subtitle": "Mere sikker håndtering af afbrudte kontoforløb.",
+    "items": [
+      {
+        "icon": "headphones",
+        "title": "Lytning",
+        "description": "Gamle afspillerkald kan ikke gemme lytteposition efter et kontostop. Kontosletning er fortsat ikke aktiveret."
+      }
+    ]
+  },
+  {
+    "version": "1.98.0",
+    "title": "Beskyttet læseposition",
+    "subtitle": "Fortsat forberedelse af læserkontosletning.",
+    "items": [
+      {
+        "icon": "book.closed",
+        "title": "Læsning",
+        "description": "Læsehistorik og læseposition beskyttes under et kontoforløb. Kontosletning er endnu ikke aktiveret."
+      }
+    ]
+  },
+  {
+    "version": "1.97.0",
+    "title": "Tydelig kontostatus",
+    "subtitle": "Bedre status efter et afbrudt kontoforløb.",
+    "items": [
+      {
+        "icon": "person.crop.circle.badge.exclamationmark",
+        "title": "Konto",
+        "description": "Kontovisningen kan vise, at et tidligere sletteforløb ikke er afsluttet. Kontosletning og genoptagelse er endnu ikke aktiveret."
+      }
+    ]
+  },
+  {
+    "version": "1.96.0",
+    "title": "Genbekræft din identitet",
+    "subtitle": "Fortsat forberedelse af læserkontosletning.",
+    "items": [
+      {
+        "icon": "person.crop.circle.badge.checkmark",
+        "title": "Konto",
+        "description": "De eksisterende loginformularer forberedes til sikker genoptagelse af et afbrudt sletteforløb. Kontosletning er endnu ikke tilgængelig i appen."
+      }
+    ]
+  },
+  {
+    "version": "1.95.0",
+    "title": "Sikker genoptagelse",
+    "subtitle": "Fortsat forberedelse af læserkontosletning.",
+    "items": [
+      {
+        "icon": "person.crop.circle.badge.checkmark",
+        "title": "Konto",
+        "description": "Et afbrudt sletteforløb forberedes til at kunne genoptages efter en ny loginbekræftelse. Kontosletning er endnu ikke tilgængelig i appen."
+      }
+    ]
+  },
+  {
+    "version": "1.94.0",
+    "title": "Tryggere opstart",
+    "subtitle": "Fortsat arbejde med beskyttelse af læserdata.",
+    "items": [
+      {
+        "icon": "person.crop.circle.badge.checkmark",
+        "title": "Konto",
+        "description": "Appens opstart forberedes til at respektere en påbegyndt læserkontosletning efter genstart. Kontosletning er endnu ikke tilgængelig i appen."
+      }
+    ]
+  },
+  {
+    "version": "1.93.0",
+    "title": "Sikker håndtering af læserdata",
+    "subtitle": "Forberedelse af separat læserkontosletning.",
+    "items": [
+      {
+        "icon": "person.crop.circle.badge.checkmark",
+        "title": "Konto",
+        "description": "Sletteforløbet forberedes til at afvente igangværende gemninger. Kontosletning er endnu ikke tilgængelig i appen."
+      }
+    ]
+  },
+  {
+    "version": "1.92.0",
+    "title": "Overblik over offlinetekst",
+    "subtitle": "Tydeligere status for dine gemte artikeltekster.",
+    "items": [
+      {
+        "icon": "doc.text",
+        "title": "Offline læsning",
+        "description": "Oversigten kontrollerer gemte artikeltekster i baggrunden og skelner mellem kontrol, download og tekst klar offline. Billeder og lyd kan kræve netværk."
+      }
+    ]
+  },
+  {
+    "version": "1.91.0",
+    "title": "Bekræftelse med Google",
+    "subtitle": "Forberedelse af separat læserkontosletning.",
+    "items": [
+      {
+        "icon": "person.crop.circle.badge.checkmark",
+        "title": "Konto",
+        "description": "Google-genbekræftelse til kontosletning er under forberedelse. Kontosletning er endnu ikke tilgængelig i appen."
+      }
+    ]
+  },
+  {
+    "version": "1.90.0",
+    "title": "Bekræftelse med Apple",
+    "subtitle": "Forberedelse af separat læserkontosletning.",
+    "items": [
+      {
+        "icon": "person.crop.circle.badge.checkmark",
+        "title": "Konto",
+        "description": "Apple-genbekræftelse til kontosletning er under forberedelse. Kontosletning er endnu ikke tilgængelig i appen."
+      }
+    ]
+  },
+  {
+    "version": "1.89.0",
+    "title": "Bekræftelse af identitet",
+    "subtitle": "Forberedelse af separat læserkontosletning.",
+    "items": [
+      {
+        "icon": "person.crop.circle.badge.checkmark",
+        "title": "Konto",
+        "description": "Adgangskodebekræftelse til kontosletning er under forberedelse. Kontosletning er endnu ikke tilgængelig i appen."
+      }
+    ]
+  },
+  {
+    "version": "1.88.0",
+    "title": "Kontrol over læserkontoen",
+    "subtitle": "Arbejdet med separat kontosletning fortsætter.",
+    "items": [
+      {
+        "icon": "person.crop.circle.badge.checkmark",
+        "title": "Konto",
+        "description": "Kontosletning forberedes med ny identitetsbekræftelse og håndtering af afbrud. Funktionen er endnu ikke tilgængelig i appen."
+      }
+    ]
+  },
+  {
+    "version": "1.87.0",
+    "title": "Kontrol over læserdata",
+    "subtitle": "Forberedelse af separat sletning af læserkontoen.",
+    "items": [
+      {
+        "icon": "person.crop.circle.badge.checkmark",
+        "title": "Konto",
+        "description": "Arbejdet med separat sletning af læserkontoen fortsætter. Funktionen er endnu ikke tilgængelig i appen."
+      }
+    ]
+  },
+  {
+    "version": "1.86.0",
+    "title": "Offlinebilleder i baggrunden",
+    "subtitle": "Stabil billedplads og færre filopslag under visning.",
+    "items": [
+      {
+        "icon": "photo",
+        "title": "Gemte billeder",
+        "description": "Artikelcovers og billeder i dine gemte artikler klargøres i baggrunden. Appen kontrollerer den aktuelle artikel og konto, før et lokalt billede vises."
+      }
+    ]
+  },
+  {
+    "version": "1.85.0",
+    "title": "Roligere artikellæsning",
+    "subtitle": "Offline-status kontrolleres i baggrunden.",
+    "items": [
+      {
+        "icon": "doc.text.magnifyingglass",
+        "title": "Offlineindhold",
+        "description": "Appen kontrollerer gemt artikeltekst i baggrunden, når du åbner artiklen eller vender tilbage til appen. Visningen undgår gentagne filkontroller under scrolling."
+      }
+    ]
+  },
+  {
+    "version": "1.84.0",
+    "title": "Opdaterede læseinteresser",
+    "subtitle": "Dine interesser følger bedre med mellem sessioner.",
+    "items": [
+      {
+        "icon": "arrow.triangle.2.circlepath",
+        "title": "Interesser",
+        "description": "Dine gemte interesser opdateres, når du vender tilbage til appen eller får forbindelse igen. Valg, du er ved at redigere, bevares."
+      }
+    ]
+  },
+  {
+    "version": "1.83.0",
+    "title": "Kontostabilitet",
+    "subtitle": "Forberedelse af en mere sikker kontoopstart.",
+    "items": [
+      {
+        "icon": "person.crop.circle.badge.checkmark",
+        "title": "Konto",
+        "description": "Tekniske forbedringer af kontoopstart og håndtering af forsinkede svar."
+      }
+    ]
+  },
+  {
+    "version": "1.82.0",
+    "title": "Stabilitet ved kontoskift",
+    "subtitle": "Mere robust registrering af notifikationer.",
+    "items": [
+      {
+        "icon": "bell.badge",
+        "title": "Notifikationer",
+        "description": "Forbedret håndtering af forsinkede svar, når du skifter konto eller afbryder en handling."
+      }
+    ]
+  },
+  {
+    "version": "1.81.0",
+    "title": "Stabil lagring af dine valg",
+    "subtitle": "Bedre håndtering af afbrud og kontoskift.",
+    "items": [
+      {
+        "icon": "person.crop.circle.badge.checkmark",
+        "title": "Profil og notifikationer",
+        "description": "Forbedret håndtering af igangværende lagring, når kontoen skifter eller forbindelsen afbrydes."
+      }
+    ]
+  },
+  {
+    "version": "1.80.0",
+    "title": "Læs videre i dit tempo",
+    "subtitle": "Find tilbage til dit afsnit.",
+    "items": [
+      {
+        "icon": "text.book.closed",
+        "title": "Flere måder at læse på",
+        "description": "Læsepositionen kan nu følge læserens tilgængeligheds- og tastaturhandlinger."
+      }
+    ]
+  },
+  {
+    "version": "1.79.0",
+    "title": "Stabil lagring af favoritter",
+    "subtitle": "Dine gemte valg følger den rigtige konto.",
+    "items": [
+      {
+        "icon": "bookmark",
+        "title": "Robust ved afbrud og kontoskift",
+        "description": "Forbedret håndtering af forsinkede svar og genforsøg, når du gemmer artikler."
+      }
+    ]
+  },
+  {
+    "version": "1.78.0",
+    "title": "Stabil pushregistrering",
+    "subtitle": "Mere robust ved kontoskift.",
+    "items": [
+      {
+        "icon": "bell.badge",
+        "title": "Pålidelige opdateringer",
+        "description": "Forbedret håndtering af telefonens pushregistrering, så forsinkede svar følger den rigtige konto."
+      }
+    ]
+  },
+  {
+    "version": "1.77.0",
+    "title": "Stabile notifikationsvalg",
+    "subtitle": "Dine valg følger den rigtige konto.",
+    "items": [
+      {
+        "icon": "bell.badge",
+        "title": "Sikker håndtering af kontoskift",
+        "description": "Forbedret håndtering af forsinkede svar, når du vælger notifikationer eller skifter konto."
+      }
+    ]
+  },
+  {
+    "version": "1.76.0",
+    "title": "Stabile læsevalg",
+    "subtitle": "Dine interesser følger den rigtige konto.",
+    "items": [
+      {
+        "icon": "person.crop.circle.badge.checkmark",
+        "title": "Mere pålidelig gemning",
+        "description": "Forbedret håndtering af forsinkede svar og genforsøg, når du gemmer interesser eller skifter konto."
+      }
+    ]
+  },
+  {
+    "version": "1.75.0",
+    "title": "Stabil profilindlæsning",
+    "subtitle": "Bedre håndtering af kontoskift og genforsøg.",
+    "items": [
+      {
+        "icon": "person.crop.circle",
+        "title": "Din profil følger din konto",
+        "description": "Forsinkede profilsvar og genforsøg forbliver knyttet til den konto, der startede dem."
+      }
+    ]
+  },
+  {
+    "version": "1.74.0",
+    "title": "Stabile gemte artikler",
+    "subtitle": "Mere robust ved kontoskift.",
+    "items": [
+      {
+        "icon": "bookmark",
+        "title": "Dine gemte artikler",
+        "description": "Forbedret håndtering af forsinkede opdateringer og genforsøg, når du skifter konto."
+      }
+    ]
+  },
+  {
+    "version": "1.73.0",
+    "title": "Stabil artikelstatus",
+    "subtitle": "Artiklen følger din aktuelle session.",
+    "items": [
+      {
+        "icon": "doc.text.magnifyingglass",
+        "title": "Sikre statusopdateringer",
+        "description": "Artiklens tilgængelighed følger den oprindelige konto og visning. Forsinkede svar og gamle genforsøg kan ikke overtage en nyere artikelvisning."
+      }
+    ]
+  },
+  {
+    "version": "1.72.0",
+    "title": "Mere stabil indlæsning",
+    "subtitle": "Indhold og kontoskift følges ad.",
+    "items": [
+      {
+        "icon": "arrow.triangle.2.circlepath",
+        "title": "Robuste hentninger",
+        "description": "Feed, metadata og artikel-links kontrollerer den oprindelige kontotilstand gennem indlæsningen. Dit valgte design og gæsteflow er bevaret."
+      }
+    ]
+  },
+  {
+    "version": "1.71.0",
+    "title": "Mere robust kontoopstart",
+    "subtitle": "Bedre beskyttelse ved kontoskift.",
+    "items": [
+      {
+        "icon": "person.crop.circle.badge.checkmark",
+        "title": "Konto og data følges ad",
+        "description": "Forsinkede kontokald kontrollerer den oprindelige bruger, før de fortsætter. Dit nuværende login- og gæsteflow er bevaret."
+      }
+    ]
+  },
+  {
+    "version": "1.70.0",
+    "title": "Overskrifter der følger dig",
+    "subtitle": "Din tekststørrelse gælder også i artikelheaderen.",
+    "items": [
+      {
+        "icon": "textformat.size",
+        "title": "Bedre læsbarhed",
+        "description": "Overskrifter og underrubrikker følger nu din valgte tekststørrelse. Ved normal tekst bevares det udseende, du kender."
+      }
+    ]
+  },
+  {
+    "version": "1.69.0",
+    "title": "Plads til hele navnet",
+    "subtitle": "Læsbare forfattere og emner i artiklerne.",
+    "items": [
+      {
+        "icon": "textformat.size",
+        "title": "Piller der følger teksten",
+        "description": "Lange forfatternavne og emner ombrydes nu og får plads i højden, også når du bruger større tekst på telefonen."
+      }
+    ]
+  },
+  {
+    "version": "1.68.0",
+    "title": "Tydelig status for offlinelæsning",
+    "subtitle": "Se hvornår artikelteksten er klar på din telefon.",
+    "items": [
+      {
+        "icon": "arrow.down.circle",
+        "title": "Prøv hentningen igen",
+        "description": "Hvis en gemt artikels tekst ikke kan hentes eller gemmes på telefonen, kan du prøve igen direkte i artiklen. Dit valg af gemte artikler bevares."
+      }
+    ]
+  },
+  {
+    "version": "1.67.0",
+    "title": "Tydelig status for gemte artikler",
+    "subtitle": "Dit valg og lagringens status hver for sig.",
+    "items": [
+      {
+        "icon": "bookmark",
+        "title": "Status ved Gem-knappen",
+        "description": "Se når dine gemte artikler afventer, eller kræver opmærksomhed. Åbn status direkte fra artiklen, prøv igen eller ændr dit valg."
+      }
+    ]
+  },
+  {
+    "version": "1.66.0",
+    "title": "Mere ro omkring artikelbilleder",
+    "subtitle": "Teksten bliver på sin plads.",
+    "items": [
+      {
+        "icon": "photo",
+        "title": "Stabil plads ved billedfejl",
+        "description": "Hvis et artikelbillede ikke kan vises, bevares pladsen og billedkrediteringen. Du får en tydelig besked uden at teksten hopper."
+      }
+    ]
+  },
+  {
+    "version": "1.65.0",
+    "title": "En tydelig vej ind i artiklen",
+    "subtitle": "Rolig klargøring og en vej videre ved fejl.",
+    "items": [
+      {
+        "icon": "text.alignleft",
+        "title": "Klargøring ved artikelteksten",
+        "description": "Du kan se, når artikelteksten bliver gjort klar. Hvis teksten ikke kan vises, kan du prøve igen direkte i artiklen."
+      }
+    ]
+  },
+  {
+    "version": "1.64.0",
+    "title": "Mere ro til læsning og lytning",
+    "subtitle": "Finpudsning af den oplevelse, du kender.",
+    "items": [
+      {
+        "icon": "text.alignleft",
+        "title": "Artikelklargøring i baggrunden",
+        "description": "Tung klargøring af artikeltekst og offlinebilleder flyttes væk fra brugerfladen. Dine læsevalg og artikelposition bevares."
+      },
+      {
+        "icon": "waveform",
+        "title": "Afspilleren følger dine bevægelsesvalg",
+        "description": "Afspillerens feedback ved tryk og swipe respekterer Reducer bevægelse. Knapperne og afspilningsflowet er som før."
+      }
+    ]
+  },
+  {
+    "version": "1.63.0",
+    "title": "Forberedelse til mere robust synkronisering",
+    "subtitle": "Et stærkere fundament for din læserkonto.",
+    "items": [
+      {
+        "icon": "lock.shield",
+        "title": "Sikker opstart",
+        "description": "Vi forbereder bedre beskyttelse af gemte valg ved kontoskift og afbrud. Den nye kontosletning er fortsat under udvikling."
+      }
+    ]
+  },
+  {
+    "version": "1.62.1",
+    "title": "Kort med en roligere bundlinje",
+    "subtitle": "Billede, undertekst og lytteknap står samlet.",
+    "items": [
+      {
+        "icon": "rectangle.bottomthird.inset.filled",
+        "title": "Ens placering på kortene",
+        "description": "Emne, Lyt og Fortsæt flugter nu med billedets nederste kant. Stor tekst har fortsat plads til at folde sig ud."
+      }
+    ]
+  },
+  {
+    "version": "1.62.0",
+    "title": "Sikrere håndtering af afbrud",
+    "subtitle": "Forberedelse til robust kontohåndtering.",
+    "items": [
+      {
+        "icon": "lock.shield",
+        "title": "Beskyttelse ved genstart",
+        "description": "Vi forbereder en sikker genoptagelse af gemte valg efter afbrud. Separat sletning af læserkonto er endnu ikke tilgængelig."
+      }
+    ]
+  },
+  {
+    "version": "1.61.3",
+    "title": "Mere kompakte lydkort",
+    "subtitle": "Mere plads til historierne på forsiden.",
+    "items": [
+      {
+        "icon": "waveform",
+        "title": "En enklere oversigt",
+        "description": "Lydkortene har mindre luft i bunden. Titel, emne og Lyt-knap står samlet ved siden af billedet."
+      }
+    ]
+  },
+  {
+    "version": "1.61.2",
+    "title": "En tydeligere lyttekø",
+    "subtitle": "Tættere liste og læsbar afspilningsstatus.",
+    "items": [
+      {
+        "icon": "list.bullet",
+        "title": "Bedre overblik i køen",
+        "description": "Listen ligger nu tæt under overskriften. Markeringen “Afspiller” har tydelig sort tekst på den hvide pille."
+      }
+    ]
+  },
+  {
+    "version": "1.61.1",
+    "title": "Enklere indstillinger",
+    "subtitle": "Et tydeligt overblik over din konto og appversion.",
+    "items": [
+      {
+        "icon": "person.crop.circle",
+        "title": "Din konto samlet ét sted",
+        "description": "Dit navn i Indstillinger viser nu kun dine kontooplysninger. Du finder appens version nederst på siden."
+      }
+    ]
+  },
+  {
+    "version": "1.61.0",
+    "title": "Dine valg skal gemmes sikkert",
+    "subtitle": "Forberedelse til mere robust kontohåndtering.",
+    "items": [
+      {
+        "icon": "checkmark.shield",
+        "title": "Sikker håndtering af genforsøg",
+        "description": "Vi forbereder sikker lagring af kvitteringer for dine valg, også ved afbrud. Separat sletning af læserkonto er endnu ikke tilgængelig."
+      }
+    ]
+  },
+  {
+    "version": "1.60.0",
+    "title": "Vi passer på dine gemte valg",
+    "subtitle": "Forberedelse til sikker kontohåndtering.",
+    "items": [
+      {
+        "icon": "lock.shield",
+        "title": "Mere robust håndtering af afbrud",
+        "description": "Vi forbereder sikker bevarelse af gemte valg, når kontohåndteringen opdateres. Separat sletning af læserkonto er endnu ikke tilgængelig."
+      }
+    ]
+  },
+  {
+    "version": "1.59.0",
+    "title": "Vi passer på dine gemte valg",
+    "subtitle": "Bedre kontrol med kontoskift.",
+    "items": [
+      {
+        "icon": "lock.shield",
+        "title": "Sikker håndtering af ændringer",
+        "description": "Vi forbereder sikker kontohåndtering og beskytter dine gemte valg under kontoskift. Separat sletning af læserkonto er endnu ikke tilgængelig."
+      }
+    ]
+  },
+  {
+    "version": "1.58.0",
+    "title": "Vi passer på dine gemte valg",
+    "subtitle": "Forberedelse til sikker synkronisering.",
+    "items": [
+      {
+        "icon": "lock.shield",
+        "title": "Dine valg følger din konto",
+        "description": "Vi forbereder mere sikker lagring af favoritændringer og læserinteresser. Den separate kontosletning er endnu ikke tilgængelig."
+      }
+    ]
+  },
+  {
+    "version": "1.57.0",
+    "title": "Vi passer på dine læserdata",
+    "subtitle": "Forberedelse til separat læserkontosletning.",
+    "items": [
+      {
+        "icon": "lock.shield",
+        "title": "Sikker håndtering af dine valg",
+        "description": "Vi forbereder bedre beskyttelse af gemte artikler og læseinteresser ved kontosletning. Slettefunktionen er endnu ikke tilgængelig i appen."
+      }
+    ]
+  },
+  {
+    "version": "1.56.0",
+    "title": "Sikkerhed omkring dine læserdata",
+    "subtitle": "Vi forbereder separat læserkontosletning.",
+    "items": [
+      {
+        "icon": "lock.shield",
+        "title": "Din læserkonto",
+        "description": "Vi arbejder videre med sikker håndtering af læserdata. Kontosletning er endnu ikke tilgængelig i appen."
+      }
+    ]
+  },
+  {
+    "version": "1.55.1",
+    "title": "En enklere velkomst",
+    "subtitle": "Mere ro omkring dine loginvalg.",
+    "items": [
+      {
+        "icon": "rectangle.compress.vertical",
+        "title": "Direkte til magasinet",
+        "description": "En lille knap under velkomstteksten åbner magasinet. Loginvalgene er samlet længere nede på skærmen."
+      }
+    ]
+  },
+  {
+    "version": "1.55.0",
+    "title": "Tryghed omkring din konto",
+    "subtitle": "Forberedelse til separat læserkontosletning.",
+    "items": [
+      {
+        "icon": "person.crop.circle.badge.checkmark",
+        "title": "Bekræft din identitet",
+        "description": "Vi forbereder sikker bekræftelse før sletning af læserdata. Slettefunktionen er endnu ikke tilgængelig i appen."
+      }
+    ]
+  },
+  {
+    "version": "1.54.0",
+    "title": "En tydeligere start",
+    "subtitle": "Din konto først. Dine interesser bagefter.",
+    "items": [
+      {
+        "icon": "person.crop.circle",
+        "title": "Vælg din konto",
+        "description": "Introduktionen starter med login eller din allerede gemte konto. Du kan også vælge en anden konto."
+      },
+      {
+        "icon": "checkmark.circle",
+        "title": "Gem dine interesser",
+        "description": "Appen henter kontodata før gemning og kan prøve indlæsningen igen, hvis forbindelsen fejler."
+      }
+    ]
+  },
+  {
+    "version": "1.53.0",
+    "title": "Kontrol over dine læserdata",
+    "subtitle": "Forberedelse til separat læserkontosletning.",
+    "items": [
+      {
+        "icon": "person.crop.circle.badge.checkmark",
+        "title": "Din konto",
+        "description": "Vi forbereder separat sletning af læserdata. Funktionen er endnu ikke tilgængelig i appen."
+      }
+    ]
+  },
+  {
+    "version": "1.52.0",
+    "title": "Velkommen til dit Apropos",
+    "subtitle": "En enklere start på magasinet.",
+    "items": [
+      {
+        "icon": "person.crop.circle",
+        "title": "Log ind med det samme",
+        "description": "Apple, Google og e-mail er samlet på første skærm. Du kan også fortsætte som gæst."
+      },
+      {
+        "icon": "sparkles",
+        "title": "En roligere introduktion",
+        "description": "Blå og hvide lysfelter bevæger sig blødt bag indholdet. Nye læsere kan vælge interesser efter oprettelsen."
+      }
+    ]
+  },
+  {
+    "version": "1.51.0",
+    "title": "Nyhedsbrevet i Apropos",
+    "subtitle": "Forberedelse til samlet tilmelding.",
+    "items": [
+      {
+        "icon": "envelope",
+        "title": "Ét nyhedsbrev",
+        "description": "Nyhedsbrevstilmelding i appen forberedes til Apropos’ eksisterende nyhedsbrev."
+      }
+    ]
+  },
+  {
+    "version": "1.50.1",
+    "title": "En enklere velkomst",
+    "subtitle": "Små justeringer til introduktionen.",
+    "items": [
+      {
+        "icon": "rectangle.compress.vertical",
+        "title": "Mere kompakte knapper",
+        "description": "Introduktionen har fået lavere knapper og et enklere udtryk."
+      }
+    ]
+  },
+  {
+    "version": "1.50.0",
+    "title": "Dit Apropos",
+    "subtitle": "En rolig introduktion til magasinet.",
+    "items": [
+      {
+        "icon": "sparkles",
+        "title": "En ny velkomst",
+        "description": "Et fælles, roligt lysfelt følger dig gennem introduktionen."
+      },
+      {
+        "icon": "textformat.size",
+        "title": "Vælg med et tryk",
+        "description": "Store emneord gør det enkelt at vælge dine læseinteresser."
+      },
+      {
+        "icon": "person.crop.circle",
+        "title": "Dine valg følger dit login",
+        "description": "Fortsæt med Apple, Google eller e-mail. Nyhedsbrevet er et særskilt tilvalg, og status vises i appen."
+      }
+    ]
+  },
+  {
+    "version": "1.49.0",
+    "title": "Mere ro til læsningen",
+    "subtitle": "Rettelser til konto, læseposition og forside.",
+    "items": [
+      {
+        "icon": "person.crop.circle.badge.checkmark",
+        "title": "Mere stabilt login",
+        "description": "Loginforløb holdes adskilt, så gamle svar ikke starter et nyt login."
+      },
+      {
+        "icon": "book",
+        "title": "Bevar dit gemte afsnit",
+        "description": "En accepteret læseposition gemmes færdig, også når du lukker artiklen."
+      },
+      {
+        "icon": "textformat.size",
+        "title": "Plads til artikelkortets tekst",
+        "description": "Forsidens artikelkort får plads til datoer og større tekst."
+      }
+    ]
+  },
+  {
+    "version": "1.48.0",
+    "title": "Tilbage til fortællingen",
+    "subtitle": "Små forbedringer til læsning og lyd.",
+    "items": [
+      {
+        "icon": "book",
+        "title": "Fortsæt læsning",
+        "description": "Vend tilbage til dit gemte afsnit på denne enhed. Du vælger selv, om du vil fortsætte eller læse fra begyndelsen."
+      },
+      {
+        "icon": "waveform",
+        "title": "Præcis lydmærkning",
+        "description": "AI-mærket vises kun på lyd, der er angivet som AI-oplæsning."
+      },
+      {
+        "icon": "calendar",
+        "title": "Letlæselige datoer",
+        "description": "Artikelkort viser datoen i et ensartet dansk format."
+      }
+    ]
+  },
+  {
+    "version": "1.47.0",
+    "title": "Velkommen til Apropos",
+    "subtitle": "Kom godt i gang med magasinet.",
+    "items": [
+      {
+        "icon": "sparkles",
+        "title": "En kort introduktion",
+        "description": "Læs videre med det samme, eller vælg interesser og se mulighederne for konto og nyhedsbrev."
+      },
+      {
+        "icon": "slider.horizontal.3",
+        "title": "Dine læseinteresser",
+        "description": "Vælg emner til anbefalinger. Du kan også bruge appen som gæst og se introduktionen igen fra Indstillinger."
+      }
+    ]
+  },
+  {
+    "version": "1.46.1",
+    "title": "Rene coverbilleder",
+    "subtitle": "En rettelse til forsiden.",
+    "items": [
+      {
+        "icon": "photo",
+        "title": "Coverbilleder uden bogmærkeikoner",
+        "description": "De ekstra bogmærkeikoner er fjernet fra forsiden, så billederne igen står frit."
+      }
+    ]
+  },
+  {
+    "version": "1.46.0",
+    "title": "Det velkendte udtryk",
+    "subtitle": "Rettelser til forside og lytning.",
+    "items": [
+      {
+        "icon": "rectangle.split.3x1",
+        "title": "Emner ved siden af hinanden",
+        "description": "Forsidens forfatter- og emnepiller står igen på én vandret række."
+      },
+      {
+        "icon": "headphones",
+        "title": "Den kompakte lytteknap",
+        "description": "Lytteknappen har igen sit oprindelige udseende."
+      },
+      {
+        "icon": "play.circle",
+        "title": "Lyd fra det eksisterende katalog",
+        "description": "Onlineafspilning understøtter igen det tidligere format for oplæste artikler."
+      }
+    ]
+  },
+  {
+    "version": "1.45.0",
+    "title": "En roligere forside",
+    "subtitle": "En lokal udviklingsopdatering.",
+    "items": [
+      {
+        "icon": "rectangle.stack",
+        "title": "Forberedt til læsning",
+        "description": "Forsidens artikler, emner og podcastvalg forberedes samlet, så de kan genbruges under læsning og scrolling."
+      },
+      {
+        "icon": "arrow.clockwise",
+        "title": "Indhold med aktuel status",
+        "description": "Forsiden følger aktuelle artikler og konto. Tilbagetrukket indhold og gamle personlige valg fjernes, mens nye data forberedes."
+      },
+      {
+        "icon": "rectangle.expand.vertical",
+        "title": "Billeder helt til kanten",
+        "description": "Forsidens store billede går helt op bag statuslinjen uden ekstra afstand i toppen."
+      },
+      {
+        "icon": "headphones",
+        "title": "Lyt til artiklen",
+        "description": "Lytteknappen opdateres, når lydlisten indlæses, og vises, når artiklens aktuelle lyd er tilgængelig."
+      }
+    ]
+  },
+  {
+    "version": "1.44.0",
+    "title": "Dine læservalg på den rigtige konto",
+    "subtitle": "En lokal udviklingsopdatering.",
+    "items": [
+      {
+        "icon": "person.crop.circle.badge.checkmark",
+        "title": "Sammenhængende konto",
+        "description": "Login og kontostatus holdes samlet, så gamle svar ikke overtager en ny konto."
+      },
+      {
+        "icon": "slider.horizontal.3",
+        "title": "Interesser med tydelig status",
+        "description": "Dine læservalg følger den konto, hvor du valgte dem. Appen viser, når gemning endnu ikke er bekræftet."
+      }
+    ]
+  },
+  {
+    "version": "1.43.0",
+    "title": "En profil, der følger din konto",
+    "subtitle": "En lokal udviklingsopdatering.",
+    "items": [
+      {
+        "icon": "person.crop.circle",
+        "title": "Tydeligt kontoskift",
+        "description": "Profilen indlæses for den aktuelle konto. Navn og mail fra en tidligere konto skjules, mens den nye profil hentes."
+      },
+      {
+        "icon": "arrow.clockwise.circle",
+        "title": "Roligere indlæsning",
+        "description": "Profil, indlæsning og fejl holdes samlet. Et gammelt svar må ikke overskrive dine nyere valg."
+      }
+    ]
+  },
+  {
+    "version": "1.42.0",
+    "title": "Dine valg følger med fra start",
+    "subtitle": "En lokal udviklingsopdatering.",
+    "items": [
+      {
+        "icon": "bookmark",
+        "title": "Genoptaget synkronisering",
+        "description": "Ventende favoritændringer kan sendes videre, mens profilen stadig indlæses. Appen bevarer tydelig status, indtil ændringen er bekræftet."
+      },
+      {
+        "icon": "person.crop.circle.badge.checkmark",
+        "title": "Dine valg på den rigtige konto",
+        "description": "Hver ændring følger den oprindelige konto og det oprindelige forsøg. Et gammelt svar må ikke overtage en ny læsers valg."
+      }
+    ]
+  },
+  {
+    "version": "1.41.0",
+    "title": "Dine gemte valg bliver husket",
+    "subtitle": "En lokal udviklingsopdatering.",
+    "items": [
+      {
+        "icon": "bookmark",
+        "title": "Ændringer kan genoptages",
+        "description": "Gemninger og fjernelser bevares, mens de venter på synkronisering. Appen viser, når dine valg endnu ikke er bekræftet."
+      },
+      {
+        "icon": "arrow.triangle.2.circlepath",
+        "title": "Kontrolleret genstart",
+        "description": "Ventende arbejde kontrolleres, før appen forsøger igen. Et gammelt svar må ikke overtage en nyere ændring."
+      }
+    ]
+  },
+  {
+    "version": "1.40.0",
+    "title": "Den rigtige lydversion",
+    "subtitle": "En lokal udviklingsopdatering.",
+    "items": [
+      {
+        "icon": "waveform",
+        "title": "Downloads følger lydens revision",
+        "description": "Gemte lydfiler holdes adskilt, når kilden ændres. En gammel download må ikke overtage en nyere version."
+      },
+      {
+        "icon": "checkmark.shield",
+        "title": "Kontrol før offlineafspilning",
+        "description": "Appen kontrollerer den gemte lyd, før den bruges offline. Manglende kontrol giver ingen bekræftelse på en download."
+      }
+    ]
+  },
+  {
+    "version": "1.39.0",
+    "title": "Del en artikel eller et øjeblik",
+    "subtitle": "En lokal udviklingsopdatering.",
+    "items": [
+      {
+        "icon": "link",
+        "title": "Links venter på appen",
+        "description": "Artikellinks håndteres samlet og venter på, at appen er klar."
+      },
+      {
+        "icon": "play.circle",
+        "title": "Lyt fra det delte tidspunkt",
+        "description": "Et podcasttidspunkt føres frem til afspilleren. Hvis lyden ikke kan åbnes, får du tydelig besked."
+      }
+    ]
+  },
+  {
+    "version": "1.38.0",
+    "title": "Dine gemte artikler",
+    "subtitle": "En lokal udviklingsopdatering.",
+    "items": [
+      {
+        "icon": "bookmark",
+        "title": "Favoritter følger den aktive læser",
+        "description": "Gemte valg holdes adskilt mellem gæst og konti. Forsinkede opdateringer og offlineadgang kontrolleres mod den oprindelige session."
+      },
+      {
+        "icon": "arrow.clockwise",
+        "title": "Tydelig status ved gemning",
+        "description": "Du får besked, hvis ændringer ikke kan gemmes eller mangler bekræftelse."
+      }
+    ]
+  },
+  {
+    "version": "1.37.0",
+    "title": "Læsehistorik med tydeligt ejerskab",
+    "subtitle": "En lokal udviklingsopdatering.",
+    "items": [
+      {
+        "icon": "book.closed",
+        "title": "Historik følger den aktive session",
+        "description": "Læsehistorik og anbefalinger afgrænses mellem gæst og konti. Gamle globale data flyttes ikke automatisk."
+      },
+      {
+        "icon": "arrow.triangle.2.circlepath",
+        "title": "Sikrere opdateringer",
+        "description": "Forsinkede læseopdateringer skal tilhøre den session, hvor de blev målt."
+      }
+    ]
+  },
+  {
+    "version": "1.36.0",
+    "title": "Din lytteposition",
+    "subtitle": "En lokal udviklingsopdatering.",
+    "items": [
+      {
+        "icon": "headphones",
+        "title": "Lytning følger den aktive konto",
+        "description": "Lyttepositioner holdes adskilt for gæster og konti. Et kontoskift lukker den tidligere afspilning, og du får besked, hvis en position ikke kan gemmes."
+      }
+    ]
+  },
+  {
+    "version": "1.35.0",
+    "title": "Kontakt og privatliv",
+    "subtitle": "En lokal udviklingsopdatering.",
+    "items": [
+      {
+        "icon": "envelope",
+        "title": "Kontakt med tydelig status",
+        "description": "Åbn en mailkladde til os, og behold din besked, hvis du afbryder. Vi fortsætter også oprydningen i appens tekniske logning."
+      }
+    ]
+  },
+  {
+    "version": "1.34.0",
+    "title": "Dine privatlivsvalg",
+    "subtitle": "Du vælger selv i Indstillinger.",
+    "items": [
+      {
+        "icon": "hand.raised",
+        "title": "Statistik og lokal fejllog",
+        "description": "Vælg særskilt, om du vil dele brugsstatistik eller gemme en teknisk log på denne enhed. Begge valg starter slået fra."
+      }
+    ]
+  },
+  {
+    "version": "1.33.0",
+    "title": "Kvalitet før lancering",
+    "subtitle": "En lokal udviklingsopdatering.",
+    "items": [
+      {
+        "icon": "checkmark.shield",
+        "title": "Sikkerhed og stabilitet",
+        "description": "Vi forbereder den næste opdatering og gennemgår appens sikkerhed og stabilitet."
+      }
+    ]
+  },
+  {
+    "version": "1.32.0",
+    "title": "Fortsat kvalitetsarbejde",
+    "subtitle": "En lokal udviklingsopdatering.",
+    "items": [
+      {
+        "icon": "bell",
+        "title": "Pålidelige notifikationer",
+        "description": "Vi fortsætter arbejdet med at opdage og håndtere fejl i notifikationer. Den nye leveringsvej er endnu ikke aktiveret."
+      }
+    ]
+  },
+  {
+    "version": "1.31.0",
+    "title": "Fortsat kvalitetsarbejde",
+    "subtitle": "En lokal udviklingsopdatering.",
+    "items": [
+      {
+        "icon": "bell",
+        "title": "Pålidelige notifikationer",
+        "description": "Vi tester genoptagelse efter afbrydelser, mens vi forbereder den nye håndtering af notifikationer. Den nye leveringsvej er endnu ikke aktiveret."
+      }
+    ]
+  },
+  {
+    "version": "1.30.0",
+    "title": "Fortsat kvalitetsarbejde",
+    "subtitle": "En lokal udviklingsopdatering.",
+    "items": [
+      {
+        "icon": "bell",
+        "title": "Pålidelige notifikationer",
+        "description": "Vi fortsætter arbejdet med håndtering af afbrydelser og forbindelsesfejl. Den nye leveringsvej er endnu ikke aktiveret."
+      }
+    ]
+  },
+  {
+    "version": "1.29.0",
+    "title": "Fortsat kvalitetsarbejde",
+    "subtitle": "En lokal udviklingsopdatering.",
+    "items": [
+      {
+        "icon": "bell",
+        "title": "Dine valg ved login",
+        "description": "Vi fortsætter arbejdet med pålidelige notifikationsvalg, når du logger ind eller vender tilbage til appen. Den nye leveringsvej er endnu ikke aktiveret."
+      }
+    ]
+  },
+  {
+    "version": "1.28.0",
+    "title": "Fortsat kvalitetsarbejde",
+    "subtitle": "En lokal udviklingsopdatering.",
+    "items": [
+      {
+        "icon": "bell",
+        "title": "Pålidelige notifikationsvalg",
+        "description": "Vi tester håndteringen af forbindelsesfejl, mens vi forbereder de nye notifikationsvalg. Den nye leveringsvej er endnu ikke aktiveret."
+      }
+    ]
+  },
+  {
+    "version": "1.27.0",
+    "title": "Notifikationer på dine enheder",
+    "subtitle": "En lokal udviklingsopdatering.",
+    "items": [
+      {
+        "icon": "iphone",
+        "title": "Dine valg på hver enhed",
+        "description": "Vi fortsætter arbejdet med mere pålidelige notifikationsvalg ved login og skift af enhed. Den nye leveringsvej er endnu ikke aktiveret."
+      }
+    ]
+  },
+  {
+    "version": "1.26.0",
+    "title": "Fortsat kvalitetsarbejde",
+    "subtitle": "En lokal udviklingsopdatering.",
+    "items": [
+      {
+        "icon": "bell.badge",
+        "title": "Dine notifikationsvalg",
+        "description": "Vi forbereder bedre kontrol af notifikationer på tværs af dine enheder. Den nye leveringsvej er endnu ikke aktiveret."
+      }
+    ]
+  },
+  {
+    "version": "1.25.0",
+    "title": "Kvalitet før næste testversion",
+    "subtitle": "En lokal udviklingsopdatering.",
+    "items": [
+      {
+        "icon": "bell",
+        "title": "Notifikationer under forberedelse",
+        "description": "Vi tester, hvordan artikelnotifikationer håndteres ved rettelser og forbindelsesfejl. Den nye leveringsvej er endnu ikke aktiveret."
+      }
+    ]
+  },
+  {
+    "version": "1.24.0",
+    "title": "En roligere læseoplevelse",
+    "subtitle": "Overblik gennem hele artiklen.",
+    "items": [
+      {
+        "icon": "text.alignleft",
+        "title": "Rolig bevægelse",
+        "description": "Nye afsnit toner diskret ind, når du scroller. Reducer bevægelse og VoiceOver viser teksten uden effekt."
+      },
+      {
+        "icon": "line.diagonal",
+        "title": "Følg din læsning",
+        "description": "En tynd linje under topbaren viser, hvor langt du er i artikelteksten."
+      }
+    ]
+  },
+  {
+    "version": "1.23.0",
+    "title": "Forberedelse af bedre notifikationer",
+    "subtitle": "En lokal udviklingsopdatering.",
+    "items": [
+      {
+        "icon": "bell",
+        "title": "Dine emnevalg",
+        "description": "Denne udviklingsversion forbereder individuel håndtering af notifikationer og bevarer adskilte valg for artikler og podcasts. Den nye leveringsvej er endnu ikke aktiveret."
+      }
+    ]
+  },
+  {
+    "version": "1.22.0",
+    "title": "Bedre sammenhæng ved artikelrettelser",
+    "subtitle": "En lokal udviklingsopdatering.",
+    "items": [
+      {
+        "icon": "newspaper",
+        "title": "Aktuel artikeltekst",
+        "description": "Denne udviklingsversion forbereder opdatering af en endnu usendt artikelnotifikation, når den godkendte artikel bliver rettet."
+      }
+    ]
+  },
+  {
+    "version": "1.21.0",
+    "title": "Mere præcis håndtering af podcastnotifikationer",
+    "subtitle": "En lokal udviklingsopdatering.",
+    "items": [
+      {
+        "icon": "headphones",
+        "title": "Podcast og lydliste",
+        "description": "Denne udviklingsversion forbereder podcastnotifikationer med kontrol af den aktuelle lydliste og tydeligere håndtering af fejl og genforsøg."
+      }
+    ]
+  },
+  {
+    "version": "1.20.0",
+    "title": "Bedre håndtering af nye artikler",
+    "subtitle": "En lokal udviklingsopdatering.",
+    "items": [
+      {
+        "icon": "newspaper",
+        "title": "Publicering og genforsøg",
+        "description": "Denne udviklingsversion forbereder mere pålidelig registrering af publiceringshændelser før opdatering af indhold og kølægning af notifikationer."
+      }
+    ]
+  },
+  {
+    "version": "1.19.0",
+    "title": "Mere præcis håndtering af notifikationer",
+    "subtitle": "En lokal udviklingsopdatering.",
+    "items": [
+      {
+        "icon": "bell",
+        "title": "Kvitteringer og genforsøg",
+        "description": "Denne udviklingsversion forbereder mere pålidelig registrering af artikelnotifikationer og fejl ved udsendelse."
+      }
+    ]
+  },
+  {
+    "version": "1.18.0",
+    "title": "Mere stabil håndtering af lyd",
+    "subtitle": "En lokal udviklingsopdatering.",
+    "items": [
+      {
+        "icon": "headphones",
+        "title": "Lyd og artikelændringer",
+        "description": "Denne udviklingsversion forbereder mere pålidelig publicering af nye optagelser og opdatering af lydlisten efter artikelændringer."
+      }
+    ]
+  },
+  {
+    "version": "1.17.0",
+    "title": "Forbedret håndtering af oplæsninger",
+    "subtitle": "En lokal udviklingsopdatering.",
+    "items": [
+      {
+        "icon": "headphones",
+        "title": "Opdaterede oplæsninger",
+        "description": "Denne udviklingsversion forbereder mere pålidelig håndtering af artikelrettelser og oplæsninger."
+      }
+    ]
+  },
+  {
+    "version": "1.16.0",
+    "title": "Kontrol af AI-oplæsningens kilde",
+    "subtitle": "Bedre sammenhæng efter artikelrettelser.",
+    "items": [
+      {
+        "icon": "doc.text.magnifyingglass",
+        "title": "Artikel og oplæsning",
+        "description": "AI-lyd kontrolleres mod accepteret kildeinformation og kendte artikelrevisioner, før den kan afspilles."
+      }
+    ]
+  },
+  {
+    "version": "1.15.0",
+    "title": "Mere præcis sammenhæng mellem artikel og lyd",
+    "subtitle": "Bedre kontrol af lydens artikelidentitet.",
+    "items": [
+      {
+        "icon": "headphones",
+        "title": "Kontrol før afspilning",
+        "description": "Afspilning afvises, hvis artiklen og lydens artikelidentitet er modstridende."
+      }
+    ]
+  },
+  {
+    "version": "1.14.0",
+    "title": "Mere pålidelig lydstatus",
+    "subtitle": "Bedre sammenhæng mellem artikler og lyd.",
+    "items": [
+      {
+        "icon": "headphones",
+        "title": "Opdateret lydflow",
+        "description": "Kendt utilgængelig lyd fjernes fra køen, og gemte lydlister håndterer også en tilsigtet tom liste."
+      }
+    ]
+  },
+  {
+    "version": "1.13.0",
+    "title": "Bedre håndtering af artikelrettelser",
+    "subtitle": "Mere præcis genbrug af gemt indhold.",
+    "items": [
+      {
+        "icon": "doc.text",
+        "title": "Indholdsrevisioner",
+        "description": "Gemte artikler og favoritter skelner nu mellem indholdsrevisioner, også når publiceringsdatoen er uændret."
+      }
+    ]
+  },
+  {
+    "version": "1.12.0",
+    "title": "Tydeligere artikelstatus",
+    "subtitle": "Bedre besked, når en artikel ikke kan åbnes.",
+    "items": [
+      {
+        "icon": "doc.text.magnifyingglass",
+        "title": "Opdateret læser",
+        "description": "Når en artikel ikke længere er tilgængelig, får du en tydelig besked. Du kan kontrollere status igen, og manglende artikeltekst får en hente- og retrytilstand."
+      }
+    ]
+  },
+  {
+    "version": "1.11.0",
+    "title": "Mere pålideligt indhold",
+    "subtitle": "En fælles vej til publicerede artikler.",
+    "items": [
+      {
+        "icon": "doc.text",
+        "title": "Bedre håndtering af artikler",
+        "description": "Publiceret indhold og arkiveringsstatus håndteres mere ensartet, når magasinet opdateres."
+      }
+    ]
+  },
+  {
+    "version": "1.10.0",
+    "title": "Tydeligere kontoskærme",
+    "subtitle": "Bedre læsbarhed i lyst og mørkt tema.",
+    "items": [
+      {
+        "icon": "person.crop.circle",
+        "title": "Tydelige knapper",
+        "description": "Knapper til login, oprettelse og hjælp til din konto følger nu det lyse og mørke tema."
+      }
+    ]
+  },
+  {
+    "version": "1.9.1",
+    "title": "Mere pålidelig offline-lyd",
+    "subtitle": "Bedre styr på downloads og oprydning.",
+    "items": [
+      {
+        "icon": "arrow.down.circle",
+        "title": "Download og oprydning hænger sammen",
+        "description": "Når du fjerner gemt lyd eller rydder cachen, annulleres tilhørende downloads. Lyden bevares, hvis en anden gemt artikel stadig bruger den."
+      }
+    ]
+  },
+  {
+    "version": "1.9.0",
+    "title": "Flere muligheder for din konto",
+    "subtitle": "Log ind med den metode, der passer dig.",
+    "items": [
+      {
+        "icon": "apple.logo",
+        "title": "Fortsæt med Apple",
+        "description": "Apple-login er tilføjet sammen med Google og e-mail. Du vælger selv, om du vil dele din e-mail med appen."
+      }
+    ]
+  },
+  {
+    "version": "1.8.1",
+    "title": "Nyhedsbrev fra Apropos",
+    "subtitle": "Din konto og vores eksisterende nyhedsbrev hænger bedre sammen.",
+    "items": [
+      {
+        "icon": "envelope",
+        "title": "Tilmeld dig under oprettelsen",
+        "description": "Efter login eller konto-oprettelse kan du åbne vores eksisterende nyhedsbrevsformular med din e-mail udfyldt. Afslut tilmeldingen i formularen."
+      }
+    ]
+  },
+  {
+    "version": "1.8.0",
+    "title": "Nyheder i Apropos Magazine",
+    "subtitle": "Din konto og dine læseinteresser samlet ét sted.",
+    "items": [
+      {
+        "icon": "person.crop.circle",
+        "title": "Opret med e-mail",
+        "description": "Log ind med Google eller e-mail, opret en konto og få hjælp, hvis du har glemt din adgangskode."
+      },
+      {
+        "icon": "text.book.closed",
+        "title": "Vælg dine interesser",
+        "description": "Få artikelanbefalinger ud fra dine emner og favoritter. Læseinteresser ændrer ikke dine pushvalg."
+      }
+    ]
+  },
+  {
+    "version": "1.7.1",
+    "title": "Nyheder i Apropos Magazine",
+    "subtitle": "Mere stabil indlæsning og bedre sammenhæng, når du læser og lytter.",
+    "items": [
+      {
+        "icon": "doc.text",
+        "title": "Mere pålidelig artikelindlæsning",
+        "description": "Hurtige artikelskift og opdateringer håndteres mere sikkert, så gamle svar ikke overtager det, du har valgt."
+      },
+      {
+        "icon": "magnifyingglass",
+        "title": "Lettere at finde artikler",
+        "description": "Søgning og sortering er forbedret, og du kan indlæse flere resultater uden den tidligere ekstra ventetid."
+      },
+      {
+        "icon": "play.circle",
+        "title": "Bevar din lytteposition",
+        "description": "Podcastkø og fortsat lytning er rettet, også når du pauser, skifter episode eller er offline."
+      }
+    ]
+  },
+  {
     "version": "1.7",
     "title": "Nyheder i Apropos Magazine",
     "subtitle": "Offline der giver mening, forfatter-sider og en roligere start.",

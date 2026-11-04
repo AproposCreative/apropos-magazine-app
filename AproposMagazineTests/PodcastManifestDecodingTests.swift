@@ -1,5 +1,5 @@
 import XCTest
-@testable import Apropos_Magazine
+@testable import Apropos
 
 final class PodcastManifestDecodingTests: XCTestCase {
     private func makeDecoder() -> JSONDecoder {
@@ -108,5 +108,33 @@ final class PodcastManifestDecodingTests: XCTestCase {
         { "version": 1 }
         """.data(using: .utf8)!
         XCTAssertThrowsError(try makeDecoder().decode(PodcastManifest.self, from: json))
+    }
+}
+
+extension PodcastManifestDecodingTests {
+    func testCanonicalArticleIDIsPreservedInEpisode() throws {
+        let data = Data("{\"episodes\":[{\"id\":\"episode\",\"articleId\":\"canonical\",\"slug\":\"story\",\"title\":\"Story\",\"audioUrl\":\"https://fixtures.example.invalid/story.mp3\"}]}".utf8)
+        let episode = try XCTUnwrap(makeDecoder().decode(PodcastManifest.self, from: data).episodes.first?.toEpisode())
+        XCTAssertEqual(episode.articleId, "canonical")
+    }
+
+    func testMissingStableIdentityCannotProduceRandomUnrevocableEpisode() {
+        let data = Data("{\"episodes\":[{\"title\":\"Story\",\"audioUrl\":\"https://fixtures.example.invalid/story.mp3\"}]}".utf8)
+        XCTAssertThrowsError(try makeDecoder().decode(PodcastManifest.self, from: data))
+    }
+}
+
+extension PodcastManifestDecodingTests {
+    func testAIRevisionSurvivesManifestDecodingAndActualArticleEnrichmentCopy() throws {
+        let revision = "cms-sha256-v1:" + String(repeating: "a", count: 64)
+        let data = try JSONSerialization.data(withJSONObject: ["episodes": [["id": "ai-A", "articleId": "A", "slug": "story",
+            "title": "Story", "kind": "ai", "sourceContentRevision": revision, "audioUrl": "https://fixtures.example.invalid/a.mp3"]]])
+        let decoded = try XCTUnwrap(makeDecoder().decode(PodcastManifest.self, from: data).episodes.first?.toEpisode())
+        let article = Article(id: "A", name: "Story", slug: "story", content: "", intro: "", topicID: "music")
+        let enriched = PodcastRepository.enriched(decoded, with: article)
+        XCTAssertTrue(enriched.isAINarration)
+        XCTAssertEqual(enriched.sourceContentRevision, revision)
+        XCTAssertEqual(enriched.articleId, "A")
+        XCTAssertEqual(enriched.audioURL, decoded.audioURL)
     }
 }

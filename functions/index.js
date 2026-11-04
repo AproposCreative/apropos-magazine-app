@@ -1,21 +1,40 @@
 const {setGlobalOptions} = require("firebase-functions");
 const {onRequest} = require("firebase-functions/https");
 const {onSchedule} = require("firebase-functions/v2/scheduler");
-const {onDocumentCreated} = require("firebase-functions/v2/firestore");
+const {onDocumentWritten} = require("firebase-functions/v2/firestore");
 const {defineSecret} = require("firebase-functions/params");
 const logger = require("firebase-functions/logger");
-const {initializeApp} = require("firebase-admin/app");
+const {initializeApp, getApp} = require("firebase-admin/app");
+const {getAuth} = require("firebase-admin/auth");
+const {getAppCheck} = require("firebase-admin/app-check");
 const {FieldValue, getFirestore} = require("firebase-admin/firestore");
 const {getMessaging} = require("firebase-admin/messaging");
 const {getStorage} = require("firebase-admin/storage");
 const {generateAndPublishNarration} = require("./narration");
+const {readNarrationSource, articleIndex, createPodcastManifestPublisher} = require("./podcastManifest");
+const {COLLECTION: MANIFEST_JOBS_COLLECTION, DOCUMENT: MANIFEST_JOB_DOCUMENT, ready: manifestJobReady,
+  catalogChangeAffectsManifest, createManifestJobStore, runManifestReconciliation} = require("./manifestReconciliation");
+const {COLLECTION: NARRATION_JOBS_COLLECTION, createNarrationJobStore, runNarrationJob, drainPendingNarrationNotifications, ready} = require("./narrationJobs");
+const {COLLECTION: ARTICLE_PUSH_COLLECTION, ready: pushJobReady, createArticlePushStore, runArticlePush, withSendDeadline} = require("./pushOutbox");
+const {EVENTS: PUBLICATION_EVENTS, ready: publicationEventReady, createPublicationStore, runPublicationEvent, dispatchPublication} = require("./publicationLedger");
+const {COLLECTION: PODCAST_PUSH_COLLECTION, PodcastAcceptanceError, createPodcastReader, createPodcastPushStore, enqueuePodcastPush, runPodcastPush} = require("./podcastPush");
+const {verifyWebflowWebhook, extractItem} = require("./webflowWebhook");
+const {readerNewsletterConfigFromEnvironment, createReaderNewsletterHttpHandler} = require("./readerNewsletterEndpoint");
+const {readerStartupConfigFromEnvironment, createReaderStartupHttpHandler} = require("./readerStartupEndpoint");
+const {readerDeletionConfigFromEnvironment, createReaderDeletionHttpHandler} = require("./readerDeletionEndpoint");
+const {RETIRED_RECOMMENDATION_OPTIONS, retiredRecommendationEndpoint} = require("./retiredRecommendationEndpoint");
+const {synchronizeLiveCatalog, firestoreCatalogStore, catalogEventAction, isVisibleMirrorItem, synchronizeCatalogEvent} = require("./webflowCatalog");
 const {
-  evaluateArticleNotificationPolicy,
   isEnglishArticleContent,
 } = require("./notificationPolicy");
 
+const {ENGLISH_LOCALE, isEnglishMirror} = require("./articleLocale");
+// Local implementation gate. Activation requires separate deployment/readback approval.
+const LOCALIZED_ARTICLE_MIRROR_ENABLED = false;
+
 const podcastNotifySecret = defineSecret("PODCAST_NOTIFY_SECRET");
 const webflowApiKey = defineSecret("WEBFLOW_API_KEY");
+const webflowWebhookSecret = defineSecret("WEBFLOW_WEBHOOK_SECRET");
 const openaiApiKey = defineSecret("OPENAI_API_KEY");
 const elevenLabsApiKey = defineSecret("ELEVENLABS_API_KEY");
 
@@ -38,27 +57,6 @@ const METADATA_COLLECTIONS = {
 // Mirrors the legacy in-app behaviour (collection metadata, field "stars-1-5").
 const STARS_SCHEMA_COLLECTION_ID = "67dbf17ba540975b5b21c294";
 
-// Storage bucket holding podcast/narration audio (new-style Firebase bucket).
-const NARRATION_BUCKET = "apropos-magazine-6004a.firebasestorage.app";
-const NARRATION_AUDIO_PREFIXES = ["podcasts/articles/", "podcasts/narration/"];
-const NARRATION_QUEUE_COLLECTION = "narration_queue";
-
-// Returns true if the article (by slug) already has any audio file in Storage
-// (a human/NotebookLM podcast or an AI narration). Best-effort; errors -> false.
-async function articleHasAudio(slug) {
-  if (!slug) return false;
-  const bucket = getStorage().bucket(NARRATION_BUCKET);
-  for (const prefix of NARRATION_AUDIO_PREFIXES) {
-    try {
-      const [files] = await bucket.getFiles({prefix: `${prefix}${slug}/`});
-      if (files.some((f) => /\.(m4a|mp3|aac|wav)$/i.test(f.name))) return true;
-    } catch (error) {
-      logger.warn(`articleHasAudio(${slug}) failed for ${prefix}:`, error.message);
-    }
-  }
-  return false;
-}
-
 function extractCollectionId(webhookData, item) {
   const payload = webhookData.payload || {};
   const collection = payload.collection || webhookData.collection || {};
@@ -73,12 +71,6 @@ function extractCollectionId(webhookData, item) {
     item.collection_id ||
     item.cmsCollectionId ||
     "";
-}
-
-function extractItem(webhookData) {
-  const payload = webhookData.payload || {};
-  const items = payload.items || [];
-  return items[0] || webhookData.item || {};
 }
 
 function topicIdentifier(prefix, rawValue) {
@@ -163,69 +155,22 @@ function richNotificationEnvelope(notificationData, title, body) {
   };
 }
 
-// Sends exactly one article push, guarded by an atomic dedupe on
-// notified_articles/{articleId}. Both the Webflow webhook and the narration
-// trigger call this, so an article can only ever produce a single push.
-async function sendArticleNotificationOnce(db, {
-  articleId,
-  articleName,
-  notificationData,
-  topics,
-  title,
-  body,
-}) {
-  if (!articleId) {
-    return {sent: false, reason: "missing_article_id"};
-  }
-
-  const ref = db.collection("notified_articles").doc(articleId);
-  const created = await db.runTransaction(async (tx) => {
-    const doc = await tx.get(ref);
-    if (doc.exists) return false;
-    tx.set(ref, {
-      articleId,
-      articleName: articleName || "",
-      notifiedAt: FieldValue.serverTimestamp(),
-    });
-    return true;
-  });
-
-  if (!created) {
-    logger.info(`push skipped for ${articleId} (${articleName}): already_notified`);
-    return {sent: false, reason: "already_notified"};
-  }
-
-  const topicSet = new Set(["new_articles"]);
-  (topics || []).filter(Boolean).forEach((topic) => topicSet.add(topic));
-
-  const messageForTopic = (topic) => ({
-    ...richNotificationEnvelope(notificationData, title, body),
-    topic,
-  });
-
-  const topicList = Array.from(topicSet);
-  let fcmResponses;
-  try {
-    fcmResponses = await Promise.all(
-        topicList.map((topic) => getMessaging().send(messageForTopic(topic))),
-    );
-  } catch (error) {
-    // A single bad topic name would otherwise reject the whole batch silently.
-    logger.error(`push send failed for ${articleId} (topics=${topicList.join(",")}):`, error);
-    throw error;
-  }
-
-  logger.info(`push sent for ${articleId} (${articleName}) type=${notificationData.type} topics=[${topicList.join(", ")}] messageIds=[${fcmResponses.join(", ")}]`);
-  return {sent: true, fcmResponses};
+// Durable handoff only. A queued intent is never represented as a send receipt.
+function articlePushStore(db) {return createArticlePushStore({db, collectionId: ARTICLES_COLLECTION_ID});}
+async function queueArticleNotificationOnce(db, {articleId, notificationData, topics, title, body, expectedRevision, publicationEventId}) {
+  const {source} = await readNarrationSource(db, ARTICLES_COLLECTION_ID, notificationData.article_slug, articleId);
+  if (expectedRevision && source.sourceContentRevision !== expectedRevision) throw new Error("Publication source changed before outbox");
+  const result = await articlePushStore(db).enqueue({source, slug: notificationData.article_slug, topics, publicationEventId,
+    envelope: richNotificationEnvelope(notificationData, title, body)});
+  return result.queued ? result : {sent: false, reason: result.reason};
 }
 
 // Marks an article as handled so republications / translations cannot spam
 // users with duplicate pushes later (including narration fallbacks).
 async function suppressArticleNotifications(db, articleId, articleName, reason) {
-  if (!articleId) {
-    return;
-  }
-
+  // Repeated CMS delivery must not cancel a previously authorized pending job.
+  // Existing articles already fail the publication policy; only explicit English suppression persists.
+  if (!articleId || reason !== "english_translation") return;
   const ref = db.collection("notified_articles").doc(articleId);
   await ref.set({
     articleId,
@@ -238,57 +183,17 @@ async function suppressArticleNotifications(db, articleId, articleName, reason) 
   logger.info(`push suppressed for ${articleId} (${articleName}): ${reason}`);
 }
 
-async function queueNarrationIfNeeded(db, {
-  articleSlug,
-  articleId,
-  articleName,
-  fieldData,
-  item,
-  categoryTopics,
-  imageData,
-}) {
-  if (!articleSlug) {
-    return {queued: false, reason: "missing_slug"};
-  }
+function narrationJobStore(db) {
+  return createNarrationJobStore({db, collectionId: ARTICLES_COLLECTION_ID, timestamp: () => FieldValue.serverTimestamp()});
+}
 
-  if (isEnglishArticleContent(fieldData, item)) {
-    logger.info(`narration queue skipped (english): ${articleSlug}`);
-    return {queued: false, reason: "english_translation"};
-  }
-
-  try {
-    if (await articleHasAudio(articleSlug)) {
-      return {queued: false, reason: "audio_exists"};
-    }
-  } catch (error) {
-    logger.warn(`articleHasAudio check failed for ${articleSlug}:`, error.message);
-  }
-
-  const queueRef = db.collection(NARRATION_QUEUE_COLLECTION).doc(articleSlug);
-  const existing = await queueRef.get();
-  if (existing.exists && existing.data()?.status === "done") {
-    return {queued: false, reason: "already_done"};
-  }
-
-  // Recreate the queue doc so generateNarrationOnQueue fires again after a
-  // prior error, or when republication/sync happened before audio existed.
-  if (existing.exists) {
-    await queueRef.delete();
-  }
-
-  await queueRef.set({
-    slug: articleSlug,
-    articleId,
-    name: articleName,
-    status: "pending",
-    createdAt: FieldValue.serverTimestamp(),
-    thumbnailUrl: imageData.thumbnailUrl || "",
-    coverUrl: imageData.coverUrl || "",
-    topics: categoryTopics,
-  });
-
-  logger.info(`Queued "${articleSlug}" for AI narration.`);
-  return {queued: true, reason: "pending"};
+async function queueNarrationIfNeeded(db, {articleSlug, articleId, fieldData, item, categoryTopics, imageData, noNotify = false, expectedRevision, publicationEventId}) {
+  if (!articleSlug) return {queued: false, reason: "missing_slug"};
+  if (isEnglishArticleContent(fieldData, item)) return {queued: false, reason: "english_translation"};
+  const {source} = await readNarrationSource(db, ARTICLES_COLLECTION_ID, articleSlug, articleId);
+  if (expectedRevision && source.sourceContentRevision !== expectedRevision) throw new Error("Publication source changed before narration queue");
+  return narrationJobStore(db).enqueue({source, slug: articleSlug,
+    metadata: {notificationContract: "article-outbox-v1", publicationEventId, topics: categoryTopics, thumbnailUrl: imageData.thumbnailUrl, coverUrl: imageData.coverUrl, noNotify}});
 }
 
 // Sends a silent, data-only push (no alert/sound/badge) to wake the app so it
@@ -319,177 +224,34 @@ async function sendSilentRefreshPush(articleId, articleSlug) {
 }
 
 const FIRESTORE_ARTICLES_COLLECTION = "articles";
-const WEBFLOW_PAGE_LIMIT = 100;
-
-function isPublishedArticle(item) {
-  return item.isDraft === false || item.lastPublished != null;
-}
-
-async function fetchWebflowArticlesPage(apiKey, offset) {
-  const url =
-    `https://api.webflow.com/v2/collections/${ARTICLES_COLLECTION_ID}/items` +
-    `?live=true&limit=${WEBFLOW_PAGE_LIMIT}&offset=${offset}` +
-    "&sortBy=lastPublished&sortOrder=desc";
-
-  const response = await fetch(url, {
-    method: "GET",
-    headers: {
-      "Authorization": `Bearer ${apiKey}`,
-      "accept-version": "1.0.0",
-    },
+async function syncLiveWebflowCollection(apiKey, collectionId, firestoreCollection) {
+  const result = await synchronizeLiveCatalog({
+    collectionId, apiKey,
+    localizedArticles: LOCALIZED_ARTICLE_MIRROR_ENABLED && firestoreCollection === FIRESTORE_ARTICLES_COLLECTION && collectionId === ARTICLES_COLLECTION_ID,
+    store: firestoreCatalogStore({
+      db: getFirestore(), collection: firestoreCollection, collectionId,
+      localizedArticles: LOCALIZED_ARTICLE_MIRROR_ENABLED && firestoreCollection === FIRESTORE_ARTICLES_COLLECTION && collectionId === ARTICLES_COLLECTION_ID,
+      timestamp: () => FieldValue.serverTimestamp(),
+    }),
   });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(
-        `Webflow articles fetch failed at offset ${offset}: HTTP ${response.status} ${body}`,
-    );
-  }
-
-  const payload = await response.json();
-  const items = Array.isArray(payload.items) ? payload.items : [];
-  return items.filter(isPublishedArticle);
-}
-
-async function fetchAllWebflowArticles(apiKey) {
-  const trimmedKey = String(apiKey || "").trim();
-  if (!trimmedKey) {
-    throw new Error("WEBFLOW_API_KEY is missing");
-  }
-
-  let offset = 0;
-  const allArticles = [];
-
-  while (true) {
-    const pageItems = await fetchWebflowArticlesPage(trimmedKey, offset);
-    allArticles.push(...pageItems);
-
-    if (pageItems.length < WEBFLOW_PAGE_LIMIT) {
-      break;
-    }
-
-    offset += WEBFLOW_PAGE_LIMIT;
-  }
-
-  return allArticles;
-}
-
-async function writeArticlesToFirestore(articles) {
-  const db = getFirestore();
-  const batchSize = 500;
-
-  for (let index = 0; index < articles.length; index += batchSize) {
-    const batch = db.batch();
-    const slice = articles.slice(index, index + batchSize);
-
-    slice.forEach((item) => {
-      if (!item.id) {
-        return;
-      }
-
-      const docRef = db.collection(FIRESTORE_ARTICLES_COLLECTION).doc(item.id);
-      batch.set(docRef, {
-        id: item.id,
-        fieldData: item.fieldData || {},
-        isDraft: item.isDraft ?? null,
-        createdOn: item.createdOn ?? null,
-        lastPublished: item.lastPublished ?? null,
-        syncedAt: FieldValue.serverTimestamp(),
-      }, {merge: true});
+  if (result.unownedAbsentIDs.length) {
+    logger.warn("Missing unowned CMS rows need ownership review before migration", {
+      collection: firestoreCollection, count: result.unownedAbsentIDs.length,
     });
-
-    await batch.commit();
   }
+  return result;
 }
 
 async function syncAllArticlesFromWebflow(apiKey) {
-  const articles = await fetchAllWebflowArticles(apiKey);
-  await writeArticlesToFirestore(articles);
-  logger.info(`Synced ${articles.length} articles to Firestore`);
-  return articles.length;
+  const result = await syncLiveWebflowCollection(apiKey, ARTICLES_COLLECTION_ID, FIRESTORE_ARTICLES_COLLECTION);
+  logger.info(`Synced ${result.items.length} live articles; withdrew ${result.withdrawn} owned rows`);
+  return result.items.length;
 }
 
-// MARK: - Metadata sync (topics / sections / authors / stars)
-
-async function fetchAllWebflowCollectionItems(apiKey, collectionId) {
-  const trimmedKey = String(apiKey || "").trim();
-  if (!trimmedKey) {
-    throw new Error("WEBFLOW_API_KEY is missing");
-  }
-
-  let offset = 0;
-  const allItems = [];
-
-  while (true) {
-    const url =
-      `https://api.webflow.com/v2/collections/${collectionId}/items` +
-      `?live=true&limit=${WEBFLOW_PAGE_LIMIT}&offset=${offset}`;
-
-    const response = await fetch(url, {
-      method: "GET",
-      headers: {
-        "Authorization": `Bearer ${trimmedKey}`,
-        "accept-version": "1.0.0",
-      },
-    });
-
-    if (!response.ok) {
-      const body = await response.text();
-      throw new Error(
-          `Webflow items fetch failed for ${collectionId} at offset ` +
-          `${offset}: HTTP ${response.status} ${body}`,
-      );
-    }
-
-    const payload = await response.json();
-    const items = Array.isArray(payload.items) ? payload.items : [];
-    allItems.push(...items);
-
-    if (items.length < WEBFLOW_PAGE_LIMIT) {
-      break;
-    }
-    offset += WEBFLOW_PAGE_LIMIT;
-  }
-
-  return allItems;
-}
-
-// Stores raw {id, fieldData} items so the iOS models can reconstruct them
-// exactly as if they came from the Webflow API.
-async function writeItemsToFirestore(items, firestoreCollection) {
-  const db = getFirestore();
-  const batchSize = 500;
-
-  for (let index = 0; index < items.length; index += batchSize) {
-    const batch = db.batch();
-    const slice = items.slice(index, index + batchSize);
-
-    slice.forEach((item) => {
-      if (!item.id) {
-        return;
-      }
-      const docRef = db.collection(firestoreCollection).doc(item.id);
-      batch.set(docRef, {
-        id: item.id,
-        fieldData: item.fieldData || {},
-        isDraft: item.isDraft ?? null,
-        lastPublished: item.lastPublished ?? null,
-        syncedAt: FieldValue.serverTimestamp(),
-      }, {merge: true});
-    });
-
-    await batch.commit();
-  }
-}
-
-async function syncWebflowCollectionToFirestore(
-    apiKey, collectionId, firestoreCollection) {
-  const items = await fetchAllWebflowCollectionItems(apiKey, collectionId);
-  await writeItemsToFirestore(items, firestoreCollection);
-  logger.info(
-      `Synced ${items.length} items into "${firestoreCollection}"`,
-  );
-  return items.length;
+async function syncWebflowCollectionToFirestore(apiKey, collectionId, firestoreCollection) {
+  const result = await syncLiveWebflowCollection(apiKey, collectionId, firestoreCollection);
+  logger.info(`Synced ${result.items.length} live items into ${firestoreCollection}`);
+  return result.items.length;
 }
 
 // Stars are not a CMS item list; they are the option set of a field on a
@@ -554,7 +316,7 @@ async function syncAllMetadataFromWebflow(apiKey) {
   return {topics, sections, authors, stars};
 }
 
-exports.syncArticles = onRequest({secrets: [webflowApiKey]}, async (request, response) => {
+exports.syncArticles = onRequest({invoker: "private", timeoutSeconds: 180, secrets: [webflowApiKey]}, async (request, response) => {
   response.set("Access-Control-Allow-Origin", "*");
   response.set("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
   response.set("Access-Control-Allow-Headers", "Content-Type");
@@ -588,6 +350,7 @@ exports.syncArticles = onRequest({secrets: [webflowApiKey]}, async (request, res
 exports.syncArticlesScheduled = onSchedule(
     {
       schedule: "every 30 minutes",
+      timeoutSeconds: 180,
       secrets: [webflowApiKey],
     },
     async () => {
@@ -600,7 +363,7 @@ exports.syncArticlesScheduled = onSchedule(
     },
 );
 
-exports.syncMetadata = onRequest({secrets: [webflowApiKey]}, async (
+exports.syncMetadata = onRequest({invoker: "private", timeoutSeconds: 180, secrets: [webflowApiKey]}, async (
     request, response) => {
   response.set("Access-Control-Allow-Origin", "*");
   response.set("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
@@ -637,6 +400,7 @@ exports.syncMetadataScheduled = onSchedule(
       // Topics/sections/authors change rarely, so a slower cadence than
       // articles is enough. The webhook handles immediate updates.
       schedule: "every 6 hours",
+      timeoutSeconds: 180,
       secrets: [webflowApiKey],
     },
     async () => {
@@ -649,10 +413,42 @@ exports.syncMetadataScheduled = onSchedule(
     },
 );
 
-exports.webflowWebhook = onRequest({secrets: [webflowApiKey]}, async (request, response) => {
+function publicationStore(db) {return createPublicationStore({db, collectionId: ARTICLES_COLLECTION_ID});}
+async function materializePublication({article, source, notificationEligible, event, assertCurrent}) {
+  const db = getFirestore(), fieldData = article.fieldData, articleSlug = fieldData.slug;
+  const imageData = articleImageData(fieldData), articleName = fieldData.name || "Ny artikel";
+  const categoryTopics = articleTopicIds(fieldData).map((id) => topicIdentifier("category", id)).filter(Boolean);
+  const data = {article_id: source.sourceArticleId, article_slug: articleSlug, article_name: articleName,
+    type: "new_article", click_action: "OPEN_ARTICLE"};
+  if (imageData.thumbnailUrl) data.thumbnail_url = imageData.thumbnailUrl;
+  if (imageData.coverUrl) data.cover_url = imageData.coverUrl;
+  return dispatchPublication({article, source, notificationEligible, assertCurrent,
+    readCurrent: async () => (await readNarrationSource(db, ARTICLES_COLLECTION_ID, articleSlug, source.sourceArticleId)).source,
+    queueNarration: ({noNotify}) => queueNarrationIfNeeded(db, {articleSlug, articleId: source.sourceArticleId, noNotify,
+      fieldData, item: article, categoryTopics, imageData, expectedRevision: source.sourceContentRevision, publicationEventId: event.id}),
+    queueArticle: () => queueArticleNotificationOnce(db, {articleId: source.sourceArticleId, notificationData: data,
+      topics: categoryTopics, title: "Ny artikel på Apropos Magazine", body: `${articleName} er nu tilgængelig`,
+      expectedRevision: source.sourceContentRevision, publicationEventId: event.id}),
+  });
+}
+
+exports.materializeArticlePublication = onDocumentWritten({document: `${PUBLICATION_EVENTS}/{eventId}`,
+  timeoutSeconds: 180, maxInstances: 1, retry: true, secrets: [webflowApiKey]}, async (event) => {
+  if (!event.data?.after?.exists || !publicationEventReady(event.data.after.data(), Date.now())) return;
+  const result = await runPublicationEvent({store: publicationStore(getFirestore()), id: event.params.eventId,
+    synchronize: () => syncLiveWebflowCollection(webflowApiKey.value(), ARTICLES_COLLECTION_ID, FIRESTORE_ARTICLES_COLLECTION),
+    deliver: materializePublication});
+  logger.info("Article publication ledger", {eventId: event.params.eventId, ...result});
+  if (["queued", "maintained"].includes(result.status)) await sendSilentRefreshPush(result.articleId, "");
+});
+exports.recoverArticlePublications = onSchedule({schedule: "every 5 minutes", timeoutSeconds: 60}, async () => {
+  await publicationStore(getFirestore()).recover();
+});
+
+exports.webflowWebhook = onRequest({timeoutSeconds: 180, secrets: [webflowApiKey, webflowWebhookSecret]}, async (request, response) => {
   response.set("Access-Control-Allow-Origin", "*");
   response.set("Access-Control-Allow-Methods", "POST, OPTIONS");
-  response.set("Access-Control-Allow-Headers", "Content-Type, X-Webflow-Signature");
+  response.set("Access-Control-Allow-Headers", "Content-Type, X-Webflow-Signature, X-Webflow-Timestamp");
 
   if (request.method === "OPTIONS") {
     response.status(204).send("");
@@ -665,20 +461,36 @@ exports.webflowWebhook = onRequest({secrets: [webflowApiKey]}, async (request, r
   }
 
   try {
+    const signingSecret = webflowWebhookSecret.value();
+    if (!signingSecret || !signingSecret.trim()) {
+      logger.error("Webflow webhook signing secret is not configured");
+      response.status(503).json({status: "unavailable"});
+      return;
+    }
+    if (!verifyWebflowWebhook({
+      secret: signingSecret,
+      timestamp: request.get("X-Webflow-Timestamp"),
+      signature: request.get("X-Webflow-Signature"),
+      body: request.body,
+    })) {
+      response.status(401).json({status: "unauthorized"});
+      return;
+    }
+
     const webhookData = request.body || {};
     const trigger = webhookData.trigger || webhookData.triggerType;
 
-    if (trigger !== "collection_item_published" && trigger !== "publish") {
+    const eventAction = catalogEventAction(trigger);
+    if (eventAction === "ignore") {
       response.status(200).json({
         status: "ignored",
-        message: `Not a first-time publication: ${trigger}`,
+        message: `Unsupported CMS event: ${trigger}`,
       });
       return;
     }
 
-    const item = extractItem(webhookData);
-    const fieldData = item.fieldData || {};
-    const collectionId = extractCollectionId(webhookData, item);
+    const eventItem = extractItem(webhookData);
+    const collectionId = extractCollectionId(webhookData, eventItem);
 
     // Topics/sections/authors publications refresh metadata only (no push).
     if (collectionId && METADATA_COLLECTIONS[collectionId]) {
@@ -710,11 +522,9 @@ exports.webflowWebhook = onRequest({secrets: [webflowApiKey]}, async (request, r
       return;
     }
 
-    const articleId = item.id || webhookData.id || "";
-    const articleName = fieldData.name || "Ny artikel";
-    const articleSlug = fieldData.slug || "";
+    const articleId = eventItem.id || webhookData.id || "";
 
-    if (!articleId) {
+    if (typeof articleId !== "string" || !/^[a-f\d]{24}$/i.test(articleId)) {
       response.status(200).json({
         status: "ignored",
         message: "Notification blocked: articleId is empty",
@@ -722,117 +532,35 @@ exports.webflowWebhook = onRequest({secrets: [webflowApiKey]}, async (request, r
       return;
     }
 
+    // Shared raw CMS IDs must never allow an EN event to enter the DA ledger.
+    if (eventItem.cmsLocaleId === ENGLISH_LOCALE) {
+      if (LOCALIZED_ARTICLE_MIRROR_ENABLED) await syncAllArticlesFromWebflow(webflowApiKey.value());
+      response.status(200).json({status: "ignored", reason: "english_locale_no_publication_effects"});
+      return;
+    }
     const db = getFirestore();
-    const notifyPolicy = await evaluateArticleNotificationPolicy(
-        db, articleId, fieldData, item,
-    );
-
-    const imageData = articleImageData(fieldData);
-    const categoryTopics = articleTopicIds(fieldData)
-        .map((topicId) => topicIdentifier("category", topicId))
-        .filter(Boolean);
-
-    // Sync the article into Firestore first so the narration trigger (and the
-    // app) can read it immediately.
-    let syncCount = null;
-    let syncError = null;
-    try {
-      syncCount = await syncAllArticlesFromWebflow(webflowApiKey.value());
-    } catch (error) {
-      syncError = error.message;
-      logger.error("Article sync after webhook failed:", error);
-    }
-
-    if (!notifyPolicy.send) {
-      const narrationResult = await queueNarrationIfNeeded(db, {
-        articleSlug,
-        articleId,
-        articleName,
-        fieldData,
-        item,
-        categoryTopics,
-        imageData,
-      });
-
-      await suppressArticleNotifications(
-          db, articleId, articleName, notifyPolicy.reason,
-      );
-      await sendSilentRefreshPush(articleId, articleSlug);
-
-      response.status(200).json({
-        status: "success",
-        message: `Notification skipped (${notifyPolicy.reason})`,
-        sync_count: syncCount,
-        sync_error: syncError,
-        notification_skipped: true,
-        skip_reason: notifyPolicy.reason,
-        narration_queued: narrationResult.queued,
-        narration_skip_reason: narrationResult.queued ? null : narrationResult.reason,
-      });
+    if (eventAction === "publish") {
+      const receipt = await publicationStore(db).recordVerifiedEvent({item: {...eventItem, id: articleId},
+        signedAtMs: Number(request.get("X-Webflow-Timestamp"))});
+      response.status(200).json({status: "accepted", publication_event_id: receipt.eventId, event_status: receipt.status});
       return;
     }
-
-    // Silent background refresh: wake the app (content-available) so it updates
-    // its cached feed + widget right away, before any user-facing push and
-    // before the user opens the app. Best-effort (iOS throttles silent pushes).
-    await sendSilentRefreshPush(articleId, articleSlug);
-
-    const narrationResult = await queueNarrationIfNeeded(db, {
-      articleSlug,
-      articleId,
-      articleName,
-      fieldData,
-      item,
-      categoryTopics,
-      imageData,
+    // A failed scan returns an error before queueing narration or any push.
+    // Never publish staged content from a webhook payload into the app mirror.
+    const synced = await synchronizeCatalogEvent({
+      trigger, articleId,
+      synchronize: () => syncLiveWebflowCollection(
+          webflowApiKey.value(), ARTICLES_COLLECTION_ID, FIRESTORE_ARTICLES_COLLECTION),
     });
-
-    if (narrationResult.queued) {
-      response.status(200).json({
-        status: "success",
-        message: "Article synced and queued for AI narration; notification deferred until audio is ready.",
-        sync_count: syncCount,
-        sync_error: syncError,
-        narration_queued: true,
-        notification_deferred: true,
-      });
-      return;
+    const syncCount = synced.items.length;
+    const live = synced.items.find((entry) => entry.id === articleId);
+    if (live) {
+      await queueNarrationIfNeeded(db, {articleSlug: live.fieldData.slug, articleId,
+        fieldData: live.fieldData, item: live, categoryTopics: [], imageData: articleImageData(live.fieldData), noNotify: true});
     }
-
-    // Article already has audio (or narration could not be queued): notify now.
-    const notificationData = {
-      article_id: articleId,
-      article_slug: articleSlug,
-      article_name: articleName,
-      type: "new_article",
-      click_action: "OPEN_ARTICLE",
-    };
-    if (imageData.thumbnailUrl) {
-      notificationData.thumbnail_url = imageData.thumbnailUrl;
-    }
-    if (imageData.coverUrl) {
-      notificationData.cover_url = imageData.coverUrl;
-    }
-
-    const pushResult = await sendArticleNotificationOnce(db, {
-      articleId,
-      articleName,
-      notificationData,
-      topics: categoryTopics,
-      title: "Ny artikel på Apropos Magazine",
-      body: `${articleName} er nu tilgængelig`,
-    });
-
-    response.status(200).json({
-      status: pushResult.sent ? "success" : "ignored",
-      message: pushResult.sent ?
-        "Notification sent successfully" :
-        `Notification not sent: ${pushResult.reason}`,
-      fcm_response: pushResult.fcmResponses || null,
-      sync_count: syncCount,
-      sync_error: syncError,
-      narration_queued: false,
-    });
+    await sendSilentRefreshPush(articleId, "");
+    response.status(200).json({status: "success", sync_count: syncCount, withdrawn: synced.withdrawn,
+      notification_skipped: true, skip_reason: live ? "content_refresh" : "not_live"});
   } catch (error) {
     logger.error("Error processing Webflow webhook:", error);
     response.status(500).json({
@@ -842,119 +570,93 @@ exports.webflowWebhook = onRequest({secrets: [webflowApiKey]}, async (request, r
   }
 });
 
-// Fase 2 (fuld automatik): når webhook'en lægger en nyligt publiceret artikel
-// uden lyd i narration_queue, genererer denne trigger straks en AI-oplæsning
-// (samme recept som scripts/narration-poc.mjs), uploader den og opdaterer
-// manifestet. DERefter sendes ÉN push:
-//   • lyd klar  → "Ny artikel + AI-oplæsning" (type new_narration, åbner afspiller)
-//   • fejl/kvote → fallback "Ny artikel" (type new_article)
-// Webhook'en sender bevidst ingen push for køsatte artikler, så brugeren kun
-// får én notifikation, og lyden er klar i samme øjeblik den trykkes.
-exports.generateNarrationOnQueue = onDocumentCreated(
-    {
-      document: `${NARRATION_QUEUE_COLLECTION}/{slug}`,
-      secrets: [elevenLabsApiKey],
-      memory: "2GiB",
-      timeoutSeconds: 540,
-      maxInstances: 3,
+// Source-versioned jobs are shared by cloud and CLI. Never trust event snapshots as claims.
+async function notifyNarrationCompletion({job, article, result}) {
+  const db = getFirestore();
+  const fieldData = article.fieldData || {};
+  const displayName = fieldData.name || job.name || "Ny artikel";
+  if (isEnglishArticleContent(fieldData, article)) {
+    await suppressArticleNotifications(db, job.articleId, displayName, "english_translation");
+    return {sent: false, reason: "english_translation"};
+  }
+  const aiReady = ["published", "exists"].includes(result.status) && result.audioKind === "ai";
+  const data = {article_id: job.articleId, article_slug: job.slug, article_name: displayName,
+    click_action: "OPEN_ARTICLE", type: aiReady ? "new_narration" : "new_article"};
+  if (job.thumbnailUrl) data.thumbnail_url = job.thumbnailUrl;
+  if (job.coverUrl) data.cover_url = job.coverUrl;
+  return queueArticleNotificationOnce(db, {articleId: job.articleId, articleName: displayName,
+    notificationData: data, publicationEventId: job.publicationEventId, topics: job.topics || [], title: "Ny artikel på Apropos Magazine",
+    body: `${displayName} er nu tilgængelig`});
+}
+
+exports.generateNarrationOnQueue = onDocumentWritten({
+  document: `${NARRATION_JOBS_COLLECTION}/{jobId}`, secrets: [elevenLabsApiKey],
+  memory: "2GiB", timeoutSeconds: 540, maxInstances: 3, retry: true,
+}, async (event) => {
+  const snapshot = event.data?.after;
+  if (!snapshot?.exists || !ready(snapshot.data() || {}, Date.now())) return;
+  const result = await runNarrationJob({store: narrationJobStore(getFirestore()), jobId: event.params.jobId,
+    generate: (options) => generateAndPublishNarration({...options, apiKey: elevenLabsApiKey.value()}),
+    notify: (completion) => completion.job.notificationContract === "podcast-outbox-v1" ? queueNarrationPodcastCompletion(completion) :
+      completion.job.notificationContract === "article-outbox-v1" ? notifyNarrationCompletion(completion) :
+        Promise.resolve({sent: false, reason: "legacy_contract_requires_operator"})});
+  logger.info("Narration job result", {jobId: event.params.jobId, ...result});
+});
+
+exports.deliverArticlePush = onDocumentWritten({document: `${ARTICLE_PUSH_COLLECTION}/{pushId}`,
+  timeoutSeconds: 150, maxInstances: 3, retry: true}, async (event) => {
+  if (!event.data?.after?.exists || !pushJobReady(event.data.after.data(), Date.now())) return;
+  const db = getFirestore();
+  const result = await runArticlePush({store: articlePushStore(db), id: event.params.pushId,
+    validate: async (job) => {
+      const snapshot = await db.collection("articles").get();
+      const canonical = articleIndex(snapshot.docs.filter((doc) => !isEnglishMirror(doc.id, doc.data()))
+        .map((doc) => ({id: doc.id, data: doc.data()})), ARTICLES_COLLECTION_ID).resolve(job.slug);
+      return canonical?.id === job.articleId && canonical.revision === job.sourceRevision;
     },
-    async (event) => {
-      const snap = event.data;
-      if (!snap) return;
-      const db = getFirestore();
-      const data = snap.data() || {};
-      const slug = data.slug || event.params.slug;
-      const articleId = data.articleId || "";
-      const name = data.name || "";
+    send: (message) => withSendDeadline(() => getMessaging().send(message)),
+  });
+  logger.info("Article push outbox worker", {pushId: event.params.pushId, ...result});
+});
+exports.recoverArticlePush = onSchedule({schedule: "every 5 minutes", timeoutSeconds: 120}, async () => {
+  const db = getFirestore();
+  const results = await Promise.allSettled([
+    drainPendingNarrationNotifications({store: narrationJobStore(db), notify: notifyNarrationCompletion}),
+    articlePushStore(db).recover(),
+  ]);
+  if (results.some((result) => result.status === "rejected")) throw new Error("Push recovery has incomplete operations");
+});
 
-      // Behandl kun nyligt køsatte elementer (status "pending").
-      if (data.status && data.status !== "pending") {
-        logger.info(`narration trigger: ${slug} status=${data.status}, springer over`);
-        return;
-      }
+// Wakes only eligible jobs; generation stays in the bounded Firestore worker.
+// Mirror changes cover webhook, scheduled sync, withdrawal, deletion and source corrections.
+// The job document is durable before the article trigger is acknowledged.
+exports.requestPodcastManifestReconciliation = onDocumentWritten({document: "articles/{articleId}", retry: true}, async (event) => {
+  const before = event.data?.before, after = event.data?.after;
+  if (isEnglishMirror(event.params.articleId, after?.exists ? after.data() : before?.data())) return;
+  if (!catalogChangeAffectsManifest(event.params.articleId, before?.exists ? before.data() : null,
+      after?.exists ? after.data() : null, ARTICLES_COLLECTION_ID)) return;
+  await createManifestJobStore({db: getFirestore()}).request();
+});
+exports.reconcilePodcastManifest = onDocumentWritten({document: `${MANIFEST_JOBS_COLLECTION}/{jobId}`,
+  timeoutSeconds: 180, memory: "512MiB", maxInstances: 2, retry: true}, async (event) => {
+  if (event.params.jobId !== MANIFEST_JOB_DOCUMENT || !event.data?.after?.exists ||
+      !manifestJobReady(event.data.after.data(), Date.now())) return;
+  const db = getFirestore(), store = createManifestJobStore({db});
+  const bucket = getStorage().bucket("apropos-magazine-6004a.firebasestorage.app");
+  const result = await runManifestReconciliation({store, publish: (assertCurrent) => createPodcastManifestPublisher({
+    db, bucket, collectionId: ARTICLES_COLLECTION_ID, beforeCommit: assertCurrent,
+    publicURL: (path, token) => `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(path)}?alt=media&token=${encodeURIComponent(token)}`,
+  })()});
+  logger.info("Podcast manifest reconciliation", result);
+});
+exports.recoverPodcastManifest = onSchedule({schedule: "every 5 minutes", timeoutSeconds: 60}, async () => {
+  await createManifestJobStore({db: getFirestore()}).recover();
+});
 
-      let result = {status: "error"};
-      try {
-        result = await generateAndPublishNarration({
-          slug,
-          articleId,
-          name,
-          apiKey: elevenLabsApiKey.value(),
-        });
-        await snap.ref.set({
-          status: result.status === "published" ? "done" : result.status,
-          result: result.status,
-          processedAt: FieldValue.serverTimestamp(),
-          ...(result.title ? {title: result.title} : {}),
-        }, {merge: true});
-        logger.info(`narration trigger: ${slug} → ${result.status}`);
-      } catch (error) {
-        logger.error(`generateNarrationOnQueue failed for ${slug}:`, error);
-        await snap.ref.set({
-          status: "error",
-          error: String((error && error.message) || error).slice(0, 500),
-          processedAt: FieldValue.serverTimestamp(),
-        }, {merge: true});
-        result = {status: "error"};
-      }
-
-      // Send præcis én push for artiklen (dedupe via notified_articles).
-      try {
-        const articleDoc = articleId ?
-          await db.collection(FIRESTORE_ARTICLES_COLLECTION).doc(articleId).get() :
-          null;
-        const fieldData = articleDoc && articleDoc.exists ?
-          (articleDoc.data().fieldData || {}) :
-          {};
-
-        if (isEnglishArticleContent(fieldData, {})) {
-          await suppressArticleNotifications(
-              db, articleId, name, "english_translation",
-          );
-          logger.info(`narration push skipped (english): ${slug}`);
-          return;
-        }
-
-        const audioReady = result.status === "published" || result.status === "exists";
-        const displayName = name || result.title || "Ny artikel";
-
-        const baseData = {
-          article_id: articleId,
-          article_slug: slug,
-          article_name: displayName,
-          click_action: "OPEN_ARTICLE",
-        };
-        if (data.thumbnailUrl) baseData.thumbnail_url = data.thumbnailUrl;
-        if (data.coverUrl) baseData.cover_url = data.coverUrl;
-
-        if (audioReady) {
-          // Same copy as a normal article push; only the type differs
-          // (new_narration) so the app opens the audio player.
-          await sendArticleNotificationOnce(db, {
-            articleId,
-            articleName: displayName,
-            notificationData: {...baseData, type: "new_narration"},
-            topics: data.topics || [],
-            title: "Ny artikel på Apropos Magazine",
-            body: `${displayName} er nu tilgængelig`,
-          });
-        } else {
-          // Narration fejlede/kvote opbrugt: send alligevel den almindelige
-          // artikel-notifikation, så ingen artikel går ud uden besked.
-          await sendArticleNotificationOnce(db, {
-            articleId,
-            articleName: displayName,
-            notificationData: {...baseData, type: "new_article"},
-            topics: data.topics || [],
-            title: "Ny artikel på Apropos Magazine",
-            body: `${displayName} er nu tilgængelig`,
-          });
-        }
-      } catch (pushError) {
-        logger.error(`narration push failed for ${slug}:`, pushError);
-      }
-    },
-);
+exports.recoverNarrationJobs = onSchedule({schedule: "every 5 minutes", timeoutSeconds: 120}, async () => {
+  const count = await narrationJobStore(getFirestore()).wakeReady(60);
+  logger.info("Narration recovery wake", {count});
+});
 
 function formatHostLine(hosts) {
   const list = Array.isArray(hosts) ?
@@ -964,26 +666,6 @@ function formatHostLine(hosts) {
   if (list.length === 1) return list[0];
   if (list.length === 2) return `${list[0]} & ${list[1]}`;
   return `${list.slice(0, -1).join(", ")} & ${list[list.length - 1]}`;
-}
-
-async function resolveArticleIdBySlug(db, articleSlug) {
-  const directDoc = await db.collection("articles").doc(articleSlug).get();
-  if (directDoc.exists) {
-    const data = directDoc.data() || {};
-    return String(data.id || directDoc.id || articleSlug);
-  }
-
-  const slugQuery = await db.collection("articles")
-      .where("fieldData.slug", "==", articleSlug)
-      .limit(1)
-      .get();
-  if (!slugQuery.empty) {
-    const doc = slugQuery.docs[0];
-    const data = doc.data() || {};
-    return String(data.id || doc.id || articleSlug);
-  }
-
-  return articleSlug;
 }
 
 /**
@@ -1026,8 +708,7 @@ exports.backfillNarration = onRequest({secrets: [podcastNotifySecret]}, async (r
 
     snapshot.forEach((doc) => {
       const data = doc.data() || {};
-      if (data.isDraft === true) return;
-      if (!(data.isDraft === false || data.lastPublished != null)) return;
+      if (isEnglishMirror(doc.id, data) || !isVisibleMirrorItem(data)) return;
 
       const fieldData = data.fieldData || {};
       const articleSlug = String(fieldData.slug || "").trim();
@@ -1063,6 +744,7 @@ exports.backfillNarration = onRequest({secrets: [podcastNotifySecret]}, async (r
           .filter(Boolean);
 
       const narrationResult = await queueNarrationIfNeeded(db, {
+        noNotify: true, // Backfill is maintenance, not a first-publication authorization.
         articleSlug: article.articleSlug,
         articleId: article.articleId,
         articleName: article.articleName,
@@ -1188,6 +870,41 @@ exports.sendTestArticleNotification = onRequest({secrets: [podcastNotifySecret]}
   }
 });
 
+function podcastPushStore(db) {return createPodcastPushStore({db, collectionId: ARTICLES_COLLECTION_ID});}
+function podcastReader(db) {return createPodcastReader({db, bucket: getStorage().bucket("apropos-magazine-6004a.firebasestorage.app"), collectionId: ARTICLES_COLLECTION_ID});}
+function podcastEnvelope(episode, accepted) {
+  const ai = accepted.binding.kind === "ai", hostLine = formatHostLine(episode.hosts);
+  return richNotificationEnvelope({type: ai ? "new_narration" : "new_podcast", article_id: accepted.source.sourceArticleId,
+    article_slug: accepted.slug, podcast_title: episode.title, click_action: "OPEN_ARTICLE"},
+  ai ? `Artikel "${episode.title}" er nu blevet indtalt med AI` : `Ny Apropos Podcast ude nu: ${episode.title}`,
+  ai ? "Lyt nu." : hostLine ? `${episode.title}, ${hostLine}` : episode.title);
+}
+function queuePodcastNotification(db, payload) {
+  return enqueuePodcastPush({reader: podcastReader(db), store: podcastPushStore(db), payload, envelope: podcastEnvelope});
+}
+async function queueNarrationPodcastCompletion({job, result}) {
+  if (!["published", "exists"].includes(result.status)) return {sent: false, reason: "audio_not_ready"};
+  const receipt = await queuePodcastNotification(getFirestore(), {articleSlug: job.slug, kind: result.audioKind,
+    sourceArticleId: job.articleId, sourceContentRevision: job.sourceRevision, audioURL: result.audioURL, ...job.notificationContext});
+  return receipt.queued ? receipt : {sent: false, reason: receipt.reason};
+}
+exports.deliverPodcastPush = onDocumentWritten({document: `${PODCAST_PUSH_COLLECTION}/{pushId}`,
+  timeoutSeconds: 150, maxInstances: 3, retry: true}, async (event) => {
+  if (!event.data?.after?.exists || !pushJobReady(event.data.after.data(), Date.now())) return;
+  const db = getFirestore();
+  const result = await runPodcastPush({store: podcastPushStore(db), reader: podcastReader(db), id: event.params.pushId,
+    send: (message) => withSendDeadline(() => getMessaging().send(message))});
+  logger.info("Podcast outbox worker", {pushId: event.params.pushId, ...result});
+});
+exports.recoverPodcastPush = onSchedule({schedule: "every 5 minutes", timeoutSeconds: 120}, async () => {
+  const db = getFirestore();
+  const results = await Promise.allSettled([
+    drainPendingNarrationNotifications({store: narrationJobStore(db), notify: queueNarrationPodcastCompletion, contract: "podcast-outbox-v1"}),
+    podcastPushStore(db).recover(),
+  ]);
+  if (results.some((result) => result.status === "rejected")) throw new Error("Podcast recovery has incomplete operations");
+});
+
 exports.sendPodcastNotification = onRequest({secrets: [podcastNotifySecret]}, async (request, response) => {
   response.set("Access-Control-Allow-Origin", "*");
   response.set("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -1211,88 +928,15 @@ exports.sendPodcastNotification = onRequest({secrets: [podcastNotifySecret]}, as
   }
 
   try {
-    const payload = request.body || {};
-    const articleSlug = String(payload.articleSlug || payload.slug || "").trim();
-    const episodeTitle = String(payload.title || "").trim();
-    const hosts = payload.hosts || [];
-    const forceResend = payload.force === true || payload.force === "true";
-    const isAINarration = String(payload.kind || "").trim().toLowerCase() === "ai";
-
-    if (!articleSlug || !episodeTitle) {
-      response.status(400).json({
-        status: "error",
-        message: "articleSlug and title are required",
-      });
-      return;
-    }
-
     const db = getFirestore();
-    // AI-oplæsninger spores separat, så en evt. menneske-podcast for samme
-    // artikel ikke blokerer (eller bliver blokeret af) AI-pushen.
-    const dedupeCollection = isAINarration ? "notified_narrations" : "notified_podcasts";
-    const podcastRef = db.collection(dedupeCollection).doc(articleSlug);
-    const podcastDoc = await podcastRef.get();
-
-    if (podcastDoc.exists && !forceResend) {
-      response.status(200).json({
-        status: "ignored",
-        message: isAINarration ?
-          "Narration was already notified" :
-          "Podcast was already notified",
-      });
-      return;
-    }
-
-    const articleId = await resolveArticleIdBySlug(db, articleSlug);
-
-    await podcastRef.set({
-      articleSlug,
-      articleId,
-      episodeTitle,
-      hosts,
-      kind: isAINarration ? "ai" : "podcast",
-      notifiedAt: FieldValue.serverTimestamp(),
-    });
-
-    const hostLine = formatHostLine(hosts);
-    const notificationTitle = isAINarration ?
-      `Artikel "${episodeTitle}" er nu blevet indtalt med AI` :
-      `Ny Apropos Podcast ude nu: ${episodeTitle}`;
-    const notificationBody = isAINarration ?
-      "Lyt nu." :
-      (hostLine ? `${episodeTitle}, ${hostLine}` : episodeTitle);
-    const notificationData = {
-      type: isAINarration ? "new_narration" : "new_podcast",
-      article_slug: articleSlug,
-      article_id: articleId,
-      podcast_title: episodeTitle,
-      click_action: "OPEN_ARTICLE",
-    };
-
-    const messageForTopic = (topic) => ({
-      ...richNotificationEnvelope(
-          notificationData,
-          notificationTitle,
-          notificationBody,
-      ),
-      topic,
-    });
-
-    // Podcast pushes go only to new_podcasts. Sending to new_articles as well duplicated
-    // notifications because the app subscribes to both topics.
-    const fcmResponse = await getMessaging().send(messageForTopic("new_podcasts"));
-
-    response.status(200).json({
-      status: "success",
-      message: "Podcast notification sent successfully",
-      fcm_response: fcmResponse,
-    });
+    const receipt = await queuePodcastNotification(db, request.body);
+    response.status(200).json({status: receipt.queued ? "queued" : "skipped", outbox_id: receipt.outboxId || null,
+      state: receipt.state || null, reason: receipt.reason || null});
   } catch (error) {
-    logger.error("Error sending podcast notification:", error);
-    response.status(500).json({
-      status: "error",
-      message: error.message,
-    });
+    if (error instanceof PodcastAcceptanceError) {response.status(error.httpStatus).json({status: error.code});return;}
+    if (error.code === "podcast_intent_conflict") {response.status(409).json({status: "podcast_intent_conflict", message: "Use a new explicit resend identity for a different binding"});return;}
+    logger.error("Podcast outbox enqueue unavailable", {code: error.code || "unavailable"});
+    response.status(503).json({status: "unavailable"});
   }
 });
 
@@ -1301,7 +945,10 @@ const FIRESTORE_SERIES_COLLECTION = "series";
 async function fetchFirestoreArticlesForSeries() {
   const db = getFirestore();
   const snapshot = await db.collection(FIRESTORE_ARTICLES_COLLECTION).get();
-  return snapshot.docs.map((doc) => {
+  return snapshot.docs.filter((doc) => {
+    const data = doc.data() || {};
+    return !isEnglishMirror(doc.id, data) && isVisibleMirrorItem(data);
+  }).map((doc) => {
     const data = doc.data() || {};
     const fieldData = data.fieldData || {};
     return {
@@ -1462,7 +1109,7 @@ async function generateAllSeries() {
   return seriesList.length;
 }
 
-exports.generateSeries = onRequest({secrets: [openaiApiKey]}, async (request, response) => {
+exports.generateSeries = onRequest({invoker: "private", secrets: [openaiApiKey]}, async (request, response) => {
   response.set("Access-Control-Allow-Origin", "*");
   response.set("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
   response.set("Access-Control-Allow-Headers", "Content-Type");
@@ -1509,106 +1156,44 @@ exports.generateSeriesScheduled = onSchedule(
     },
 );
 
-// MARK: - Recommendation reasons (moved off-device so the OpenAI key stays
-// server-side). The app posts the locally scored candidates and gets back a
-// short Danish reason per article.
-
-async function generateRecommendationReasonsWithOpenAI(apiKey, topTopics, candidates) {
-  const candidateLines = candidates
-      .map((candidate) => {
-        const topics = Array.isArray(candidate.topics) ?
-          candidate.topics.join(", ") : "";
-        return `- id: ${candidate.id}, title: ${candidate.title}, ` +
-          `topics: ${topics}`;
-      })
-      .join("\n");
-
-  const prompt = `Du er redaktør på Apropos Magazine. Skriv én kort dansk ` +
-    `sætning per artikel (max 12 ord) der forklarer hvorfor den anbefales.
-Brugerens top-emner: ${(topTopics || []).join(", ")}
-Kandidater:
-${candidateLines}
-Svar KUN med JSON array: [{"articleId":"...","reason":"..."}]`;
-
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "gpt-4o-mini",
-      messages: [
-        {role: "system", content: "Du svarer kun med valid JSON."},
-        {role: "user", content: prompt},
-      ],
-      temperature: 0.6,
-      max_tokens: 600,
-    }),
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(
-        `OpenAI reasons failed: HTTP ${response.status} ${body}`,
-    );
-  }
-
-  const payload = await response.json();
-  const content = payload?.choices?.[0]?.message?.content || "[]";
-  const cleaned = String(content)
-      .trim()
-      .replace(/^```json/i, "")
-      .replace(/^```/i, "")
-      .replace(/```$/i, "")
-      .trim();
-
-  const parsed = JSON.parse(cleaned);
-  if (!Array.isArray(parsed)) {
-    return {};
-  }
-
-  const reasons = {};
-  parsed.forEach((entry) => {
-    if (entry && entry.articleId != null) {
-      reasons[String(entry.articleId)] = String(entry.reason || "");
-    }
-  });
-  return reasons;
-}
-
+// The reader uses factual local recommendation reasons. Preserve the legacy
+// function name as a private, secret-free rejection route for controlled cutover.
 exports.generateRecommendationReasons = onRequest(
-    {secrets: [openaiApiKey]}, async (request, response) => {
-      response.set("Access-Control-Allow-Origin", "*");
-      response.set("Access-Control-Allow-Methods", "POST, OPTIONS");
-      response.set("Access-Control-Allow-Headers", "Content-Type");
+    RETIRED_RECOMMENDATION_OPTIONS, retiredRecommendationEndpoint);
 
-      if (request.method === "OPTIONS") {
-        response.status(204).send("");
-        return;
-      }
 
-      if (request.method !== "POST") {
-        response.status(405).send("Method Not Allowed");
-        return;
-      }
+// Native opt-in is inactive unless every reviewed deployment boundary is explicit.
+// Neither this export nor a successful local build activates the existing audience.
+exports.readerNewsletterSignup = onRequest(
+    {timeoutSeconds: 120, maxInstances: 2, concurrency: 20},
+    createReaderNewsletterHttpHandler({
+      // Existing Webflow Forms "Subscribe" stays intact. With the owner-approved
+      // Research recipient-reader patch, new app subscribers join the same
+      // Research newsletter through canonical Firestore membership.
+      config: {...readerNewsletterConfigFromEnvironment(process.env,
+          getApp().options.projectId || process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT), sourceKind: "research"},
+      createServices: () => ({auth: getAuth(), appCheck: getAppCheck(), db: getFirestore()}),
+    }));
 
-      try {
-        const body = request.body || {};
-        const topTopics = Array.isArray(body.topTopics) ? body.topTopics : [];
-        const candidates = Array.isArray(body.candidates) ?
-          body.candidates : [];
+// Auth-only observations remain disabled unless explicitly configured. The
+// attestation endpoint additionally requires an audited deployment/migration
+// verifier, deliberately absent here: flags and hashes can never create one.
+const readerStartupHTTPOptions = {
+  config: readerStartupConfigFromEnvironment(process.env,
+      getApp().options.projectId || process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT),
+  createServices: () => ({auth: getAuth(), appCheck: getAppCheck(), db: getFirestore()}),
+};
+exports.readerStartupMembership = onRequest({timeoutSeconds: 60, maxInstances: 2, concurrency: 20},
+    createReaderStartupHttpHandler({...readerStartupHTTPOptions, kind: "membership"}));
+exports.readerStartupAttestation = onRequest({timeoutSeconds: 60, maxInstances: 2, concurrency: 20},
+    createReaderStartupHttpHandler({...readerStartupHTTPOptions, kind: "attestation"}));
 
-        if (candidates.length === 0) {
-          response.status(200).json({status: "success", reasons: {}});
-          return;
-        }
-
-        const reasons = await generateRecommendationReasonsWithOpenAI(
-            openaiApiKey.value(), topTopics, candidates);
-        response.status(200).json({status: "success", reasons});
-      } catch (error) {
-        logger.error("generateRecommendationReasons failed:", error);
-        response.status(500).json({status: "error", message: error.message});
-      }
-    });
+// No trusted writer/migration verifiers are supplied. Even an enabled env flag
+// cannot open this route or invoke its lazy service factory until those real
+// adapters and the separately approved service/cutover gates are completed.
+exports.readerAccountDeletion = onRequest({timeoutSeconds: 60, maxInstances: 2, concurrency: 10},
+    createReaderDeletionHttpHandler({
+      config: readerDeletionConfigFromEnvironment(process.env,
+          getApp().options.projectId || process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT),
+      createServices: () => ({auth: getAuth(), appCheck: getAppCheck(), db: getFirestore()}),
+    }));

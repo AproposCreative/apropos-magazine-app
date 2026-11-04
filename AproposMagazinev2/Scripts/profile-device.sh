@@ -5,11 +5,11 @@ set -euo pipefail
 # ./Scripts/profile-device.sh <DEVICE_UDID> [DURATION_SECONDS] [PROCESS_NAME]
 #
 # Example:
-# ./Scripts/profile-device.sh 00008110-000131A01431401E 25 "Apropos Magazine"
+# ./Scripts/profile-device.sh 00008150-000548A10ADB401C 25 "Apropos"
 
 DEVICE_UDID="${1:-}"
 DURATION="${2:-25}"
-PROCESS_NAME="${3:-Apropos Magazine}"
+PROCESS_NAME="${3:-Apropos}"
 OUT_DIR="${PWD}/profiling-results"
 
 if [[ -z "${DEVICE_UDID}" ]]; then
@@ -30,12 +30,12 @@ xcrun xctrace record \
   --time-limit "${DURATION}s" \
   --output "${OUT_DIR}/time-profiler-${STAMP}.trace"
 
-echo "Recording Core Animation (${DURATION}s) on ${DEVICE_UDID}..."
+echo "Recording Animation Hitches (${DURATION}s) on ${DEVICE_UDID}..."
 xcrun xctrace record \
-  --template "Core Animation" \
+  --template "Animation Hitches" \
   --device "${DEVICE_UDID}" \
   --attach "${PROCESS_NAME}" \
   --time-limit "${DURATION}s" \
-  --output "${OUT_DIR}/core-animation-${STAMP}.trace"
+  --output "${OUT_DIR}/animation-hitches-${STAMP}.trace"
 
 echo "Done. Traces saved in: ${OUT_DIR}"

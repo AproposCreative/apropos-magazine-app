@@ -1,151 +1,58 @@
 /**
- * Fase 2 — AI-narration queue runner.
- *
- * The webflowWebhook Cloud Function adds newly published articles that have no
- * audio yet into the Firestore `narration_queue` collection. This command lets
- * you drain that queue locally using the proven generator + publisher scripts.
- *
- * Usage:
- *   node scripts/narration-queue.mjs --list            # show pending items
- *   node scripts/narration-queue.mjs --run             # generate + publish all pending
- *   node scripts/narration-queue.mjs --run --limit=3   # only the 3 oldest pending
- *   node scripts/narration-queue.mjs --run --no-notify # publish silently (no push)
- *   node scripts/narration-queue.mjs --run --dry-run   # show what would happen
- *
- * Requires Application Default Credentials (gcloud auth application-default login)
- * and a .env with ELEVENLABS_API_KEY + WEBFLOW_API_KEY + PODCAST_NOTIFY_SECRET.
+ * Source-aware narration job runner. --list/--dry-run read the approved service;
+ * --run uses the same fenced worker as cloud. Never deletes/recreates jobs.
+ * Production access, execution and credentials retain the checkout's approval gate.
  */
-
 import {dirname, join} from "node:path";
 import {fileURLToPath} from "node:url";
 import {createRequire} from "node:module";
-import {spawn} from "node:child_process";
-import {BUCKET} from "./lib/firebase-storage.mjs";
-
+import {postPodcastNotification, resendContext} from "./lib/podcast-push-request.mjs";
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-try {
-  process.loadEnvFile(join(repoRoot, ".env"));
-} catch {
-  /* env may already be set in the shell */
-}
-
+try {process.loadEnvFile(join(repoRoot, ".env"));} catch { /* explicit operator runtime only */ }
 const require = createRequire(join(repoRoot, "functions", "package.json"));
 const admin = require("firebase-admin");
-
-const QUEUE_COLLECTION = "narration_queue";
-const AUDIO_PREFIXES = ["podcasts/articles/", "podcasts/narration/"];
-
+const {createNarrationJobStore, runNarrationJob} = require("./narrationJobs");
 const args = process.argv.slice(2);
-const has = (name) => args.includes(`--${name}`);
-const argValue = (name, fallback) => {
-  const hit = args.find((a) => a.startsWith(`--${name}=`));
-  return hit ? hit.split("=").slice(1).join("=") : fallback;
-};
+const run = args.includes("--run") && !args.includes("--list");
+const dryRun = args.includes("--dry-run");
+const noNotify = args.includes("--no-notify");
+const notificationContext = resendContext({resendId: args.find((a) => a.startsWith("--resend-id="))?.slice("--resend-id=".length),
+  resendReason: args.find((a) => a.startsWith("--resend-reason="))?.slice("--resend-reason=".length)});
+const retryJob = args.find((a) => a.startsWith("--retry-job="))?.slice("--retry-job=".length);
+const limitArg = args.find((a) => a.startsWith("--limit="));
+const limit = limitArg ? Number(limitArg.split("=")[1]) : 10;
+if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new Error("--limit must be 1...100");
 
-const listOnly = has("list") || !has("run");
-const dryRun = has("dry-run");
-const noNotify = has("no-notify");
-const limit = parseInt(argValue("limit", "0"), 10) || 0;
-
-function run(cmd, cmdArgs) {
-  return new Promise((resolvePromise, reject) => {
-    const child = spawn(cmd, cmdArgs, {cwd: repoRoot, stdio: "inherit"});
-    child.on("close", (code) =>
-      code === 0 ? resolvePromise() : reject(new Error(`${cmd} exited ${code}`)),
-    );
-  });
+async function notify({job, article, result}) {
+  if (job.notificationContract !== "podcast-outbox-v1") throw new Error("Pending handoff retained for the job's declared cloud notification contract");
+  if (!["published", "exists"].includes(result.status)) return {sent: false, reason: "audio_not_ready"}; // CLI historically announces ready audio only.
+  const secret = process.env.PODCAST_NOTIFY_SECRET;
+  if (!secret) throw new Error("Notification pending: rotated PODCAST_NOTIFY_SECRET required");
+  const endpoint = process.env.PODCAST_NOTIFY_URL ||
+    "https://us-central1-apropos-magazine-6004a.cloudfunctions.net/sendPodcastNotification";
+  return postPodcastNotification({endpoint, secret, payload: {articleSlug: job.slug,
+    kind: result.audioKind === "ai" ? "ai" : "human", sourceArticleId: job.articleId,
+    sourceContentRevision: job.sourceRevision, audioURL: result.audioURL, ...job.notificationContext}});
 }
-
-async function hasAudio(bucket, slug) {
-  for (const prefix of AUDIO_PREFIXES) {
-    const [files] = await bucket.getFiles({prefix: `${prefix}${slug}/`});
-    if (files.some((f) => /\.(m4a|mp3|aac|wav)$/i.test(f.name))) return true;
-  }
-  return false;
-}
-
 async function main() {
-  if (!admin.apps.length) {
-    admin.initializeApp({
-      credential: admin.credential.applicationDefault(),
-      projectId: "apropos-magazine-6004a",
-      storageBucket: BUCKET,
-    });
-  }
+  if (!admin.apps.length) admin.initializeApp({credential: admin.credential.applicationDefault(), projectId: "apropos-magazine-6004a"});
   const db = admin.firestore();
-  const bucket = admin.storage().bucket();
-
-  const snapshot = await db
-      .collection(QUEUE_COLLECTION)
-      .where("status", "==", "pending")
-      .get();
-
-  let pending = [];
-  snapshot.forEach((doc) => {
-    const data = doc.data() || {};
-    pending.push({
-      ref: doc.ref,
-      slug: data.slug || doc.id,
-      name: data.name || "",
-      createdAt: data.createdAt && data.createdAt.toDate ?
-        data.createdAt.toDate().toISOString() : "",
-    });
-  });
-  pending.sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
-
-  // Auto-prune entries that already got audio (e.g. a human podcast was added).
-  const stillPending = [];
-  for (const item of pending) {
-    if (await hasAudio(bucket, item.slug)) {
-      console.log(`✓ "${item.slug}" har allerede lyd — fjerner fra kø.`);
-      if (!dryRun) await item.ref.delete();
-    } else {
-      stillPending.push(item);
-    }
+  const store = createNarrationJobStore({db, collectionId: "67dbf17ba540975b5b21c2a6",
+    timestamp: () => admin.firestore.FieldValue.serverTimestamp()});
+  if (retryJob) {
+    if (run && !dryRun) console.log("Operator retry accepted:", await store.retryFailed(retryJob));
+    else console.log("No mutation: --retry-job requires --run without --dry-run");
   }
-  pending = stillPending;
-
-  if (!pending.length) {
-    console.log("Køen er tom — ingen artikler venter på AI-oplæsning.");
-    return;
+  const jobs = await store.listReady(limit);
+  for (const job of jobs) console.log(`${job.id} ${job.slug} · ${job.status} · attempt ${job.attempts}`);
+  if (!run || dryRun) {console.log(`${jobs.length} eligible jobs; no generation or queue mutation.`);return;}
+  const apiKey = process.env.ELEVENLABS_API_KEY;
+  if (!apiKey) throw new Error("Rotated ELEVENLABS_API_KEY required before generation");
+  const {generateAndPublishNarration} = require("./narration");
+  for (const job of jobs) {
+    const result = await runNarrationJob({store, jobId: job.id, noNotify, notificationContract: "podcast-outbox-v1", notificationContext,
+      generate: (options) => generateAndPublishNarration({...options, apiKey}), notify});
+    console.log(job.id, JSON.stringify(result));
   }
-
-  console.log(`\n=== narration_queue: ${pending.length} afventer ===`);
-  pending.forEach((p, i) => {
-    console.log(`${String(i + 1).padStart(3)}. ${p.slug}${p.name ? `  —  ${p.name}` : ""}`);
-  });
-
-  if (listOnly) {
-    console.log("\n(kun visning — kør med --run for at generere + publicere)");
-    return;
-  }
-
-  const batch = limit > 0 ? pending.slice(0, limit) : pending;
-  console.log(`\nBehandler ${batch.length}${noNotify ? " (lydløst)" : " (push pr. styk)"}...`);
-
-  for (const item of batch) {
-    console.log(`\n────────── ${item.slug} ──────────`);
-    if (dryRun) {
-      console.log("  (dry run: ville generere + publicere + fjerne fra kø)");
-      continue;
-    }
-    try {
-      await run("node", ["scripts/narration-poc.mjs", `--slug=${item.slug}`]);
-      const publishArgs = ["scripts/podcast-auto-publish.mjs", `--publish-narration=${item.slug}`];
-      if (noNotify) publishArgs.push("--no-notify");
-      await run("node", publishArgs);
-      await item.ref.delete();
-      console.log(`  ✓ ${item.slug} udgivet og fjernet fra kø.`);
-    } catch (error) {
-      console.error(`  ✗ ${item.slug} fejlede: ${error.message}`);
-      console.error("  (efterlades i køen — ret fejlen og kør igen)");
-    }
-  }
-
-  console.log("\nDone.");
 }
-
-main().catch((error) => {
-  console.error("narration-queue failed:", error.message);
-  process.exit(1);
-});
+main().catch((error) => {console.error("Narration runner failed:", error.message);process.exitCode = 1;});

@@ -272,10 +272,15 @@ struct AuthorDetailView: View {
     }
 }
 
-/// Card layout matching `PodcastCardView`, without audio/AI chrome.
+/// Author preview with text-driven height and artwork spanning the whole card.
 struct AuthorArticleCardView: View {
     let article: Article
     let categoryText: String
+
+#if DEBUG && targetEnvironment(simulator)
+    var fixtureImage: UIImage? = nil
+    var onFrame: ((String, CGRect) -> Void)? = nil
+#endif
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -288,46 +293,92 @@ struct AuthorArticleCardView: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 14) {
-            ZStack {
-                ArticleImagePlaceholder(showShimmer: false, cornerRadius: 12)
-
-                WebImage(url: artworkURL, options: [.retryFailed, .continueInBackground, .scaleDownLargeImages, .queryMemoryData])
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-            }
-            .frame(width: 92, height: 92)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text(categoryText.uppercased())
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                Text(article.name ?? "Artikel")
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
-
-                Spacer(minLength: 6)
-
-                if let intro = article.intro?.trimmingCharacters(in: .whitespacesAndNewlines), !intro.isEmpty {
-                    Text(intro)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
+        measured("card") {
+            LeadingArticleArtwork(width: 92, spacing: 14, cornerRadius: 0) { _ in
+                ZStack {
+                    ArticleImagePlaceholder(showShimmer: false, cornerRadius: 0)
+                    artwork
                 }
+            } content: {
+                VStack(alignment: .leading, spacing: 6) {
+                    measured("category") {
+                        LocalizedArticleTaxonomy(categoryText, uppercase: true)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    measured("title") {
+                        Text(article.name ?? "Artikel")
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(.primary)
+                            .lineLimit(2)
+                    }
+                    if let rating = article.stjerne, rating > 0 {
+                        measured("rating") {
+                            HStack(spacing: 3) {
+                                ForEach(0..<6, id: \.self) { index in
+                                    Image(systemName: "star.fill")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundStyle(index < min(rating, 6)
+                                            ? (colorScheme == .dark ? Color.white : Color.black.opacity(0.92))
+                                            : (colorScheme == .dark ? Color.white.opacity(0.24) : Color.black.opacity(0.14)))
+                                }
+                            }
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel("\(min(rating, 6)) ud af 6 stjerner")
+                            .accessibilityIdentifier("author.article.rating." + article.id)
+                        }
+                    }
+                    if let intro = article.intro?.trimmingCharacters(in: .whitespacesAndNewlines), !intro.isEmpty {
+                        Spacer(minLength: 6)
+                        measured("intro") {
+                            Text(intro)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                                .accessibilityIdentifier("author.article.intro.\(article.id)")
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, minHeight: 92, alignment: .bottomLeading)
+                .padding(.vertical, 12)
+                .padding(.trailing, 12)
             }
-            .frame(maxWidth: .infinity, minHeight: 92, alignment: .leading)
+#if DEBUG && targetEnvironment(simulator)
+            .observingArtworkFrame { onFrame?("image", $0) }
+#endif
+            .background(cardBackground)
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.white.opacity(colorScheme == .dark ? 0.18 : 0.12), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
-        .padding(12)
-        .background(cardBackground)
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.white.opacity(colorScheme == .dark ? 0.18 : 0.12), lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    @ViewBuilder private var artwork: some View {
+#if DEBUG && targetEnvironment(simulator)
+        if let fixtureImage {
+            Image(uiImage: fixtureImage).resizable().aspectRatio(contentMode: .fill)
+        } else {
+            remoteArtwork
+        }
+#else
+        remoteArtwork
+#endif
+    }
+
+    private var remoteArtwork: some View {
+        WebImage(url: artworkURL, options: [.retryFailed, .continueInBackground, .scaleDownLargeImages, .queryMemoryData])
+            .resizable().aspectRatio(contentMode: .fill)
+    }
+
+    @ViewBuilder private func measured<Content: View>(_ name: String, @ViewBuilder content: () -> Content) -> some View {
+#if DEBUG && targetEnvironment(simulator)
+        content().onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { onFrame?(name, $0) }
+#else
+        content()
+#endif
     }
 }

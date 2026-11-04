@@ -1,18 +1,19 @@
 import Foundation
 
 enum WidgetArticleFormatting {
-    static func topicLine(for article: WidgetArticle) -> String {
-        let topic = article.topic.trimmingCharacters(in: .whitespacesAndNewlines)
+    static func topicLine(for article: WidgetArticle, languageCode: String = "da") -> String {
+        let topic = WidgetLocalization.taxonomy(article.topic.trimmingCharacters(in: .whitespacesAndNewlines), languageCode: languageCode)
         guard !topic.isEmpty else { return "" }
 
-        if let dateLabel = relativeDateLabel(for: article.date) {
+        if let dateLabel = relativeDateLabel(for: article.date, languageCode: languageCode) {
             return "\(topic) · \(dateLabel)"
         }
         return topic
     }
 
-    static func ctaText(for article: WidgetArticle) -> String {
-        article.stjerne != nil ? "Læs anmeldelsen →" : "Læs artiklen →"
+    static func ctaText(for article: WidgetArticle, languageCode: String = "da") -> String {
+        WidgetLocalization.string(article.stjerne != nil ? "Læs anmeldelsen →" : "Læs artiklen →",
+                                  languageCode: languageCode)
     }
 
     static func starRatingText(for rating: Int) -> String {
@@ -20,7 +21,7 @@ enum WidgetArticleFormatting {
         return String(repeating: "★", count: filled) + String(repeating: "☆", count: 5 - filled)
     }
 
-    static func relativeDateLabel(for dateString: String) -> String? {
+    static func relativeDateLabel(for dateString: String, languageCode: String = "da") -> String? {
         guard let date = parseDate(dateString) else { return nil }
 
         let calendar = Calendar.current
@@ -28,27 +29,27 @@ enum WidgetArticleFormatting {
         let articleDay = calendar.startOfDay(for: date)
 
         if calendar.isDate(articleDay, inSameDayAs: today) {
-            return "I dag"
+            return WidgetLocalization.string("I dag", languageCode: languageCode)
         }
 
         if let yesterday = calendar.date(byAdding: .day, value: -1, to: today),
            calendar.isDate(articleDay, inSameDayAs: yesterday) {
-            return "I går"
+            return WidgetLocalization.string("I går", languageCode: languageCode)
         }
 
         let daysBetween = calendar.dateComponents([.day], from: articleDay, to: today).day ?? Int.max
         if daysBetween >= 2, daysBetween <= 7 {
-            return shortDanishDate(from: date)
+            return shortDate(from: date, languageCode: languageCode)
         }
 
         return nil
     }
 
-    private static func shortDanishDate(from date: Date) -> String {
+    private static func shortDate(from date: Date, languageCode: String) -> String {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "da_DK")
+        formatter.locale = WidgetLocalization.locale(for: languageCode)
         formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.dateFormat = "d. MMM"
+        formatter.dateFormat = languageCode == "en" ? "d MMM" : "d. MMM"
 
         var label = formatter.string(from: date)
         if label.hasSuffix(".") {

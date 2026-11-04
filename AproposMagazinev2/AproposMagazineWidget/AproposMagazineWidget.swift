@@ -59,13 +59,14 @@ struct LatestArticleWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: LatestArticleProvider()) { entry in
             LatestArticleWidgetContent(entry: entry)
+                .environment(\.locale, WidgetLocalization.locale(for: WidgetLocalization.languageCode))
                 .widgetURL(deepLinkURL(for: entry))
                 .containerBackground(for: .widget) {
                     LatestArticleWidgetBackground(entry: entry)
                 }
         }
-        .configurationDisplayName("Seneste artikel")
-        .description("Viser den seneste artikel fra Apropos Magazine.")
+        .configurationDisplayName(WidgetLocalization.string("Seneste artikel", languageCode: WidgetLocalization.languageCode))
+        .description(WidgetLocalization.string("Viser den seneste artikel fra Apropos Magazine.", languageCode: WidgetLocalization.languageCode))
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
         .contentMarginsDisabled()
     }
@@ -158,18 +159,18 @@ struct WidgetPlaceholderContent: View {
             Spacer(minLength: 8)
 
             VStack(alignment: .leading, spacing: 6) {
-                Text(title)
+                Text(WidgetLocalization.string(title, languageCode: WidgetLocalization.languageCode))
                     .font(.system(size: 18, weight: .bold))
                     .foregroundStyle(.white)
                     .lineLimit(2)
                     .minimumScaleFactor(0.82)
 
                 if WidgetDataStore.isAppGroupAvailable {
-                    Text("Åbn appen for at hente artikler")
+                    Text(WidgetLocalization.string("Åbn appen for at hente artikler", languageCode: WidgetLocalization.languageCode))
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(.white.opacity(0.82))
                 } else {
-                    Text("App Group mangler - tjek signing")
+                    Text(WidgetLocalization.string("App Group mangler - tjek signing", languageCode: WidgetLocalization.languageCode))
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(Color(red: 1, green: 0.72, blue: 0.72))
                 }

@@ -60,6 +60,10 @@ function collectLocaleCandidates(fieldData = {}, item = {}) {
  * Explicit CMS locale fields win; otherwise we use slug + text heuristics.
  */
 function isEnglishArticleContent(fieldData = {}, item = {}) {
+  // Webflow locale identifiers are opaque; prose cannot override a configured
+  // English edition, including an untranslated English-locale CMS record.
+  if (item.cmsLocaleId === "690ca0f6b0d13d8788354156" || item.contentLanguage === "en" ||
+      /^en_[a-f\d]{24}$/.test(item.id || "")) return true;
   const locales = collectLocaleCandidates(fieldData, item);
   if (locales.some(localeIndicatesEnglish)) {
     return true;
@@ -69,7 +73,10 @@ function isEnglishArticleContent(fieldData = {}, item = {}) {
   }
 
   const slug = String(fieldData.slug || "").trim().toLowerCase();
-  if (slug.endsWith("-en") || slug.includes("-en-") || slug.startsWith("en/")) {
+  // Only retain the established translation suffix/path conventions. An
+  // interior "-en-" is also the ordinary Danish word "en", not a locale.
+  // Misclassifying it suppresses both article push and automatic narration.
+  if (slug.endsWith("-en") || slug.startsWith("en/")) {
     return true;
   }
 
@@ -96,7 +103,8 @@ function isEnglishArticleContent(fieldData = {}, item = {}) {
  *  - english_translation: English locale/content (incl. bulk translation)
  *  - republication: article already exists in Firestore (content update)
  */
-async function evaluateArticleNotificationPolicy(db, articleId, fieldData, item = {}) {
+async function evaluateArticleNotificationPolicy(db, articleId, fieldData, item = {},
+    {existedBeforeSync} = {}) {
   if (!articleId) {
     return {send: false, reason: "missing_article_id"};
   }
@@ -105,8 +113,9 @@ async function evaluateArticleNotificationPolicy(db, articleId, fieldData, item 
     return {send: false, reason: "english_translation"};
   }
 
-  const existing = await db.collection("articles").doc(articleId).get();
-  if (existing.exists) {
+  const exists = typeof existedBeforeSync === "boolean" ? existedBeforeSync :
+    (await db.collection("articles").doc(articleId).get()).exists;
+  if (exists) {
     return {send: false, reason: "republication"};
   }
 

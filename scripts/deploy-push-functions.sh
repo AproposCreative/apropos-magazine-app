@@ -1,30 +1,8 @@
 #!/usr/bin/env bash
+# Retired during local recovery: this script previously mixed production
+# operations with client credential writes or an all-subscriber push test.
 set -euo pipefail
-
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$ROOT/functions"
-
-echo "→ Deployer sendTestArticleNotification + webflowWebhook …"
-npx -y firebase-tools@latest deploy \
-  --only functions:sendTestArticleNotification,functions:webflowWebhook \
-  --project apropos-magazine-6004a
-
-if [[ -f "$ROOT/.env" ]]; then
-  set -a
-  # shellcheck disable=SC1091
-  source "$ROOT/.env"
-  set +a
-fi
-
-if [[ -z "${PODCAST_NOTIFY_SECRET:-}" ]]; then
-  echo "⚠️  PODCAST_NOTIFY_SECRET mangler i .env — springer curl-test over."
-  exit 0
-fi
-
-echo "→ Sender test artikel-push til emnet new_articles …"
-curl -sS -X POST \
-  "https://us-central1-apropos-magazine-6004a.cloudfunctions.net/sendTestArticleNotification" \
-  -H "Content-Type: application/json" \
-  -H "X-Apropos-Podcast-Secret: ${PODCAST_NOTIFY_SECRET}" \
-  -d '{"title":"Test artikel","body":"Team push-test"}'
-echo ""
+printf '%s\n' 'This legacy command is retired. No credentials or services were changed.' >&2
+printf '%s\n' 'Use Docs/LaunchReadinessChecklist.md for the reviewed provisioning and release plan.' >&2
+printf '%s\n' 'Server API keys must never be written into the iOS app. Production actions require separate approval.' >&2
+exit 2

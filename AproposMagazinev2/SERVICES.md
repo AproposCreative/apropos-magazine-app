@@ -1,5 +1,19 @@
 # Services Dokumentation
 
+Lydcache i lokal **1.40.0 (42)** følger [assetkontrakten](../Docs/PodcastAudioAssets.md): accepteret rå manifestbinding, artikelrevision og oprindelig favoritadgang føres gennem status, download, prefetch, deferred arbejde og afspillerens asynkrone filkontrol. URL alene giver ingen verificeret offlineadgang. V2-kvittering kontrollerer lokal filintegritet; legacybytes bliver ikke opgraderet. Lokalt verificeret med 942 fulde units, 25 UI-scenarier og berørte lydprøver igen i begge temaer; fuld evidens står i launch-journalen. Remote bytehash, AVPlayer/deviceaccept og fuld retention/purge er særskilte gates.
+
+Indgående links i lokal **1.39.0 (41)** følger [routingkontrakten](../Docs/IncomingLinks.md): fælles AppDelegate-/sceneadapter, faktisk readiness, latest-only resolver og originale request-/kontotickets. Canonical artikel kommer før rå episodebinding og timestamp, også samme episode/nul. Offline slugmatch kræver netforbindelse; kun eksakt canonical ID kan bruges fra delvis cache. Playeren pauses før nyt item og afvist adoption lukkes kun for sin oprindelige session. AASA, OS-handoff, SDK-/deviceaccept og [kold lydcache-provenance](../Docs/PodcastAudioAssetPlan.md) er stadig åbne gates.
+
+Favoritter/offline i lokal **1.38.0 (40)** følger [den aktuelle kontrakt](../Docs/FavoritesOwnership.md): FavoritesModel er eneste liste-/count-/buttonautoritet; guest/hashed konti og originale mutation-/observation-/access tickets adskilles. Firestore bruger `users/{uid}/favorites/{articleID}`, forventet UID og absolut gem/fjern. Favoritwrite og profilens bookmarkmirror afventes i samme per-artikel slot; øvrige profilsaves skriver ikke bookmarkfeltet. Ny observationID tilbagekaldes før listener-remove. Authpublicering har nonce/UID-hegn mellem hvert trin. Offlinebytes giver ingen membership og kontoskift rydder ikke globalt. Slutstatus er i launch-journalen; outbox, purge/migration og service/deviceaccept er åbne.
+
+Ældre API-eksempler nedenfor er historisk reference; brug kontrakterne og de faktiske Swift-signaturer før ændringer. Recommendationservice er nu en ren beregning med immutable `RecommendationHistoryInput`; den gamle persistente recommendationcache er fjernet i 1.37.
+
+Læsehistorik/anbefalinger i lokal 1.37.0 følger [ejer-/dokumentkontrakten](../Docs/ReadingHistoryOwnership.md). Den nye KVS-runtime forberedes kun uden for XCTest/smoke; legacy globale historikkeys bruges ikke. Originale callbacks og immutable recommendation-inputs er afgrænset fra senere konti. Gemmefejl kræver eksplicit retry, og processynlig readback er ikke cloudkvittering. Fuld offline-/favorit-/deletion-/iCloud-deviceaccept er fortsat åben.
+
+Lytteposition fra lokal 1.36.0 følger [ejer-/sessionkontrakten](../Docs/PodcastProgressOwnership.md). Den guardede runtime modtager canonical Auth, har separat guest/hashed-account record og opretter ingen player/auth-listener. Det er lokal isolation, ikke iCloud-sync, kontosletning eller autorisation af medier. Gamle globale positioner tilskrives ikke automatisk.
+
+Telemetry fra lokal 1.35.0 følger [den aktuelle privatlivskontrakt](../Docs/TelemetryPrivacy.md): separate default-off valg til analytics og lokal log, kanonisk kontokontekst, generationstickets og ingen Crashlytics-aktivering. Direkte app-ejede operational-logs bruger nu faste typed koder, og en statisk kildeguard forebygger dækkede bypasses. SDK-/upgrade-/retentionaccept er stadig en releasegate. [Support](../Docs/SupportContact.md) bruger brugerinitieret Mail/mailto/kopi uden backend-send eller automatisk vedhæftede data; faktisk levering er ikke verificeret.
+
 ## 🔌 API Services
 
 ### WebflowService
@@ -203,7 +217,7 @@ let key = SecureConfig.shared.getAPIKey(for: "webflow")
 
 - `webflowAPIKey: String` - Webflow API key
 - `googleAPIKey: String` - Google API key
-- `openAIAPIKey: String` - OpenAI API key
+- OpenAI-nøgle og gammel reasons-URL findes ikke længere i iOS. Anbefalinger bruger lokal `ReaderRecommendationPolicy`; se [afgrænsningen](../Docs/LegacyRecommendationRetirement.md).
 - `fcmBackendURL: URL?` - FCM backend URL
 
 #### Configuration
@@ -337,22 +351,15 @@ Theme gemmes i UserDefaults med key `"appTheme"`.
 
 ---
 
-### RecommendationEngine
+### RecommendationService
 
-**Location**: `Services/RecommendationEngine.swift`
+**Location**: `Services/RecommendationService.swift` og `Helpers/ReaderRecommendationPolicy.swift`.
 
-**Purpose**: AI-baserede artikel anbefalinger.
+`ArticleViewModel.fetchPersonalizedRecommendationsIfNeeded` sender aktuelle artikler, favoritter, læsehistorik og kontoens læseinteresser til den lokale policy. Den vælger publicerede, ulæste artikler med emnevariation og faktiske begrundelser. Læseinteresser er adskilt fra pushabonnementer. Viewmodelen afviser sene resultater efter kontoskift og filtrerer kendt utilgængeligt indhold.
 
-#### Methods
+`generateRecommendations(articles:favorites:subscribedCategoryIds:readArticleIds:userID:)` returnerer artikel/begrundelse-par asynkront. Cache er separat for UID/guest med seks timers levetid og generationskontrol ved cachewrite/clear. Der bruges ingen OpenAI-manager eller reasons-HTTP. Det gamle endpoint er [afgrænset i den lokale kandidat](../Docs/LegacyRecommendationRetirement.md).
 
-##### `generateRecommendations(for:completion:)`
-Generer anbefalinger baseret på bruger historik.
-
-#### Integration
-
-- OpenAI API (via `OpenAIManager`)
-- Bruger læsehistorik
-- Bruger favoritter
+`trackRecommendationTap` sender fortsat gennem AnalyticsService; faktisk telemetrysamtykke/withdrawal er en åben L03-opgave, ikke løst af endpointlukningen.
 
 ---
 

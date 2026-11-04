@@ -1,5 +1,5 @@
 import XCTest
-@testable import Apropos_Magazine
+@testable import Apropos
 
 final class PodcastAudioCacheEvictionTests: XCTestCase {
     func testNoEvictionWhenUnderLimit() {
@@ -50,4 +50,11 @@ final class PodcastAudioCacheEvictionTests: XCTestCase {
         )
         XCTAssertEqual(evicted, ["unknown"])
     }
+    func testOverflowingInventoryNeverUnderestimatesUnpinnedEviction() {
+        XCTAssertEqual(PodcastAudioCache.keysToEvict(files: [("a", Int64.max), ("b", 100)], accessTimes: [:], pinnedKeys: [], maxBytes: 0), ["a", "b"])
+    }
+    func testOverflowingInventoryStillNeverEvictsProtectedKeys() {
+        XCTAssertEqual(PodcastAudioCache.keysToEvict(files: [("protected", Int64.max), ("free", 100)], accessTimes: [:], pinnedKeys: ["protected"], maxBytes: 1), ["free"])
+    }
+
 }

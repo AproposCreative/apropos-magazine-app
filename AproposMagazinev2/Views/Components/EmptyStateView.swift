@@ -37,13 +37,13 @@ struct EmptyStateView: View {
                 .padding(.bottom, 8)
             
             // Title
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .font(.title2.weight(.semibold))
                 .foregroundColor(.primary)
                 .multilineTextAlignment(.center)
             
             // Subtitle
-            Text(subtitle)
+            Text(LocalizedStringKey(subtitle))
                 .font(.body)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
@@ -52,7 +52,7 @@ struct EmptyStateView: View {
             // Action Button (optional)
             if let actionTitle = actionTitle, let action = action {
                 Button(action: action) {
-                    Text(actionTitle)
+                    Text(LocalizedStringKey(actionTitle))
                         .font(.headline)
                         .padding(.horizontal, 24)
                         .padding(.vertical, 12)

@@ -47,7 +47,7 @@ struct CategoriesView: View {
                                 Button(action: {
                                     navigationCoordinator.navigateToCategory(cat.name, in: .categories)
                                 }) {
-                                    Text(cat.name)
+                                    LocalizedArticleTaxonomy(cat.name)
                                         .font(.system(size: 34, weight: .bold))
                                         .foregroundStyle(.primary)
                                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -117,7 +117,7 @@ struct CategoryArticlesView: View {
     private var articles: [Article] {
         switch category.kind {
         case .topic:
-            return viewModel.articles.filter { art in
+            return viewModel.visibleArticles.filter { art in
                 let id = category.id
                 if let t = art.topicID, t == id { return true }
                 if let list = art.topicsIDs, list.contains(id) { return true }
@@ -136,7 +136,7 @@ struct CategoryArticlesView: View {
                 .frame(height: 0)
 
                 // Den store overskrift
-                Text(category.name)
+                LocalizedArticleTaxonomy(category.name)
                     .font(.largeTitle.bold())
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 16)
@@ -171,7 +171,7 @@ struct CategoryArticlesView: View {
             .padding(.bottom, 16)
         }
         .coordinateSpace(name: "scroll")
-        .navigationTitle(category.name)
+        .navigationTitle(LocalizedStringKey(category.name))
         .navigationBarTitleDisplayMode(.inline)
         // .onAppear - temporarily disabled
     }
@@ -225,77 +225,106 @@ struct ArticleRowCompact: View {
         return categories.isEmpty ? ["Generelt"] : categories
     }
     
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            // Thumbnail
-            ZStack {
-                ArticleImagePlaceholder(showShimmer: !imageLoaded, cornerRadius: 8)
+    #if DEBUG && targetEnvironment(simulator)
+    var fixtureImage: UIImage? = nil
+    var onFrame: ((String, CGRect) -> Void)? = nil
+    #endif
 
-                if let url = article.listThumbnailURL {
-                    WebImage(url: url, options: [.retryFailed, .continueInBackground])
-                        .onSuccess { _, _, _ in
-                            DispatchQueue.main.async { imageLoaded = true }
+    var body: some View {
+        // Text determines the row height. Artwork is an overlay, so its ideal
+        // size cannot expand or collapse a row while the image loads.
+        LeadingArticleArtwork(width: 80, spacing: 12, cornerRadius: 8, cornerStyle: .circular) { _ in
+            artwork
+        } content: {
+            HStack(alignment: .bottom, spacing: 12) {
+                measured("content") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        measured("title") {
+                            Text(article.name ?? "Article Title")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(.primary)
+                                .lineLimit(2)
+                                .multilineTextAlignment(.leading)
                         }
-                        .resizable()
-                        .scaledToFill()
+                        Text(article.intro.flatMap { $0.isEmpty ? nil : $0 } ?? "Article subtitle")
+                            .font(.system(size: 14))
+                            .foregroundColor(.secondary)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+
+                        if let rating = article.stjerne, rating > 0 {
+                            measured("rating") {
+                                HStack(spacing: 3) {
+                                    ForEach(0..<6, id: \.self) { index in
+                                        Image(systemName: "star.fill")
+                                            .font(.system(size: 12, weight: .semibold))
+                                            .foregroundStyle(index < min(rating, 6)
+                                                ? (colorScheme == .dark ? Color.white : Color.black.opacity(0.92))
+                                                : (colorScheme == .dark ? Color.white.opacity(0.24) : Color.black.opacity(0.14)))
+                                    }
+                                }
+                                .accessibilityElement(children: .ignore)
+                                .accessibilityLabel("\(min(rating, 6)) ud af 6 stjerner")
+                                .accessibilityIdentifier("article.compact.rating." + article.id)
+                            }
+                        }
+                        measured("category") {
+                            LocalizedArticleTaxonomy(articleCategories.first ?? "Generelt")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .textCase(.uppercase)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                Image(systemName: "chevron.right")
+                    .foregroundColor(.gray)
+                    .font(.caption)
+                    .accessibilityHidden(true)
             }
-            .frame(width: 80, height: 60)
-            .clipped()
-            .cornerRadius(8)
-            .id(article.id) // Add ID for better memory management
-            .onChange(of: article.id) { _, _ in
-                imageLoaded = false
-            }
-            
-            // Content
-            VStack(alignment: .leading, spacing: 4) {
-                // Title
-                Text(article.name ?? "Article Title")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(.primary)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                
-                // Subtitle/Intro
-                if let intro = article.intro, !intro.isEmpty {
-                    Text(intro)
-                        .font(.system(size: 14))
-                        .foregroundColor(.secondary)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                } else {
-                    Text("Article subtitle")
-                        .font(.system(size: 14))
-                        .foregroundColor(.secondary)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                }
-                
-                // Category
-                if !articleCategories.isEmpty {
-                    Text(articleCategories.first ?? "Generelt")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .textCase(.uppercase)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            
-            // Chevron
-            Image(systemName: "chevron.right")
-                .foregroundColor(.gray)
-                .font(.caption)
         }
+#if DEBUG && targetEnvironment(simulator)
+        .observingArtworkFrame { onFrame?("image", $0) }
+#endif
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .onAppear {
-            // Pre-load article data when row appears
-            if article.author == nil {
-                viewModel.loadFullArticle(with: article.id)
+    }
+
+    private var artwork: some View {
+        ZStack {
+            ArticleImagePlaceholder(showShimmer: !imageLoaded, cornerRadius: 8)
+            #if DEBUG && targetEnvironment(simulator)
+            if let fixtureImage {
+                Image(uiImage: fixtureImage).resizable().scaledToFill()
+            } else {
+                remoteImage
             }
+            #else
+            remoteImage
+            #endif
+        }
+        .onChange(of: article.listThumbnailURL) { _, _ in imageLoaded = false }
+    }
+
+    @ViewBuilder private var remoteImage: some View {
+        if let url = article.listThumbnailURL {
+            WebImage(url: url, options: [.retryFailed, .continueInBackground])
+                .onSuccess { _, _, _ in
+                    DispatchQueue.main.async { imageLoaded = true }
+                }
+                .resizable()
+                .scaledToFill()
         }
     }
+
+    @ViewBuilder private func measured<Content: View>(_ name: String, @ViewBuilder content: () -> Content) -> some View {
+        #if DEBUG && targetEnvironment(simulator)
+        content().onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { onFrame?(name, $0) }
+        #else
+        content()
+        #endif
+    }
+
 }
 
 struct CategoriesView_Previews: PreviewProvider {

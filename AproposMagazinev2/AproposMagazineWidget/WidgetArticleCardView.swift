@@ -27,7 +27,8 @@ struct WidgetArticleCardView: View {
                     .lineLimit(1)
             }
 
-            Text(article.name)
+            Text(article.id.hasPrefix("widget-preview")
+                 ? WidgetLocalization.string(article.name, languageCode: WidgetLocalization.languageCode) : article.name)
                 .font(.system(size: isMedium ? 18 : 16, weight: .bold))
                 .foregroundStyle(.white)
                 .lineLimit(isMedium ? 3 : 4)
@@ -37,7 +38,7 @@ struct WidgetArticleCardView: View {
                 WidgetStarRatingView(rating: rating)
             }
 
-            Text(WidgetArticleFormatting.ctaText(for: article))
+            Text(WidgetArticleFormatting.ctaText(for: article, languageCode: WidgetLocalization.languageCode))
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.92))
                 .padding(.top, 2)
@@ -45,7 +46,7 @@ struct WidgetArticleCardView: View {
     }
 
     private var topicLine: String {
-        WidgetArticleFormatting.topicLine(for: article)
+        WidgetArticleFormatting.topicLine(for: article, languageCode: WidgetLocalization.languageCode)
     }
 }
 

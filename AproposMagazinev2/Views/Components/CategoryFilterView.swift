@@ -16,7 +16,7 @@ struct CategoryFilterView: View {
     private var availableCategories: [String] {
         let categories = viewModel.topics
             .filter { topic in
-                viewModel.articles.contains { article in
+                viewModel.visibleArticles.contains { article in
                     let topicName = viewModel.topics.first(where: { $0.id == article.topicID })?.name ?? ""
                     return topicName.trimmingCharacters(in: .whitespacesAndNewlines) == topic.name
                 }
@@ -32,7 +32,7 @@ struct CategoryFilterView: View {
             ForEach(availableCategories, id: \.self) { category in
                 Button(action: { selectedCategory = category }) {
                     HStack {
-                        Text(category)
+                        LocalizedArticleTaxonomy(category)
                         if selectedCategory == category {
                             Spacer()
                             Image(systemName: "checkmark")
@@ -43,7 +43,7 @@ struct CategoryFilterView: View {
         } label: {
             HStack {
                 Image(systemName: "line.3.horizontal.decrease.circle")
-                Text(selectedCategory == "Alle" ? "Alle kategorier" : selectedCategory)
+                LocalizedArticleTaxonomy(selectedCategory == "Alle" ? "Alle kategorier" : selectedCategory)
                     .font(.subheadline.weight(.medium))
                 Image(systemName: "chevron.down")
                     .font(.caption)
