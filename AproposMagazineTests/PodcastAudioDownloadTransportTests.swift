@@ -167,8 +167,18 @@ final class PodcastAudioDownloadTransportTests: XCTestCase {
     func testDeadlineRetiresActualSessionAndRemovesPartialFile() async throws {
         let url = url(), root = try directory();defer { try? FileManager.default.removeItem(at: root);InterceptAllProtocol.fixtures.remove(url) }
         InterceptAllProtocol.fixtures.put(.init(response: response(url), chunks: [Data([1, 2])], hold: true), at: url)
-        let value = operation(url, directory: root), task = Task { try await value.value() }
-        await wait { InterceptAllProtocol.fixtures.startCount(url) == 1 }
+        let samples = ProgressSamples()
+        let value = PodcastAudioDownloadTransport.RequestOperation(url: url, maximumBytes: 8,
+            protocolClasses: [InterceptAllProtocol.self], temporaryDirectory: root,
+            onProgress: { received, total in samples.record(received, total) })
+        let task = Task { try await value.value() }
+        // Expire a partial transfer, rather than racing URLProtocol.startLoading.
+        await wait { samples.snapshot.last?.received == 2 }
+        XCTAssertEqual(InterceptAllProtocol.fixtures.startCount(url), 1)
+        XCTAssertEqual(samples.snapshot.last?.received, 2)
+        let partialFile = (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil))?.first
+        let partialBytes = partialFile.flatMap { try? Data(contentsOf: $0) }
+        XCTAssertEqual(partialBytes, Data([1, 2]))
         value.deadlineExpired()
         do { _ = try await task.value;XCTFail("Expired operation succeeded") }
         catch { XCTAssertEqual((error as? URLError)?.code, .timedOut) }
