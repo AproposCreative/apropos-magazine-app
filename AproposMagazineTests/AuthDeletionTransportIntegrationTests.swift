@@ -24,12 +24,28 @@ final class AuthDeletionTransportIntegrationTests: XCTestCase {
     }
     @MainActor private final class Gate {
         let entered: XCTestExpectation
+        private(set) var didEnter = false
+        private let observation: AuthDeletionTestObservation?
         private var continuation: CheckedContinuation<Void, Never>?
-        init(_ entered: XCTestExpectation) { self.entered = entered }
-        func wait() async { await withCheckedContinuation { continuation = $0; entered.fulfill() } }
-        func release() { let held = continuation; continuation = nil; held?.resume() }
+        init(_ entered: XCTestExpectation, observation: AuthDeletionTestObservation?) {
+            self.entered = entered; self.observation = observation
+        }
+        func wait() async {
+            await withCheckedContinuation {
+                continuation = $0; didEnter = true
+                observation?.record("gate.fulfill.enter")
+                entered.fulfill()
+                observation?.record("gate.fulfill.return")
+            }
+        }
+        func release() {
+            let held = continuation; continuation = nil
+            observation?.record(held == nil ? "gate.release.empty" : "gate.release.held")
+            held?.resume()
+        }
     }
     @MainActor private final class Fixture {
+        let observation: AuthDeletionTestObservation?
         let auth = AuthService()
         let configuration: Transport.Configuration
         // Real source-journal reads use an isolated, initially absent temp root.
@@ -39,15 +55,28 @@ final class AuthDeletionTransportIntegrationTests: XCTestCase {
         let recoveryRoot = FileManager.default.temporaryDirectory.appendingPathComponent("auth-deletion-recovery-" + UUID().uuidString)
         var failsRecoverySeal = false
         lazy var recovery = ReaderTransitionRecovery(store: .init(rootDirectory: recoveryRoot,
-            replace: { [fails = failsRecoverySeal] data, url in
-                if fails { throw CocoaError(.fileWriteUnknown) }
-                try data.write(to: url, options: .atomic)
+            replace: { [fails = failsRecoverySeal, observation] data, url in
+                let phase = url.lastPathComponent
+                observation?.record("replace.enter." + phase)
+                do {
+                    if fails { throw CocoaError(.fileWriteUnknown) }
+                    try data.write(to: url, options: .atomic)
+                    observation?.record("replace.return." + phase)
+                } catch {
+                    observation?.record("replace.throw." + phase, error: error as NSError)
+                    throw error
+                }
             }))
         var drainCalls = 0
         lazy var writers = ReaderWriterDrainRuntime(canonical: auth.state,
             actualUID: { [unowned self] in user?.uid }, makeDrain: { [unowned self] in
                 drainCalls += 1
-                return .init(wait: { completion in completion(nil) })
+                observation?.record("writer.drain.created")
+                return .init(wait: { [observation] completion in
+                    observation?.record("writer.drain.callback.enter")
+                    completion(nil)
+                    observation?.record("writer.drain.callback.return")
+                })
             })
         var resumeStore: ReaderResumeStore?
         var writeBarrier: Model.WriteBarrier { .init(writers: writers, journal: journal, recovery: recovery, resumeStore: resumeStore) }
@@ -96,16 +125,20 @@ final class AuthDeletionTransportIntegrationTests: XCTestCase {
             }, reauthenticate: { [unowned self] _, admitted in
                 guard admitted() else { throw CancellationError() }
                 sdkReauths += 1
+                observation?.record("sdk.reauthentication.enter")
                 await pass(.reauthentication)
                 guard admitted() else { throw CancellationError() }
                 if let sdkError { throw sdkError }
+                observation?.record("sdk.reauthentication.return")
                 return .init(uid: original.uid, authTimeMs: (now / 1_000) * 1_000)
             }, deletionCredentials: { [unowned self] proof, _ in
                 // Deliberately return after logical cancellation/replacement.
                 // The actual composition/transport must reject this old result.
                 credentialCalls += 1; credentialProofs.append(proof)
+                observation?.record("credentials.enter")
                 await pass(.credentials)
                 credentialHook?()
+                observation?.record("credentials.return")
                 return .init(ownerUID: original.uid, projectID: "local-deletion", appID: "1:123456789:ios:abcdef123456",
                     idToken: "local.id." + proof.action.actionID.uuidString,
                     appCheckToken: "local.app." + proof.action.actionID.uuidString,
@@ -114,12 +147,16 @@ final class AuthDeletionTransportIntegrationTests: XCTestCase {
             }, email: original.email, supportsPassword: original.supportsPassword, appleSubject: original.appleSubject, googleSubject: original.googleSubject)
         }, nowMilliseconds: { [unowned self] in now })
 
-        init(failSeal: Bool = false) async throws {
+        init(failSeal: Bool = false, observation: AuthDeletionTestObservation? = nil) async throws {
+            self.observation = observation
+            observation?.record("fixture.init.begin")
             failsRecoverySeal = failSeal
             configuration = try .init(projectID: "local-deletion", appID: "1:123456789:ios:abcdef123456",
                 endpointURL: URL(string: "https://deletion.example.invalid/reader")!)
             select("reader-A")
+            observation?.record("recovery.bootstrap.begin")
             try await recovery.bootstrap()
+            observation?.record("recovery.bootstrap.return")
         }
         var context: CanonicalSessionState.ContextTicket { auth.state.contextTicket() }
         func select(_ uid: String?) {
@@ -128,9 +165,41 @@ final class AuthDeletionTransportIntegrationTests: XCTestCase {
         }
         func roundTrip() { select("reader-B"); select("reader-A") }
         func hold(_ stage: Stage, _ entered: XCTestExpectation) -> Gate {
-            let gate = Gate(entered); holds[stage] = gate; allGates.append(gate); return gate
+            let gate = Gate(entered, observation: observation); holds[stage] = gate; allGates.append(gate); return gate
         }
-        func pass(_ stage: Stage) async { if let gate = holds.removeValue(forKey: stage) { await gate.wait() } }
+        func pass(_ stage: Stage) async {
+            observation?.record("stage.enter." + String(describing: stage))
+            if let gate = holds.removeValue(forKey: stage) { await gate.wait() }
+            observation?.record("stage.return." + String(describing: stage))
+        }
+
+        func snapshot(_ model: Model, gate: Gate) -> String {
+            let before = observation?.snapshot ?? [:]
+            let recoveryState: String
+            switch recovery.status {
+            case .unresolved: recoveryState = "unresolved"
+            case .loading: recoveryState = "loading"
+            case .legacy: recoveryState = "legacy"
+            case .sealed: recoveryState = "sealed"
+            case .unavailable: recoveryState = "unavailable"
+            }
+            var value: [String: Any] = [
+                "schema": "auth-deletion-test-observation-v1",
+                "consistency": "separate read-only MainActor and locked trace observations",
+                "traceBefore": before,
+                "gateEntered": gate.didEnter, "captures": captures, "identityReads": identityReads,
+                "sdkReauths": sdkReauths, "credentialCalls": credentialCalls,
+                "actionCount": actions.count, "requestCount": requests.count, "drainCalls": drainCalls,
+                "modelStatus": String(describing: model.status), "physicalFlight": model.hasPhysicalFlight,
+                "writeBarrier": model.hasWriteBarrier, "recoveryState": recoveryState,
+                "recoveryBusy": recovery.isBusy, "sealAttempted": recovery.hasSealAttempt,
+                "checkpointPresent": recovery.deletionCheckpoint != nil,
+                "journalIdle": journal.isPhysicallyIdle, "writersIdle": writers.isPhysicallyIdle
+            ]
+            value["traceAfter"] = observation?.snapshot ?? [:]
+            do { return String(decoding: try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]), as: UTF8.self) }
+            catch { return "Auth observation encoding failed" }
+        }
         func make(configured: Bool = true, hasBarrier: Bool = true) -> Model? {
             let model = auth.makeReaderAccountDeletion(configuration: configured ? configuration : nil,
                 currentMembershipEpoch: { [unowned self] _ in epochHook?(); return epoch },
@@ -391,12 +460,24 @@ final class AuthDeletionTransportIntegrationTests: XCTestCase {
     }
 
     func testAccountRoundTripDuringCredentialWaitCannotSendOldAction() async throws {
-        let f = try await Fixture(); defer { f.close() }; let model = try XCTUnwrap(f.make())
+        let observation = AuthDeletionTestObservation()
+        let f = try await Fixture(observation: observation); defer { f.close() }; let model = try XCTUnwrap(f.make())
         let gate = f.hold(.credentials, expectation(description: "Old A credentials"))
-        XCTAssertTrue(f.begin(model)); await fulfillment(of: [gate.entered], timeout: 3)
+        XCTAssertTrue(f.begin(model)); observation.record("credential.wait.begin")
+        await fulfillment(of: [gate.entered], timeout: 3)
+        observation.record("credential.wait.return")
+        func attach(_ name: String) {
+            let attachment = XCTAttachment(string: f.snapshot(model, gate: gate))
+            attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
+        }
+        // Preserve the original failed-wait/control-flow behavior for diagnosis.
+        // If didEnter is false, later assertions do not prove a credential-held interleaving.
+        attach("Auth credential wait returned")
         let original = f.context; f.roundTrip(); XCTAssertNotEqual(f.context, original)
         gate.release(); await eventually { !model.hasPhysicalFlight }
         XCTAssertNil(model.receipt); XCTAssertTrue(f.requests.isEmpty); XCTAssertFalse(model.accountDeletionComplete)
+        observation.record("roundtrip.physical.wait.return")
+        attach("Auth roundtrip returned")
     }
 
     func testSameUIDReplacementDuringHTTPWaitCannotAcceptOldReceipt() async throws {
@@ -952,6 +1033,31 @@ final class AuthDeletionTransportIntegrationTests: XCTestCase {
         googleReply(f, at: 1); await second.value
         await eventually { model.status == .ledgerDataRemoved && !model.hasPhysicalFlight }
         XCTAssertEqual(f.sdkReauths, 2); XCTAssertEqual(f.requests.count, 2); XCTAssertFalse(model.accountDeletionComplete)
+    }
+}
+
+/// Test-owned RAM only. No lock is held while invoking XCTest, cache/storage,
+/// MainActor hooks or the original file replacement. The tail is bounded.
+private final class AuthDeletionTestObservation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var sequence = 0
+    private var records: [[String: Any]] = []
+    private var dropped = 0
+
+    func record(_ phase: String, error: NSError? = nil) {
+        lock.lock(); defer { lock.unlock() }
+        sequence += 1
+        var entry: [String: Any] = ["sequence": sequence, "phase": phase,
+                                    "uptime": ProcessInfo.processInfo.systemUptime]
+        if let error { entry["errorDomain"] = error.domain; entry["errorCode"] = error.code }
+        if records.count == 64 { records.removeFirst(); dropped += 1 }
+        records.append(entry)
+    }
+
+    var snapshot: [String: Any] {
+        lock.lock(); defer { lock.unlock() }
+        return ["sequence": sequence, "records": records, "dropped": dropped,
+                "uptime": ProcessInfo.processInfo.systemUptime]
     }
 }
 
