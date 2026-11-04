@@ -3,6 +3,7 @@ import SwiftUI
 /// Shared by the real settings form and the local, SDK-free simulator fixture.
 struct TelemetryPrivacySection: View {
     @ObservedObject var controller: TelemetryConsentController
+    @Environment(\.locale) private var locale
 
     var body: some View {
         Section {
@@ -57,7 +58,7 @@ struct TelemetryPrivacySection: View {
             .foregroundStyle(.primary)
             .accessibilityIdentifier("privacy.disableAll")
 
-            if let url = NewsletterSignupPolicy.termsURL {
+            if let url = NewsletterSignupPolicy.termsURL(for: AppLocalization.language(for: locale)) {
                 Link("Privatliv og vilkår", destination: url)
                     .tint(.primary)
                     .foregroundStyle(.primary)

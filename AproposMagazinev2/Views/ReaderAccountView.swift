@@ -280,6 +280,7 @@ struct ReaderAccountSheetContent<GuestContent: View, ExtraContent: View>: View {
 
 @MainActor
 private struct ReaderAccountSetupForm<ExtraContent: View>: View {
+    @Environment(\.locale) private var locale
     @ObservedObject var canonical: CanonicalSessionState
     @ObservedObject var preferences: ReaderPreferencesModel
     let actions: ReaderAccountActions
@@ -406,7 +407,7 @@ private struct ReaderAccountSetupForm<ExtraContent: View>: View {
                 .accessibilityIdentifier("reader.account.newsletter")
                 Text("Få historier og anbefalinger på e-mail. Tilmelding er valgfri, og du kan altid afmelde dig.")
                     .font(.footnote).foregroundStyle(.secondary)
-                if let url = NewsletterSignupPolicy.termsURL {
+                if let url = NewsletterSignupPolicy.termsURL(for: AppLocalization.language(for: locale)) {
                     Link("Vilkår og privatliv", destination: url)
                 }
             } header: { Text("Nyhedsbrev") }

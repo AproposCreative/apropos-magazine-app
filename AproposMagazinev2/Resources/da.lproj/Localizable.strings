@@ -926,3 +926,8 @@
 "Dansk og engelsk" = "Dansk og engelsk";
 
 "Et midlertidigt problem i ét sprog fjerner ikke artiklerne på det andet." = "Et midlertidigt problem i ét sprog fjerner ikke artiklerne på det andet.";
+
+/* 1.156.0 · legal links follow the selected app language. */
+"Vilkår på dit sprog" = "Vilkår på dit sprog";
+"Privatlivslinks følger appens sprog." = "Privatlivslinks følger appens sprog.";
+"Åbn den danske eller engelske side med vilkår og privatliv direkte fra appen." = "Åbn den danske eller engelske side med vilkår og privatliv direkte fra appen.";

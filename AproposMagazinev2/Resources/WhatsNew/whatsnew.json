@@ -1,5 +1,17 @@
 [
   {
+    "version": "1.156.0",
+    "title": "Vilkår på dit sprog",
+    "subtitle": "Privatlivslinks følger appens sprog.",
+    "items": [
+      {
+        "icon": "globe",
+        "title": "Dansk og engelsk",
+        "description": "Åbn den danske eller engelske side med vilkår og privatliv direkte fra appen."
+      }
+    ]
+  },
+  {
     "version": "1.155.0",
     "title": "Stabil indlæsning",
     "subtitle": "Mere pålidelig opdatering af artikler.",

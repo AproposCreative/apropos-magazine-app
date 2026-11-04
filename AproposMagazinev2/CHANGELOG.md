@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.156.0 (166) · vilkår på valgt sprog · lokal kandidat · 4. november 2026
+
+- Kontoformularen, den eksisterende native nyhedsbrevstilmelding og privatlivsindstillingerne vælger nu samme offentlige side med vilkår og privatliv ud fra appens aktuelle sprog. Dansk og English bruger hver sin eksisterende side; intet enhedssprog eller e-mail lægges i linket.
+- Samtykke, tilmelding, konto, modeltilstand og skærmenes layout er uændrede. Dette retter destinationen, ikke selve sidernes juridiske indhold eller den stadig uafsluttede samlede kontosletning.
+- Lokal kandidat under kontrol. Telefon164, den frosne165-kilde til særskilt CI-levering, eksisterende lyd og tidligere accepter bevares. Ingen signering, installation, produktion, udsendelse eller ny lyd. AutomationPAUSED; dedikeret iPad udskudt.
+
 ## 1.155.0 (165) · stabil dansk/engelsk indlæsning · lokal kandidat · 3. november 2026
 
 - Dansk og engelsk hentes uafhængigt med en afgrænset observationsdeadline. Fejl i ét sprog bevarer gyldigt indhold i det andet; cache/pending og ubrugelige svar kan ikke udgive sig for en frisk tom kilde.

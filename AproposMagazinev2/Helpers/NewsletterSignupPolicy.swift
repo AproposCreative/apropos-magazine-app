@@ -4,7 +4,10 @@ import Foundation
 /// Account email stays out of the URL, history, analytics and referrer headers.
 enum NewsletterSignupPolicy {
     static let formURL = URL(string: "https://www.aproposmagazine.com/#Subscribe-Footer")
-    static let termsURL = URL(string: "https://www.aproposmagazine.com/other/legal")
+    static func termsURL(for language: ArticleContentLanguage) -> URL? {
+        let path = language == .english ? "/en/other/legal" : "/other/legal"
+        return URL(string: "https://www.aproposmagazine.com" + path)
+    }
 
     static func canPrefill(_ url: URL?) -> Bool {
         guard let url else { return false }

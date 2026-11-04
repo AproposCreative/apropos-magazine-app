@@ -26,6 +26,7 @@ struct ReaderNewsletterSignupContent: View {
     @ObservedObject var model: ReaderNewsletterSignupModel
     let context: CanonicalSessionState.ContextTicket
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.locale) private var locale
     @State private var optedIn = false
     @State private var attemptedRequestID: String?
     @State private var needsFreshChoice = false
@@ -42,7 +43,7 @@ struct ReaderNewsletterSignupContent: View {
                     }
                     Text("Historier og anbefalinger på e-mail. Du kan altid afmelde dig via linket i nyhedsbrevet.")
                         .font(.footnote).foregroundStyle(.secondary)
-                    if let url = NewsletterSignupPolicy.termsURL {
+                    if let url = NewsletterSignupPolicy.termsURL(for: AppLocalization.language(for: locale)) {
                         Link("Vilkår og privatliv", destination: url)
                     }
                 }

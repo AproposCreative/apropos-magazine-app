@@ -33,6 +33,7 @@ xcodebuild \
   -derivedDataPath "$DERIVED_DATA_PATH" \
   -disableAutomaticPackageResolution -onlyUsePackageVersionsFromResolvedFile -skipPackageUpdates \
   -parallel-testing-enabled NO -only-testing:AproposMagazineTests -collect-test-diagnostics never \
+  -test-timeouts-enabled YES \
   -resultBundlePath "$RESULT_PATH" \
   CODE_SIGNING_ALLOWED=NO \
   'EXCLUDED_SOURCE_FILE_NAMES=Secrets.plist GoogleService-Info.plist' \
