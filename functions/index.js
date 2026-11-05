@@ -19,6 +19,7 @@ const {COLLECTION: ARTICLE_PUSH_COLLECTION, ready: pushJobReady, createArticlePu
 const {EVENTS: PUBLICATION_EVENTS, ready: publicationEventReady, createPublicationStore, runPublicationEvent, dispatchPublication} = require("./publicationLedger");
 const {COLLECTION: PODCAST_PUSH_COLLECTION, PodcastAcceptanceError, createPodcastReader, createPodcastPushStore, enqueuePodcastPush, runPodcastPush} = require("./podcastPush");
 const {verifyWebflowWebhook, extractItem} = require("./webflowWebhook");
+const {richNotificationEnvelope} = require("./notificationEnvelope");
 const {readerNewsletterConfigFromEnvironment, createReaderNewsletterHttpHandler} = require("./readerNewsletterEndpoint");
 const {readerStartupConfigFromEnvironment, createReaderStartupHttpHandler} = require("./readerStartupEndpoint");
 const {readerDeletionConfigFromEnvironment, createReaderDeletionHttpHandler} = require("./readerDeletionEndpoint");
@@ -102,56 +103,6 @@ function articleImageData(fieldData) {
   return {
     thumbnailUrl: mobileImageUrl || thumbUrl || "",
     coverUrl: coverUrl || thumbUrl || mobileImageUrl || "",
-  };
-}
-
-function richNotificationEnvelope(notificationData, title, body) {
-  const imageURL = notificationData.thumbnail_url || notificationData.cover_url || "";
-  const androidNotification = {
-    sound: "default",
-    default_sound: true,
-    default_vibrate_timings: true,
-  };
-  if (imageURL) {
-    androidNotification.imageUrl = imageURL;
-  }
-
-  const apns = {
-    payload: {
-      aps: {
-        sound: "default",
-        // Always reset the app-icon badge to 0 — this app intentionally never
-        // shows a badge. Sending 0 clears any previously stuck badge on delivery.
-        badge: 0,
-        "mutable-content": 1,
-        alert: {
-          title,
-          body,
-        },
-      },
-      ...notificationData,
-    },
-    headers: {
-      "apns-priority": "10",
-      "apns-push-type": "alert",
-    },
-  };
-
-  if (imageURL) {
-    apns.fcm_options = {image: imageURL};
-  }
-
-  return {
-    notification: {
-      title,
-      body,
-    },
-    data: notificationData,
-    android: {
-      priority: "high",
-      notification: androidNotification,
-    },
-    apns,
   };
 }
 
